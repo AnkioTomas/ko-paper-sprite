@@ -1,27 +1,26 @@
 # 素材规格
 
-所有素材均为原创，当前全部是 `tools/gen_placeholders.py` 用几何图形生成的占位图。
+全部原创。场景、角色、访客、物品、小物由作者用本地图像生成工具（Teamo imagegen）按统一风格生成，
+以 `art-samples/01-character-sheet.png`（阿页设定图，未入库）为角色参照；天气 / 时刻层由
+`tools/process_art.py` 程序生成。原图经 `tools/process_art.py` 裁切、缩放、4 级灰有序抖动后放在这里。
 
 ## 通用要求
-- PNG，灰度（可带 alpha），**只用 4 级灰**：`#000000` `#555555` `#AAAAAA` `#FFFFFF`；需要中间调用网点表现。
-- 线稿为主，线宽 ≥ 2px（墨水屏缩放后不断线）。
+- PNG 灰度，**只用 4 级灰**：`#000` `#555` `#AAA` `#FFF`；中间调用 Bayer 4×4 有序抖动表现。
+- 透明图层的 alpha 只有 0 / 255（墨水屏上不出半透明脏边）。
+- 黑白墨线 + 网点，不写任何文字。阿页：折纸长方身子、中缝、右上角折角、两个黑点眼睛、**没有嘴**、细线手脚。
 
 ## 尺寸
 | 目录 | 内容 | 尺寸 | 透明 |
 |---|---|---|---|
-| `attic/` | 阁楼场景 | 600×300 | 否 |
-| `places/` | 明信片背景（地点） | 600×300 | 否 |
-| `sprite/` | 阿页姿势层 | 120×160 | 是 |
-| `props/` | 前景小物 | ≤120×120 | 是 |
-| `weather/` | 天气 / 光影层 | 600×300 | 是 |
+| `attic/` | 阁楼（在家 / 出门） | 1200×600 | 否 |
+| `places/` | 明信片背景（空景，不含角色） | 1200×600 | 否 |
+| `sprite/` | 阿页姿势（底部对齐） | 320×320 | 是 |
+| `visitors/` | 访客 | 200×200 | 是 |
+| `items/` | 行囊物品图标 | 128×128 | 是 |
+| `props/` | 明信片前景小物 | 200×200 | 是 |
+| `weather/` | 天气 / 时刻层 | 1200×600 | 是 |
 
-明信片 = 背景 + 姿势 + 小物 + 天气 叠加，外加一句短文案（≤ 40 字）。
+明信片 = 背景 + 姿势 + 小物 + 天气，外加一句短文案（≤ 40 字），见 `docs/data-format.md`。
 
 ## 明信片包格式（投稿 / 扩展用）
-```
-my-pack/
-  pack.lua          -- return { id, name, author, license, places = {...}, cards = {...}, souvenirs = {...} }
-  places/*.png  sprite/*.png  props/*.png  weather/*.png
-```
-`places` / `cards` / `souvenirs` 字段与 `papersprite/data/places.lua`、`data/postcards.lua` 相同。
-包必须原创或有明确可再分发授权，`license` 必填。加载器在第 4 批实现。
+见 `docs/assets.md`。

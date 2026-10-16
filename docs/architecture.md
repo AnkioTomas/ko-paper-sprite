@@ -6,8 +6,8 @@ paper-sprite.koplugin/
   moon_source.lua    月读扩展（ext.papersprite）：首页卡片
   papersprite/
     host/            宿主适配
-    core/            state / travel / rng / reading（不依赖 UI）
-    data/            places / items / postcards（纯数据）
+    core/            state / travel / rng / reading / story（AI，可选）
+    data/            places / items / souvenirs / visitors / postcards（纯数据）
     ui/              screen（全屏浮层）/ moon_card（首页卡片）
     game.lua         控制器：结算 → 生成 view → host:showScreen
 ```
@@ -36,3 +36,10 @@ paper-sprite.koplugin/
 
 ## 阅读账本
 `core/reading.lua`：`main.lua` 的 `onPageUpdate` 只记次数（不读书的内容），写 `settings/papersprite_reading.lua`；打开阁楼时按差值折算灵感。两种宿主共用这本账。
+
+## 可选 AI
+`host:ai()`（仅月读宿主）→ `core/story.lua` 异步请求、校验、写存档；详见 [ai.md](ai.md)。
+
+## 画面
+`view.scene = { bg, overlays = { {img, x, y, h, full?} }, frame }`：`ui/screen.lua` 用 OverlapGroup 叠 ImageWidget（alpha）。
+明信片的图层位置在 `Game.cardScene`；访客在阁楼里的位置在 `VISITOR_POS`。

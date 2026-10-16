@@ -12,7 +12,8 @@ KOReader 插件，也可作为[月读](https://github.com/AnkioTomas/moon)扩展
 - **带回特产**：回家时带回小物件。
 - **家里常备**：饼干、铅笔头、地图册取之不尽；其他物品要用灵感换。
 - **灵感**：在 KOReader 里读书翻页会攒灵感（骨架：每 20 次有效翻页 = 1 灵感），用来在小铺买干粮和道具（第 3 批）。
-- **访客**：墨点虫偶尔顺着书脊爬来串门，走时留点灵感。
+- **访客**：墨点虫、回形针蜗牛、书灯萤、邮票龟偶尔来串门，走时留点灵感。
+- **AI 文案（可选）**：在月读里且已配置 AI 时，每趟旅行的明信片短句、旁白由 AI 现写并存进存档，见 [docs/ai.md](docs/ai.md)。
 - 没有失败和惩罚。
 
 ## 安装
@@ -29,9 +30,9 @@ paper-sprite.koplugin/
     data/   places items postcards(分层明信片：地点+姿势+小物+天气+短句)
     ui/     screen(全屏浮层，KOReader/月读两套皮肤) moon_card(首页卡片)
     game.lua
-  assets/   占位图 + 素材规格与明信片包格式（assets/README.md）
+  assets/   正式素材（4 级灰）+ 规格（assets/README.md）
 spec/headless.lua   虚拟时钟冒烟测试
-tools/gen_placeholders.py   生成占位图
+tools/process_art.py   原图 → 4 级灰抖动素材；生成天气层
 ```
 旅行不依赖后台定时器：每次打开时按「上次到现在」的真实时间一次性结算；界面开着时只在下一件事到点时刷新。
 
@@ -44,11 +45,13 @@ for f in $(find . -name '*.lua'); do luac -p "$f"; done
 ```
 
 ## 路线图
-1. ✅ 项目骨架：宿主适配、阁楼 / 行囊 / 明信片墙、真实时间旅行、存档版本、占位图
-2. 旅行与明信片系统：旅途事件、明信片分层合成渲染、特产柜、纸条文案池
-3. 小铺与灵感：阅读时长 + 翻页折算、小铺、物品效果、墨点虫礼物
-4. 美术管线与首批 30–40 张原创明信片、明信片包加载器
-5. 月读打磨与发布（CI、Release）
+1. ✅ 项目骨架
+2. ✅ 旅行与明信片：分层明信片（14 地点 × 8 姿势 × 7 小物 × 6 天气）、4 位访客、特产柜、小铺、可选 AI 文案、正式美术
+3. 灵感细化（阅读时长）、物品效果、访客礼物
+4. 更多内容、明信片包加载器
+5. 月读打磨与发布
+
+详见 [docs/roadmap.md](docs/roadmap.md)。
 
 ## 文档
 - [世界与角色设定](docs/world.md)
@@ -57,6 +60,7 @@ for f in $(find . -name '*.lua'); do luac -p "$f"; done
 - [数据格式](docs/data-format.md)
 - [素材规格与明信片包投稿](docs/assets.md)
 - [测试与模拟器](docs/testing.md)
+- [可选 AI 文案层](docs/ai.md)
 - [路线图](docs/roadmap.md)
 
 ## 协议

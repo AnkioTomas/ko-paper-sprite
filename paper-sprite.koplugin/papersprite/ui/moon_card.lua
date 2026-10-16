@@ -25,7 +25,8 @@ function Card.summary(raw, now, debug_fast)
     elseif sp.status == "packed" then
         out.line1 = "行囊收好了，正望着窗外"
     else
-        out.line1 = s.visitor and "在阁楼招待一只墨点虫" or "在阁楼打盹"
+        local v = s.visitor and Travel.visitor(s.visitor.id)
+        out.line1 = v and ("在阁楼招待" .. v.name) or "在阁楼打盹"
     end
     -- 「新」= 上次看明信片墙之后到的（之前用存档前后差值，阁楼开着时寄到的就漏算了）
     local new = #s.postcards - (s.wall_seen or 0)

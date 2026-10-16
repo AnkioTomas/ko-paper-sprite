@@ -35,6 +35,21 @@ function Host:notify(text)
     return KOHost.notify(self, text)
 end
 
+--- 可选 AI：月读已配置 AI（端点 / 密钥 / 模型齐全）时返回适配器，否则 nil。
+--- 只用月读现有的 AI 设置与客户端（require("ai")），不引入新的密钥或配置。
+function Host:ai()
+    if self.opts.no_ai or self:getSetting("ai_story", true) == false then return nil end
+    local ok, AI = pcall(require, "ai")
+    if not ok or type(AI) ~= "table" or not AI.jsonExtract or not AI.isConfigured then return nil end
+    local ok2, configured = pcall(AI.isConfigured)
+    if not ok2 or not configured then return nil end
+    return {
+        json = function(messages, cb)
+            return AI.jsonExtract(messages, { temperature = 0.8 }, cb)
+        end,
+    }
+end
+
 function Host:loadState()
     if not moonSettings() then return KOHost.loadState(self) end
     return conf().state

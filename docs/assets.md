@@ -5,7 +5,7 @@
 ## 规范
 - PNG 灰度，只用 4 级灰 `#000 #555 #AAA #FFF`，中间调用网点。
 - 线稿为主，线宽 ≥ 2px。阿页要保持一致：折纸身子 + 头顶卷起的书角。
-- 当前占位图由 `python3 tools/gen_placeholders.py` 生成（纯几何图形）。
+- 原图放 `art-samples/v3/<目录>/`（不入库），运行 `python3 tools/process_art.py` 生成 `assets/`。
 
 ## 明信片包
 ```

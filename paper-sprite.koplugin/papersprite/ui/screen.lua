@@ -72,17 +72,46 @@ function S:init()
     table.insert(body, HorizontalGroup:new{ align = "center", HorizontalSpan:new{ width = pad },
         LeftContainer:new{ dimen = Geom:new{ w = inner - xw + pad, h = hh },
             TextWidget:new{ text = v.title or "", face = k.face, fgcolor = k.muted, max_width = inner - xw } }, close })
-    -- 插画（占位图，墨水屏 4 级灰）
-    if v.image then
-        local path = Interface.pluginDir() .. "/assets/" .. v.image
-        local ok, img = pcall(function()
-            return require("ui/widget/imagewidget"):new{ file = path, width = inner, height = math.floor(inner * 0.5),
-                scale_factor = 0, file_do_cache = false }
+    -- 分层画面：背景 + 叠加层（墨水屏 4 级灰素材）
+    local function img(rel, w, h, alpha)
+        local ok, wdg = pcall(function()
+            return require("ui/widget/imagewidget"):new{ file = Interface.pluginDir() .. "/assets/" .. rel,
+                width = w, height = h, scale_factor = 0, alpha = alpha, file_do_cache = false }
         end)
-        if ok and img then
-            table.insert(body, CenterContainer:new{ dimen = Geom:new{ w = w, h = math.floor(inner * 0.5) }, img })
-            table.insert(body, VerticalSpan:new{ width = px(12) })
+        return ok and wdg or nil
+    end
+    local scene = v.scene or (v.image and { bg = v.image, overlays = {} })
+    if scene then
+        local SW = inner
+        local SH = math.floor(SW / 2)
+        local OverlapGroup = require("ui/widget/overlapgroup")
+        local grp = OverlapGroup:new{ dimen = Geom:new{ w = SW, h = SH } }
+        local bg = img(scene.bg, SW, SH, false)
+        if bg then table.insert(grp, bg) end
+        for _, o in ipairs(scene.overlays or {}) do
+            local ow, oh
+            if o.full then ow, oh = SW, SH else oh = math.floor(SH * o.h) ow = oh end
+            local w = img(o.img, ow, oh, true)
+            if w then
+                w.overlap_offset = { math.floor(SW * o.x - ow / 2), math.floor(SH * o.y - oh / 2) }
+                table.insert(grp, w)
+            end
         end
+        local framed = FrameContainer:new{ padding = 0, bordersize = scene.frame and px(2) or 0,
+            color = k.ink, background = k.bg, grp }
+        table.insert(body, CenterContainer:new{ dimen = Geom:new{ w = w, h = SH + px(4) }, framed })
+        table.insert(body, VerticalSpan:new{ width = px(12) })
+    end
+    if v.icons and #v.icons > 0 then
+        local isz = px(56)
+        local row = HorizontalGroup:new{ align = "center", HorizontalSpan:new{ width = pad } }
+        for i, rel in ipairs(v.icons) do
+            if i > 1 then table.insert(row, HorizontalSpan:new{ width = px(10) }) end
+            local wdg = img(rel, i == 1 and isz * 2 or isz, i == 1 and isz * 2 or isz, true)
+            if wdg then table.insert(row, wdg) end
+        end
+        table.insert(body, row)
+        table.insert(body, VerticalSpan:new{ width = px(8) })
     end
     for _, l in ipairs(v.lines or {}) do
         local t = type(l) == "table" and l or { text = l }
