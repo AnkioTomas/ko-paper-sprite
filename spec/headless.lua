@@ -27,6 +27,8 @@ local function advance(secs)
 end
 local function btns()
     local out = {}
+    for _, c in ipairs(H.view.grid and H.view.grid.cells or {}) do out[#out + 1] = { text = c.caption, callback = c.callback } end
+    for _, c in ipairs(H.view.list and H.view.list.rows or {}) do out[#out + 1] = { text = c.title, callback = c.callback } end
     for _, b in ipairs(H.view.buttons) do
         if b[1] then for _, c in ipairs(b) do out[#out + 1] = c end else out[#out + 1] = b end
     end
@@ -232,5 +234,47 @@ for _, v in ipairs(require("papersprite.data.visitors")) do need("visitors/" .. 
 for _, v in ipairs({ "spring", "summer", "autumn", "winter", "night" }) do need("attic/attic_" .. v .. ".png") need("attic/attic_" .. v .. "_empty.png") end
 if os.getenv("SKIP_ASSETS") then print("  assets missing (skipped): " .. #miss)
 else assert(#miss == 0, "missing assets: " .. table.concat(miss, ", ")) end
+
+-- 11. 月读首页组件数据（纯函数）：阁楼 / 明信片 / 纪念物柜；只读副本，不改存档
+local WD = require("papersprite.ui.widget_data")
+local raw = H.saved
+local before = WD.sig(raw)
+local vw = WD.view(raw, H.clock, true)
+local da = WD.attic(vw, H.clock, true)
+assert(da.scene.bg:match("^attic/attic_") and type(da.line) == "string" and da.sub:find("灵感"))
+local dp = WD.postcards(vw, 3)
+assert(dp.total == #vw.postcards and #dp.cards == math.min(3, dp.total))
+for k = 2, #dp.cards do assert(dp.cards[k - 1].index > dp.cards[k].index, "newest first") end
+if dp.cards[1] then assert(dp.cards[1].scene.bg:match("^places/") and dp.cards[1].place ~= "") end
+vw.wall_seen = #vw.postcards - 1
+local dp2 = WD.postcards(vw, 3)
+assert(dp2.new == 1 and dp2.cards[1].new and (not dp2.cards[2] or not dp2.cards[2].new), "new mark")
+vw.souvenirs = { fog_jar = 2, lake_pebble = 1, gone_item = 3 }
+local dc = WD.cabinet(vw)
+assert(dc.total == 48 and dc.have == 2 and dc.items[1].icon:match("^souvenirs/"), "cabinet n/48")
+assert(WD.sig(raw) == before, "widget data must not touch the save")
+assert(WD.sig({ a = 1, b = { 2 } }) == WD.sig({ b = { 2 }, a = 1 }))
+local empty = WD.view(nil, 0, false)
+assert(#WD.postcards(empty, 5).cards == 0 and WD.cabinet(empty).have == 0 and WD.attic(empty, 0, false).scene)
+
+-- 12. 明信片墙分页：网格 12 张 / 列表 5 张一页，新的在前；切换视图
+local sw = State.fresh(0)
+for k = 1, 30 do sw.postcards[k] = { place = "ink_lake", pose = "sit", prop = "none", weather = "clear", line = "l" .. k, at = k } end
+local ids, pg, pgs = Game.wallPage(sw, "grid", 1)
+assert(#ids == 12 and ids[1] == 30 and pg == 1 and pgs == 3)
+ids, pg, pgs = Game.wallPage(sw, "grid", 9)
+assert(pg == 3 and #ids == 6 and ids[#ids] == 1, "clamped last page")
+ids, pg, pgs = Game.wallPage(sw, "list", 2)
+assert(pgs == 8 and #ids == 4 and ids[1] == 26)
+assert(select(3, Game.wallPage(State.fresh(0), "grid", 1)) == 1)
+H.saved = sw
+local g5 = Game.new(H.host):show()
+click("明信片墙")
+assert(H.view.grid and #H.view.grid.cells == 12 and H.view.pager.pages == 3 and H.view.grid.cells[1].new)
+H.view.pager.next(); assert(H.view.pager.page == 2)
+click("列表视图"); assert(H.view.list and #H.view.list.rows == 4 and H.view.list.rows[1].date and H.view.pager.pages == 8)
+assert(H.view.list.rows[1].new, "new badge survives re-render in the same wall visit")
+click("网格视图"); assert(H.view.grid)
+g5:close()
 
 print("headless ok: postcards=" .. #st.postcards .. " places=" .. np .. " combos=" .. nc)

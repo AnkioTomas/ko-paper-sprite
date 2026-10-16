@@ -8,7 +8,8 @@ paper-sprite.koplugin/
     host/            宿主适配
     core/            state / travel / rng / reading / story（AI，可选）
     data/            places / items / souvenirs / visitors / postcards（纯数据）
-    ui/              screen（全屏浮层）/ moon_card（首页卡片）
+    ui/              screen（全屏浮层）/ moon_card（首页卡片）/ moon_widgets（阁楼·明信片·纪念物柜组件）
+                     widget_data（组件数据，纯函数）/ compose（分层画面合成 + 位图缓存）
     game.lua         控制器：结算 → 生成 view → host:showScreen
 ```
 
@@ -19,7 +20,7 @@ paper-sprite.koplugin/
 - 测试用宿主见 `spec/headless.lua`（虚拟时钟）。
 
 ## 界面
-`ui/screen.lua` 是 `covers_fullscreen + modal` 的全屏浮层，在月读里盖住首页和底部导航；新界面先 show 再 close 旧的，并整屏刷新（`"ui"`），避免墨水屏残影。两套皮肤：KOReader 原生控件 / 月读 `ui.themes` 组件。
+`ui/screen.lua` 是 `covers_fullscreen + modal` 的全屏浮层，在月读里盖住首页和底部导航；新界面先 show 再 close 旧的，并整屏刷新（`"ui"`），避免墨水屏残影。两套皮肤：装了月读就用 `ui.themes` 组件（逐个 pcall，失败的单个组件退回原生），否则 KOReader 原生控件；见 [widgets.md](widgets.md)。
 `ui/moon_card.lua`：首页卡片，每次绘制时在存档**副本**上结算出近况摘要（不写盘），摘要变了才重建。
 
 ## 单实例

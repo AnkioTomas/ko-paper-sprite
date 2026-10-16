@@ -61,6 +61,7 @@ for f in $(find . -name '*.lua'); do luac -p "$f"; done
 - [素材规格与明信片包投稿](docs/assets.md)
 - [测试与模拟器](docs/testing.md)
 - [可选 AI 文案层](docs/ai.md)
+- [月读首页组件、快捷面板与界面皮肤](docs/widgets.md)
 - [路线图](docs/roadmap.md)
 
 ## 协议

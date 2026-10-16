@@ -16,7 +16,6 @@ local Game = {}
 Game.__index = Game
 
 local SLOT_NAME = { food = "干粮", charm = "护身物", book = "随身小书" }
-local WALL_PAGE = 8
 local unpack = unpack or table.unpack
 
 function Game.new(host)
@@ -79,7 +78,12 @@ local function fmtDur(sec, debug)
     return math.max(1, math.floor(sec / 60)) .. " 分钟"
 end
 
-function Game:go(page, arg) self.page, self.arg = page, arg self:render() end
+function Game:go(page, arg)
+    -- 进明信片墙时记下「上次看到哪」，这一趟翻页 / 切视图 / 看单张回来，「新」角标都还在
+    if page == "wall" and self.page ~= "wall" and self.page ~= "card" then self._wall_seen0 = self.state.wall_seen or 0 end
+    self.page, self.arg = page, arg
+    self:render()
+end
 
 local VISITOR_POS = { -- 访客在阁楼图里的位置（中心占比 x, y, 高）；书桌面约 y=.55，地板约 y=.85
     inkbug = { 0.34, 0.51, 0.08 }, clip_snail = { 0.55, 0.88, 0.10 },
@@ -105,10 +109,9 @@ function Game.atticBg(t, away)
     return "attic/attic_" .. v .. (away and "_empty" or "") .. ".png"
 end
 
-function Game:_attic()
-    local s, now = self.state, self.host:now()
+--- 纯函数：阁楼画面（季节/夜晚背景、在家/出门、装饰、访客）。首页组件也用它。
+function Game.atticScene(s, now)
     local sp = s.sprite
-    local lines = {}
     local scene = { bg = Game.atticBg(now, sp.status == "away"), overlays = {} }
     for i, id in ipairs(s.decor or {}) do
         local pos = Game.DECOR_POS[i]
@@ -116,6 +119,21 @@ function Game:_attic()
             scene.overlays[#scene.overlays + 1] = { img = "souvenirs/" .. id .. ".png", x = pos[1], y = pos[2], h = pos[3] }
         end
     end
+    if s.visitor then
+        local v = Travel.visitor(s.visitor.id)
+        if v then
+            local pos = VISITOR_POS[v.id] or { 0.5, 0.6, 0.12 }
+            scene.overlays[#scene.overlays + 1] = { img = "visitors/" .. v.id .. (s.visitor.pose or "") .. ".png", x = pos[1], y = pos[2], h = pos[3] }
+        end
+    end
+    return scene
+end
+
+function Game:_attic()
+    local s, now = self.state, self.host:now()
+    local sp = s.sprite
+    local lines = {}
+    local scene = Game.atticScene(s, now)
     if sp.status == "home" then
         lines[1] = "阿页坐在书桌边，油灯亮着。"
     elseif sp.status == "packed" then
@@ -128,8 +146,6 @@ function Game:_attic()
         local v = Travel.visitor(s.visitor.id)
         if v then
             lines[#lines + 1] = s.visitor.line or v.here
-            local pos = VISITOR_POS[v.id] or { 0.5, 0.6, 0.12 }
-            scene.overlays[#scene.overlays + 1] = { img = "visitors/" .. v.id .. (s.visitor.pose or "") .. ".png", x = pos[1], y = pos[2], h = pos[3] }
         end
     end
     local unseen = #s.postcards - (s.wall_seen or 0)
@@ -197,29 +213,58 @@ function Game:_shop()
     return { title = "小铺", lines = lines, buttons = b }
 end
 
+Game.WALL_GRID = { cols = 3, rows = 4 }
+Game.WALL_LIST = 4
+
+--- 纯函数：明信片墙的一页。mode = grid（缩略图网格）| list（缩略图 + 文字），新的在前
+function Game.wallPage(s, mode, page)
+    local per = mode == "list" and Game.WALL_LIST or Game.WALL_GRID.cols * Game.WALL_GRID.rows
+    local total = #s.postcards
+    local pages = math.max(1, math.ceil(total / per))
+    page = math.max(1, math.min(page or 1, pages))
+    local first = total - (page - 1) * per
+    local out = {}
+    for i = first, math.max(1, first - per + 1), -1 do out[#out + 1] = i end
+    return out, page, pages
+end
+
 function Game:_wall()
     local s = self.state
-    local lines, b = {}, {}
+    local seen_before = self._wall_seen0 or s.wall_seen or 0
     if s.wall_seen ~= #s.postcards then s.wall_seen = #s.postcards self:save() end
-    if #s.postcards == 0 then lines[1] = "墙上还空着，等阿页寄第一张回来。" end
-    local pages = math.max(1, math.ceil(#s.postcards / WALL_PAGE))
-    self.wall_page = math.max(1, math.min(self.wall_page, pages))
-    local first = #s.postcards - (self.wall_page - 1) * WALL_PAGE
-    for i = first, math.max(1, first - WALL_PAGE + 1), -1 do
+    local mode = self.host:getSetting("wall_mode", "grid") == "list" and "list" or "grid"
+    local idx, page, pages = Game.wallPage(s, mode, self.wall_page)
+    self.wall_page = page
+    local v = { title = "明信片墙 · " .. #s.postcards .. " 张", lines = {} }
+    if #s.postcards == 0 then v.lines[1] = "墙上还空着，等阿页寄第一张回来。" end
+    local function cardInfo(i)
         local c = s.postcards[i]
         local p = Travel.place(c.place)
-        b[#b + 1] = { text = (p and p.name or c.place) .. " · " .. (Postcards.weather_names[c.weather] or "")
-            .. " · " .. os.date("%m-%d %H:%M", c.at or 0), callback = function() self:go("card", i) end }
+        return c, (p and p.name or c.place), (Postcards.weather_names[c.weather] or "")
     end
-    if pages > 1 then
-        b[#b + 1] = {
-            { text = "上一页", callback = function() self.wall_page = self.wall_page - 1 self:render() end },
-            { text = self.wall_page .. " / " .. pages, callback = function() end },
-            { text = "下一页", callback = function() self.wall_page = self.wall_page + 1 self:render() end },
-        }
+    if mode == "grid" then
+        v.grid = { cols = Game.WALL_GRID.cols, cells = {} }
+        for _, i in ipairs(idx) do
+            local c, name = cardInfo(i)
+            v.grid.cells[#v.grid.cells + 1] = { scene = Game.cardScene(c), new = i > seen_before, caption = name,
+                callback = function() self:go("card", i) end }
+        end
+    else
+        v.list = { rows = {} }
+        for _, i in ipairs(idx) do
+            local c, name, wn = cardInfo(i)
+            v.list.rows[#v.list.rows + 1] = { scene = Game.cardScene(c), new = i > seen_before, title = name .. " · " .. wn,
+                line = c.line or "", date = os.date("%m-%d %H:%M", c.at or 0), callback = function() self:go("card", i) end }
+        end
     end
-    b[#b + 1] = { text = "回阁楼", callback = function() self:go("attic") end }
-    return { title = "明信片墙", lines = lines, buttons = b }
+    v.pager = { page = page, pages = pages,
+        prev = function() self.wall_page = page - 1 self:render() end,
+        next = function() self.wall_page = page + 1 self:render() end }
+    v.buttons = { {
+        { text = mode == "grid" and "列表视图" or "网格视图", callback = function()
+            self.host:setSetting("wall_mode", mode == "grid" and "list" or "grid") self.wall_page = 1 self:render() end },
+        { text = "回阁楼", callback = function() self:go("attic") end } } }
+    return v
 end
 
 --- 明信片的分层画面

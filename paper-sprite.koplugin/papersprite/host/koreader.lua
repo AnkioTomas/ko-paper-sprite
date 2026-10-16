@@ -23,7 +23,11 @@ function Host:_store()
     return self.store
 end
 
-function Host:_screenModule() return require("papersprite.ui.screen") end
+function Host:_screenModule()
+    local Screen = require("papersprite.ui.screen")
+    local skin = self:getSetting("ui_skin", "auto") -- auto：装了月读就用月读主题组件；native：强制原生
+    return { open = function(view, on_close) return Screen.open(view, on_close, skin) end }
+end
 
 function Host:showScreen(view)
     local UIManager = require("ui/uimanager")
