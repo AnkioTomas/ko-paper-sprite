@@ -91,6 +91,22 @@ local function padOf(T) return T and px(T, T.t.space.md) or 10 end
 local function gapOf(T) return T and px(T, T.t.space.sm) or 6 end
 local function borderOf(T) return T and px(T, (T.t.card and T.t.card.border) or 1) or 1 end
 
+--- 组件标题行：左标题（title 字号），右灰色小字（数量 / 状态），同月读自带组件「书架 1 … 更多 ›」的排法
+local function header(T, title, meta, inner, right)
+    local Geom = require("ui/geometry")
+    local HorizontalGroup = require("ui/widget/horizontalgroup")
+    local LeftContainer = require("ui/widget/container/leftcontainer")
+    local RightContainer = require("ui/widget/container/rightcontainer")
+    local r = right or (meta and meta ~= "" and line(T, "caption", meta, math.floor(inner * 0.5), "muted"))
+    local rw = r and r:getSize().w or 0
+    local hh = math.max(lineH(T, "title"), r and r:getSize().h or 0)
+    local g = HorizontalGroup:new{ align = "center",
+        LeftContainer:new{ dimen = Geom:new{ w = inner - rw, h = hh }, line(T, "title", title, inner - rw) } }
+    if r then g[#g + 1] = RightContainer:new{ dimen = Geom:new{ w = rw, h = hh }, r } end
+    return g, hh
+end
+M._header = header
+
 --- 可点区域：rects 为相对卡片左上角的 {x,y,w,h,fn}；没命中走 fallback
 local function tappable(w, h, content, rects, fallback, refresh, on_swipe)
     local Geom = require("ui/geometry")
@@ -141,9 +157,13 @@ local function atticHeights(T, w)
     local inner = w - padOf(T) * 2 - borderOf(T) * 2
     local text = lineH(T, "body") + lineH(T, "caption") + gapOf(T)
     local size = M.size("attic")
-    if size == "small" then return math.floor(inner * 0.22) + padOf(T) * 2 + borderOf(T) * 2, "row" end
+    local head = lineH(T, "title") + gapOf(T)
+    if size == "small" then
+        local t3 = lineH(T, "caption") * 2 + lineH(T, "body") + px(T, 4)
+        return math.max(math.floor(inner * 0.22), t3) + padOf(T) * 2 + borderOf(T) * 2, "row"
+    end
     local img = math.floor(inner * (size == "large" and 0.5 or 0.42))
-    return img + gapOf(T) + text + padOf(T) * 2 + borderOf(T) * 2, "col"
+    return head + img + gapOf(T) + text + padOf(T) * 2 + borderOf(T) * 2, "col"
 end
 
 function M.atticBuild(w, h)
@@ -159,6 +179,10 @@ function M.atticBuild(w, h)
         local inner_w = w - padOf(T) * 2 - borderOf(T) * 2
         local inner_h = h - padOf(T) * 2 - borderOf(T) * 2
         local _, layout = atticHeights(T, w)
+        local head_h = lineH(T, "title") + gapOf(T)
+        local text_h = lineH(T, "body") + lineH(T, "caption") + gapOf(T)
+        -- 被首页压矮、放不下「标题 + 通栏画面 + 两行字」时改成左图右字
+        if layout == "col" and inner_h - head_h - text_h - gapOf(T) < inner_w * 0.25 then layout = "row" end
         local body
         if layout == "row" then
             local ih = inner_h
@@ -166,11 +190,14 @@ function M.atticBuild(w, h)
             local tw = math.max(1, inner_w - iw - gapOf(T))
             body = HorizontalGroup:new{ align = "center", Compose.widget(d.scene, iw, ih),
                 HorizontalSpan:new{ width = gapOf(T) },
-                VerticalGroup:new{ align = "left", line(T, "body", d.line, tw), VerticalSpan:new{ width = gapOf(T) }, line(T, "caption", d.sub, tw, "faint") } }
+                VerticalGroup:new{ align = "left", line(T, "caption", "阿页的阁楼", tw, "muted"), VerticalSpan:new{ width = px(T, 2) },
+                    line(T, "body", d.line, tw), VerticalSpan:new{ width = px(T, 2) }, line(T, "caption", d.sub, tw, "faint") } }
         else
             local text = lineH(T, "body") + lineH(T, "caption") + gapOf(T)
             local ih = math.max(1, inner_h - text - gapOf(T))
-            body = VerticalGroup:new{ align = "left", Compose.widget(d.scene, inner_w, ih), VerticalSpan:new{ width = gapOf(T) },
+            ih = math.max(1, ih - head_h)
+            body = VerticalGroup:new{ align = "left", (header(T, "阿页的阁楼", nil, inner_w)), VerticalSpan:new{ width = gapOf(T) },
+                Compose.widget(d.scene, inner_w, ih), VerticalSpan:new{ width = gapOf(T) },
                 line(T, "body", d.line, inner_w), line(T, "caption", d.sub, inner_w, "faint") }
         end
         return card(T, w, h, body), {}, sig
@@ -242,7 +269,8 @@ function M.postcardsBuild(w, h)
         M.cards_page = d.page
         local sig = Data.sig({ d.total, d.new, d.page, size, mode, w, h, (function()
             local ks = {} for _, c in ipairs(d.cards) do ks[#ks + 1] = c.index .. (c.new and "n" or "") end return ks end)() })
-        local head = (d.total == 0) and "明信片 · 墙上还空着" or ("明信片 " .. d.total .. (d.new > 0 and (" · 新 " .. d.new) or ""))
+        local head = "明信片"
+        local meta = (d.total == 0) and "还没有" or (d.total .. " 张" .. (d.new > 0 and (" · 新 " .. d.new) or ""))
         local rects = {}
         local headRow
         if d.pages > 1 then
@@ -253,7 +281,8 @@ function M.postcardsBuild(w, h)
                 UIManager:setDirty("all", "ui")
             end end
             local pager, own = pagerWidget(T, pw, d.page, d.pages, turn(-1), turn(1))
-            headRow = require("ui/widget/horizontalgroup"):new{ align = "center", line(T, "title", head, inner - pw), pager }
+            headRow = require("ui/widget/horizontalgroup"):new{ align = "center", line(T, "title", head, math.floor(inner * 0.25)),
+                line(T, "caption", meta, inner - pw - math.floor(inner * 0.25), "muted"), pager }
             if not own then -- 文字兜底：自己按左右半边分翻页（月读 Pager 的按钮自带回调，不能再算一次）
                 rects[#rects + 1] = { pad + bd + inner - pw, pad + bd, math.floor(pw / 2), hh, turn(-1) }
                 rects[#rects + 1] = { pad + bd + inner - math.floor(pw / 2), pad + bd, math.floor(pw / 2), hh, turn(1) }
@@ -261,11 +290,17 @@ function M.postcardsBuild(w, h)
                 rects[#rects + 1] = { pad + bd + inner - pw, pad + bd, pw, hh, function() end }
             end
         else
-            headRow = line(T, "title", head, inner)
+            headRow = (header(T, head, meta, inner))
         end
         local col = VerticalGroup:new{ align = "left", require("ui/widget/container/leftcontainer"):new{ dimen = Geom:new{ w = inner, h = hh }, headRow }, VerticalSpan:new{ width = gap } }
         local y0 = pad + bd + hh + gap
         local function open(i) return function() M.open("card", i) end end
+        if d.total == 0 then
+            local CenterContainer = require("ui/widget/container/centercontainer")
+            col[#col + 1] = CenterContainer:new{ dimen = Geom:new{ w = inner, h = math.max(lineH(T, "body") * 2, avail - gap) },
+                VerticalGroup:new{ align = "center", line(T, "body", "墙上还空着", inner), line(T, "caption", "阿页旅行时会寄明信片回来", inner, "faint") } }
+            return card(T, w, h, col), rects, sig
+        end
         if mode == "grid" then
             for r = 1, rows do
                 local row = HorizontalGroup:new{ align = "top" }
@@ -354,8 +389,11 @@ function M.cabinetBuild(w, h)
             cols = math.max(3, math.floor((inner + gapOf(T)) / (cell + gapOf(T))))
         end
         local sig = Data.sig({ d, size, w, h })
-        local col = VerticalGroup:new{ align = "left", line(T, "title", "纪念物柜 " .. d.have .. "/" .. d.total, inner), VerticalSpan:new{ width = gapOf(T) } }
-        if d.have == 0 then col[#col + 1] = line(T, "caption", "还没有纪念物。阿页旅行回来会带一件。", inner, "muted") end
+        local col = VerticalGroup:new{ align = "left", (header(T, "纪念物柜", "收集 " .. d.have .. " / " .. d.total, inner)), VerticalSpan:new{ width = gapOf(T) } }
+        if d.have == 0 then
+            col[#col + 1] = CenterContainer:new{ dimen = Geom:new{ w = inner, h = math.max(lineH(T, "body") * 2, avail) },
+                VerticalGroup:new{ align = "center", line(T, "body", "柜子还空着", inner), line(T, "caption", "阿页每趟旅行回来都会带一件", inner, "faint") } }
+        end
         local show = rows * cols
         local more = d.have > show
         for r = 1, rows do

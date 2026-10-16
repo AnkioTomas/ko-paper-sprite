@@ -57,6 +57,15 @@ local function themed(s, w, h)
         VerticalSpan:new{ width = Theme.px(t.space.xs) },
         Text.line("caption", s.line2, { width = text_w, color = t.color.faint }),
     }
+    -- 被首页压矮时：先去掉小字行，再把标题并进第一行，保证不溢出
+    local avail = h - pad * 2 - Theme.px((t.card and t.card.border) or 1) * 2
+    if col:getSize().h > avail then
+        col = VerticalGroup:new{ align = "left", Text.line("title", s.title, { width = text_w }), VerticalSpan:new{ width = Theme.px(t.space.xs) },
+            Text.line("body", s.line1, { width = text_w, color = t.color.muted }) }
+    end
+    if col:getSize().h > avail then
+        col = VerticalGroup:new{ align = "left", Text.line("body", s.title .. " · " .. s.line1, { width = text_w }) }
+    end
     return Box:new{ style = t.card, width = w, height = h, padding = pad, HorizontalGroup:new{ align = "center",
         Icon.widget{ name = "bookmark", size = 40 }, HorizontalSpan:new{ width = gap },
         LeftContainer:new{ dimen = Geom:new{ w = text_w, h = col:getSize().h }, col },
