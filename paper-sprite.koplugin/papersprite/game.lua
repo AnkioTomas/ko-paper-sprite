@@ -187,7 +187,6 @@ function Game:_basket()
         -- 一行最多 3 个
         for i = 1, #row, 3 do b[#b + 1] = { row[i], row[i + 1], row[i + 2] } end
     end
-    b[#b + 1] = { text = "回阁楼", callback = function() self:go("attic") end }
     return { title = "收拾行囊", icons = { "sprite/carry.png", unpack(icons) }, lines = lines, buttons = b }
 end
 
@@ -256,7 +255,7 @@ function Game:_shop()
         tabs = tabs, shelf = { cols = Game.SHOP_COLS, cells = cells },
         pager = { page = page, pages = pages,
             prev = function() self.shop_page = page - 1 self:render() end, next = function() self.shop_page = page + 1 self:render() end },
-        buttons = { { text = "回阁楼", callback = function() self:go("attic") end } } }
+        buttons = {} }
 end
 
 function Game:_shop_item()
@@ -267,8 +266,7 @@ function Game:_shop_item()
     local lines = { it.desc or "", { text = "价格 ✦ " .. it.price .. "　·　已有 " .. (s.inventory[it.id] or 0) .. "　·　灵感 ✦ " .. s.inspiration, muted = true } }
     for _, l in ipairs(long) do lines[#lines + 1] = "· " .. l end
     return { title = it.name, icons = { "items/" .. it.id .. ".png" }, lines = lines,
-        buttons = { { { text = "买一个（✦ " .. it.price .. "）", callback = function() self:_buy(it) end },
-                      { text = "回小铺", callback = function() self:go("shop") end } } } }
+        buttons = { { text = "买一个（✦ " .. it.price .. "）", callback = function() self:_buy(it) end } } }
 end
 
 Game.WALL_GRID = { cols = 3, rows = 4 }
@@ -320,8 +318,7 @@ function Game:_wall()
         next = function() self.wall_page = page + 1 self:render() end }
     v.buttons = { {
         { text = mode == "grid" and "列表视图" or "网格视图", callback = function()
-            self.host:setSetting("wall_mode", mode == "grid" and "list" or "grid") self.wall_page = 1 self:render() end },
-        { text = "回阁楼", callback = function() self:go("attic") end } } }
+            self.host:setSetting("wall_mode", mode == "grid" and "list" or "grid") self.wall_page = 1 self:render() end } } }
     return v
 end
 
@@ -342,7 +339,7 @@ function Game:_card()
         title = p.name .. " · " .. (Postcards.weather_names[c.weather] or ""),
         scene = Game.cardScene(c),
         lines = { c.line or "", { text = "——阿页", muted = true } },
-        buttons = { { text = "回明信片墙", callback = function() self:go("wall") end } },
+        buttons = {},
     }
 end
 
@@ -377,13 +374,17 @@ function Game:_cabinet()
         if #row == 3 then b[#b + 1] = row row = {} end
     end
     if #row > 0 then b[#b + 1] = row end
-    b[#b + 1] = { text = "回阁楼", callback = function() self:go("attic") end }
     return { title = "特产柜", icons = #icons > 0 and icons or nil, lines = lines, buttons = b }
 end
+
+Game.PARENT = { basket = "attic", shop = "attic", wall = "attic", cabinet = "attic", shop_item = "shop", card = "wall" }
 
 function Game:view()
     if self.page == "basket" and self.state.sprite.status == "away" then self.page = "attic" end
     local v = self["_" .. self.page](self)
+    -- 子页面不再放「回阁楼」按钮：标题栏右上角的按钮就是返回上一级（阁楼页才是关闭）
+    local parent = Game.PARENT[self.page]
+    if parent then v.back = function() self:go(parent) end end
     v.on_close = function() self.closed = true if self.timer then self.host:unschedule(self.timer) self.timer = nil end end
     return v
 end

@@ -10,7 +10,7 @@ view = {
   tabs?  = { {text, active, callback} },                                  分类页签（一行按钮，当前项加 ✓）
   shelf? = { cols, cells = { {icon, name, price, owned, desc, dim, callback} } }, 小铺货架：物品卡
   pager? = { page, pages, prev, next },                                   翻页条（n / m）
-  buttons = { btn | {btn,...} }, on_close?
+  buttons = { btn | {btn,...} }, on_close?, back?（有则标题栏右上角按钮 / 返回键回上一级，否则关闭）
 }
 缩略图走 ui/compose 的合成缓存（墨水屏上不反复解码缩放）。
 --]]
@@ -159,7 +159,7 @@ function S:init()
     local function indent(wdg) return HorizontalGroup:new{ HorizontalSpan:new{ width = pad }, wdg } end
     local function gap(n) table.insert(body, VerticalSpan:new{ width = px(n) }) end
     -- 标题栏
-    table.insert(body, k.title(w, v.title, function() self:onClose() end))
+    table.insert(body, k.title(w, v.title, function() if v.back then v.back() else self:onClose() end end))
     gap(8)
     -- 分层画面：缓存合成成一张位图
     local scene = v.scene or (v.image and { bg = v.image, overlays = {} })

@@ -41,6 +41,7 @@ local function click(prefix)
     local t = {} for _, b in ipairs(btns()) do t[#t + 1] = b.text end
     error("no button " .. prefix .. " in " .. table.concat(t, " / "))
 end
+local function back() assert(H.view.back, "sub-screen must have back") H.view.back() end
 local function text()
     local t = {} for _, l in ipairs(H.view.lines) do t[#t + 1] = type(l) == "table" and l.text or l end
     return table.concat(t, "\n")
@@ -52,7 +53,7 @@ local g = Game.new(H.host):show()
 assert(H.view.title == "阿页的阁楼")
 click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
 assert(H.saved.sprite.status == "packed", "should be packed")
-click("回阁楼"); assert(text():find("快要出门"))
+back(); assert(text():find("快要出门"))
 
 -- 2. 界面开着：到点自动出门（调试模式：分钟→秒）
 advance(100)
@@ -70,8 +71,8 @@ assert(sv == 1, "souvenir")
 -- 4. 明信片墙 → 单张（分层画面）
 click("明信片墙"); click(""); assert(H.view.scene and H.view.scene.bg and #H.view.lines == 2, "card view")
 assert(H.view.scene.overlays[1].img:find("^sprite/"), "pose layer")
-click("回明信片墙"); click("回阁楼"); click("特产柜"); assert(H.view.lines[2]:find("×1"), "cabinet")
-click("回阁楼"); click("小铺"); click("回阁楼")
+back(); back(); click("特产柜"); assert(H.view.lines[2]:find("×1"), "cabinet")
+back(); click("小铺"); back()
 g:close()
 
 -- 5. 存档版本：坏存档 / 旧字段缺失 / v1 → v2 迁移
@@ -216,7 +217,7 @@ H.saved.souvenirs = { lake_pebble = 1, fog_jar = 2 }
 H.saved.visitor = { id = "seal_bear", pose = "_2", until_at = H.clock + 99999 }
 local g4 = Game.new(H.host):show()
 click("特产柜"); click("一瓶雾"); assert(H.saved.decor[1] == "fog_jar")
-click("回阁楼")
+back()
 local ov = {} for _, o in ipairs(H.view.scene.overlays) do ov[o.img] = true end
 assert(ov["souvenirs/fog_jar.png"] and ov["visitors/seal_bear_2.png"], "decor + visitor pose overlays")
 click("特产柜"); click("✓ 一瓶雾"); assert(#H.saved.decor == 0)
@@ -303,7 +304,18 @@ local first = H.view.shelf.cells[1].name
 click(first); assert(H.view.title == first)
 local before_insp = g6.state.inspiration
 click("买一个"); assert(g6.state.inspiration < before_insp)
-click("回小铺"); assert(H.view.shelf)
+back(); assert(H.view.shelf)
 g6:close()
+
+-- 14. 子页面没有「回…」按钮；标题栏返回到上一级，阁楼页没有 back
+H.saved = State.fresh(0)
+local g7 = Game.new(H.host):show()
+assert(not H.view.back)
+for _, pg in ipairs({ "basket", "shop", "wall", "cabinet" }) do
+    g7:go(pg)
+    for _, b in ipairs(btns()) do assert(not (b.text:find("^回阁楼") or b.text:find("^回小铺") or b.text:find("^回明信片")), pg .. " still has " .. b.text) end
+    back(); assert(g7.page == "attic")
+end
+g7:close()
 
 print("headless ok: postcards=" .. #st.postcards .. " places=" .. np .. " combos=" .. nc)
