@@ -20,16 +20,15 @@ function Card.summary(raw, now, debug_fast)
     local out = { title = "阿页" }
     local sp = s.sprite
     if sp.status == "away" then
-        local h = math.floor((now - sp.left_at) / 3600)
+        local h = math.floor((now - sp.left_at) / Travel.timing(debug_fast).hour) -- 调试模式下 1 小时 = 10 秒
         out.line1 = h >= 1 and ("出门了，已经走了 " .. h .. " 小时") or "刚出门，纸条还压在桌上"
     elseif sp.status == "packed" then
         out.line1 = "行囊收好了，正望着窗外"
     else
         out.line1 = s.visitor and "在阁楼招待一只墨点虫" or "在阁楼打盹"
     end
-    local new = 0
-    local seen = (type(raw) == "table" and raw.postcards) and #raw.postcards or 0
-    new = #s.postcards - seen
+    -- 「新」= 上次看明信片墙之后到的（之前用存档前后差值，阁楼开着时寄到的就漏算了）
+    local new = #s.postcards - (s.wall_seen or 0)
     out.line2 = (new > 0 and ("有 " .. new .. " 张新明信片 · ") or "") .. "灵感 " .. s.inspiration
     return out
 end

@@ -15,15 +15,21 @@ Game.__index = Game
 local SLOT_NAME = { food = "干粮", charm = "护身物", book = "随身小书" }
 
 function Game.new(host)
+    -- 同一时刻只留一个阁楼实例：菜单和月读卡片都能打开，旧实例若还开着就先关掉，
+    -- 否则两个实例各拿一份存档副本，后保存的会覆盖先保存的（模拟器里实测）
+    if Game.current and not Game.current.closed then Game.current:close() end
     local self = setmetatable({ host = host, page = "attic" }, Game)
     self.debug = host:getSetting("debug_fast", false)
     self.state = State.load(host:loadState(), host:now())
+    Game.current = self
     return self
 end
 
 function Game:save() self.host:saveState(self.state) end
 
 function Game:tick()
+    -- 每次结算前重读存档：以落盘的为准（首页卡片 / 其他入口可能改过）
+    self.state = State.load(self.host:loadState() or self.state, self.host:now())
     local ok, Reading = pcall(require, "papersprite.core.reading")
     if ok then pcall(Reading.collect, self.state) end
     local ev = Travel.settle(self.state, self.host:now(), self.debug)
@@ -79,14 +85,16 @@ function Game:_attic()
         lines[2] = { text = "已经出门 " .. fmtDur(now - sp.left_at, self.debug), muted = true }
     end
     if s.visitor then lines[#lines + 1] = "一只墨点虫趴在油灯旁，晃着小触角。" end
-    lines[#lines + 1] = { text = "灵感 " .. s.inspiration .. " · 明信片 " .. #s.postcards, muted = true }
+    local unseen = #s.postcards - (s.wall_seen or 0)
+    lines[#lines + 1] = { text = "灵感 " .. s.inspiration .. " · 明信片 " .. #s.postcards
+        .. (unseen > 0 and ("（新 " .. unseen .. "）") or ""), muted = true }
     for i = #s.log, math.max(1, #s.log - 4), -1 do lines[#lines + 1] = { text = s.log[i], muted = true } end
     local b = {}
     if sp.status ~= "away" then
         b[#b + 1] = { text = "收拾行囊", callback = function() self:go("basket") end }
     end
     b[#b + 1] = { text = "明信片墙（" .. #s.postcards .. "）", callback = function() self:go("wall") end }
-    return { title = "阿页的阁楼", image = "attic/attic.png", lines = lines, buttons = b }
+    return { title = "阿页的阁楼", image = sp.status == "away" and "attic/attic_empty.png" or "attic/attic.png", lines = lines, buttons = b }
 end
 
 function Game:_basket()
@@ -98,8 +106,9 @@ function Game:_basket()
         lines[#lines + 1] = SLOT_NAME[slot] .. "：" .. cur
         local row = {}
         for _, it in ipairs(Items) do
-            if it.slot == slot and (s.inventory[it.id] or 0) > 0 then
-                row[#row + 1] = { text = it.name .. "×" .. s.inventory[it.id], callback = function()
+            local n = Travel.count(s, it.id)
+            if it.slot == slot and n > 0 then
+                row[#row + 1] = { text = it.name .. (n == math.huge and "" or ("×" .. n)), callback = function()
                     Travel.put(s, it.id, self.host:now(), self.debug)
                     self:save()
                     self:render()
@@ -115,6 +124,7 @@ end
 function Game:_wall()
     local s = self.state
     local lines, b = {}, {}
+    if s.wall_seen ~= #s.postcards then s.wall_seen = #s.postcards self:save() end
     if #s.postcards == 0 then lines[1] = "墙上还空着，等阿页寄第一张回来。" end
     for i = #s.postcards, 1, -1 do
         local c = Postcards.get(s.postcards[i].id)
@@ -142,6 +152,8 @@ function Game:_card()
 end
 
 function Game:view()
+    -- 停在行囊页时阿页出门了：行囊已带走，回阁楼看纸条
+    if self.page == "basket" and self.state.sprite.status == "away" then self.page = "attic" end
     local v = self["_" .. self.page](self)
     v.on_close = function() self.closed = true if self.timer then self.host:unschedule(self.timer) self.timer = nil end end
     return v

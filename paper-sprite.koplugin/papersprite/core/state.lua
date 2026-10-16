@@ -15,6 +15,7 @@ function State.fresh(now)
         sprite = { status = "home" },     -- home | packed | away
         seed = (now or 0) % 2147483647 + 1,
         postcards = {},                   -- { {id, at} }，新的在后
+        wall_seen = 0,                    -- 上次看明信片墙时的张数（首页卡片据此显示「新明信片」）
         souvenirs = {},                   -- id -> count
         log = {},                         -- 阁楼里的近况（新的在后，最多 20 条）
         visitor = nil,                    -- 墨点虫：{ until_at }

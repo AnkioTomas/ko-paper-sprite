@@ -25,6 +25,10 @@ end
 local function item(id) for _, it in ipairs(Items) do if it.id == id then return it end end end
 T.item = item
 
+--- 家里常备（price = 0）的东西取之不尽，否则第一趟之后就没东西可带了（模拟器实测）
+function T.staple(id) local it = item(id) return it and it.price == 0 end
+function T.count(s, id) if T.staple(id) then return math.huge end return s.inventory[id] or 0 end
+
 function T.basketFull(s)
     for _, slot in ipairs(T.SLOTS) do if not s.basket[slot] then return false end end
     return true
@@ -33,10 +37,10 @@ end
 --- 放一件东西进行囊（从库存扣除；同格旧物退回库存）。
 function T.put(s, id, now, debug_fast)
     local it = item(id)
-    if not it or (s.inventory[id] or 0) <= 0 or s.sprite.status == "away" then return false end
+    if not it or T.count(s, id) <= 0 or s.sprite.status == "away" then return false end
     local old = s.basket[it.slot]
-    if old then s.inventory[old] = (s.inventory[old] or 0) + 1 end
-    s.inventory[id] = s.inventory[id] - 1
+    if old and not T.staple(old) then s.inventory[old] = (s.inventory[old] or 0) + 1 end
+    if not T.staple(id) then s.inventory[id] = s.inventory[id] - 1 end
     s.basket[it.slot] = id
     if T.basketFull(s) and s.sprite.status == "home" then
         local u = T.timing(debug_fast)

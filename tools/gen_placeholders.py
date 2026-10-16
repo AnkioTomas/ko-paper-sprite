@@ -45,6 +45,7 @@ c.rect(60, 190, 300, 205, 0, True); c.rect(70, 205, 80, 280, 0, True); c.rect(28
 c.rect(240, 160, 252, 190, 1, True); c.circle(246, 150, 12, 2, True)
 c.rect(380, 230, 470, 280, 1)
 for i in range(4): c.rect(380 + i * 45, 60, 415 + i * 45, 110, 1)
+c.save("attic/attic_empty.png")  # 阿页出门时：空书桌
 c.rect(150, 150, 180, 190, 0); c.tri((170, 150), (180, 150), (180, 160), 0)  # 阿页：纸身 + 折角
 c.save("attic/attic.png")
 # 地点背景
