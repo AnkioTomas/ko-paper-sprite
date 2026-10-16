@@ -29,6 +29,8 @@ local function btns()
     local out = {}
     for _, c in ipairs(H.view.grid and H.view.grid.cells or {}) do out[#out + 1] = { text = c.caption, callback = c.callback } end
     for _, c in ipairs(H.view.list and H.view.list.rows or {}) do out[#out + 1] = { text = c.title, callback = c.callback } end
+    for _, c in ipairs(H.view.shelf and H.view.shelf.cells or {}) do out[#out + 1] = { text = c.name, callback = c.callback } end
+    for _, c in ipairs(H.view.tabs or {}) do out[#out + 1] = { text = "tab:" .. c.text, callback = c.callback } end
     for _, b in ipairs(H.view.buttons) do
         if b[1] then for _, c in ipairs(b) do out[#out + 1] = c end else out[#out + 1] = b end
     end
@@ -276,5 +278,32 @@ click("列表视图"); assert(H.view.list and #H.view.list.rows == 4 and H.view.
 assert(H.view.list.rows[1].new, "new badge survives re-render in the same wall visit")
 click("网格视图"); assert(H.view.grid)
 g5:close()
+
+-- 13. 小铺：货架分页 / 分类 / 详情 / 购买；每件可买物品都有介绍，效果行与数据一致
+local Items = require("papersprite.data.items")
+for _, it in ipairs(Items) do
+    assert(type(it.desc) == "string" and #it.desc > 0, "desc " .. it.id)
+    local short, long = Game.itemEffect(it)
+    assert(short:find("爱去") and #long >= 3)
+    if (it.hours_bias or 0) > 0 then assert(short:find("+" .. it.hours_bias, 1, true)) end
+end
+local list, sp, sps, total = Game.shopPage("all", 1)
+assert(#list == 6 and sp == 1 and sps == math.ceil(total / 6))
+assert(select(2, Game.shopPage("all", 99)) == sps)
+for _, it in ipairs((Game.shopPage("food", 1))) do assert(it.slot == "food" and it.price > 0) end
+local sb = State.fresh(0); sb.inspiration = 100
+H.saved = sb
+local g6 = Game.new(H.host):show()
+click("小铺")
+assert(H.view.shelf and #H.view.shelf.cells == 6 and H.view.pager.pages == sps)
+assert(H.view.shelf.cells[1].desc and H.view.shelf.cells[1].price and H.view.shelf.cells[1].owned)
+H.view.pager.next(); assert(H.view.pager.page == 2)
+click("tab:护身物"); assert(H.view.pager.page == 1)
+local first = H.view.shelf.cells[1].name
+click(first); assert(H.view.title == first)
+local before_insp = g6.state.inspiration
+click("买一个"); assert(g6.state.inspiration < before_insp)
+click("回小铺"); assert(H.view.shelf)
+g6:close()
 
 print("headless ok: postcards=" .. #st.postcards .. " places=" .. np .. " combos=" .. nc)

@@ -191,26 +191,84 @@ function Game:_basket()
     return { title = "收拾行囊", icons = { "sprite/carry.png", unpack(icons) }, lines = lines, buttons = b }
 end
 
+Game.SHOP_COLS, Game.SHOP_ROWS = 2, 3
+Game.SHOP_TABS = { { id = "all", name = "全部" }, { id = "food", name = "干粮" }, { id = "charm", name = "护身物" }, { id = "book", name = "随身小书" } }
+local TAG_NAME = { water = "水边", forest = "森林", market = "集市", indoor = "屋里", town = "小镇", travel = "车站", snow = "雪地",
+    sky = "天上", mountain = "山里", desert = "沙丘", sea = "海边", garden = "花园", night = "夜里", underground = "地下" }
+Game.TAG_NAME = TAG_NAME
+
+--- 纯函数：由数据算出物品的实际效果（tags 让目的地更偏向这些地方；hours_bias 加减旅程小时）
+function Game.itemEffect(it)
+    local places = {}
+    for _, t in ipairs(it.tags or {}) do places[#places + 1] = TAG_NAME[t] or t end
+    local h = it.hours_bias or 0
+    local short = "爱去" .. table.concat(places, "·")
+    if h > 0 then short = short .. " · 旅程+" .. h .. "时" elseif h < 0 then short = short .. " · 旅程" .. h .. "时" end
+    local long = { "放进藤筐后，阿页更常去" .. table.concat(places, "、") .. "的地方。" }
+    if h > 0 then long[#long + 1] = "旅程平均长 " .. h .. " 小时（路上多寄明信片的时间更宽裕）。"
+    elseif h < 0 then long[#long + 1] = "旅程平均短 " .. (-h) .. " 小时，早点回家。"
+    else long[#long + 1] = "不影响旅程长短。" end
+    long[#long + 1] = it.price == 0 and "常备物品，不会用完。" or "出门时带走一个，用掉就没了。"
+    return short, long
+end
+
+--- 纯函数：小铺某一页（只列可买的；tab = all|food|charm|book）
+function Game.shopPage(tab, page)
+    local list = {}
+    for _, it in ipairs(Items) do
+        if it.price > 0 and (tab == nil or tab == "all" or it.slot == tab) then list[#list + 1] = it end
+    end
+    local per = Game.SHOP_COLS * Game.SHOP_ROWS
+    local pages = math.max(1, math.ceil(#list / per))
+    page = math.max(1, math.min(page or 1, pages))
+    local out = {}
+    for i = (page - 1) * per + 1, math.min(#list, page * per) do out[#out + 1] = list[i] end
+    return out, page, pages, #list
+end
+
+function Game:_buy(it)
+    local s = self.state
+    if s.inspiration < it.price then self.host:notify("灵感不够") return end
+    s.inspiration = s.inspiration - it.price
+    s.inventory[it.id] = (s.inventory[it.id] or 0) + 1
+    self:save()
+    self.host:notify("买下了" .. it.name)
+    self:render()
+end
+
 function Game:_shop()
     local s = self.state
-    local lines = { "小铺老板是一枚不爱说话的图钉。用灵感换东西。", { text = "灵感 " .. s.inspiration, muted = true } }
-    local b, row = {}, {}
-    for _, it in ipairs(Items) do
-        if it.price > 0 then
-            row[#row + 1] = { text = it.name .. " " .. it.price .. "（有 " .. (s.inventory[it.id] or 0) .. "）",
-                callback = function()
-                    if s.inspiration < it.price then self.host:notify("灵感不够") return end
-                    s.inspiration = s.inspiration - it.price
-                    s.inventory[it.id] = (s.inventory[it.id] or 0) + 1
-                    self:save()
-                    self:render()
-                end }
-            if #row == 2 then b[#b + 1] = row row = {} end
-        end
+    local tab = self.shop_tab or "all"
+    local items, page, pages = Game.shopPage(tab, self.shop_page)
+    self.shop_page = page
+    local cells = {}
+    for _, it in ipairs(items) do
+        local short = Game.itemEffect(it)
+        cells[#cells + 1] = { icon = "items/" .. it.id .. ".png", name = it.name, price = "✦ " .. it.price,
+            owned = "有 " .. (s.inventory[it.id] or 0), desc = short, dim = s.inspiration < it.price,
+            callback = function() self:go("shop_item", it.id) end }
     end
-    if #row > 0 then b[#b + 1] = row end
-    b[#b + 1] = { text = "回阁楼", callback = function() self:go("attic") end }
-    return { title = "小铺", lines = lines, buttons = b }
+    local tabs = {}
+    for _, t in ipairs(Game.SHOP_TABS) do
+        tabs[#tabs + 1] = { text = t.name, active = t.id == tab, callback = function() self.shop_tab, self.shop_page = t.id, 1 self:render() end }
+    end
+    return { title = "小铺", lines = { "图钉老板把货摆在一格一格的架子上。点一件看看。", { text = "灵感 ✦ " .. s.inspiration, muted = true } },
+        tabs = tabs, shelf = { cols = Game.SHOP_COLS, cells = cells },
+        pager = { page = page, pages = pages,
+            prev = function() self.shop_page = page - 1 self:render() end, next = function() self.shop_page = page + 1 self:render() end },
+        buttons = { { text = "回阁楼", callback = function() self:go("attic") end } } }
+end
+
+function Game:_shop_item()
+    local s = self.state
+    local it = Travel.item(self.arg)
+    if not it then self.page = "shop" return self:_shop() end
+    local _, long = Game.itemEffect(it)
+    local lines = { it.desc or "", { text = "价格 ✦ " .. it.price .. "　·　已有 " .. (s.inventory[it.id] or 0) .. "　·　灵感 ✦ " .. s.inspiration, muted = true } }
+    for _, l in ipairs(long) do lines[#lines + 1] = "· " .. l end
+    return { title = it.name, icons = { "items/" .. it.id .. ".png" }, lines = lines,
+        buttons = { { { text = "买一个（✦ " .. it.price .. "）", callback = function() self:_buy(it) end },
+                      { text = "回小铺", callback = function() self:go("shop") end } } } }
 end
 
 Game.WALL_GRID = { cols = 3, rows = 4 }

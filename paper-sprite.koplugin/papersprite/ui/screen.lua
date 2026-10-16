@@ -7,6 +7,8 @@ view = {
   title, scene?（分层画面）, icons?, lines = {string|{text,muted}},
   grid?  = { cols, cells = { {scene, new, caption, callback} } },        明信片墙：缩略图网格
   list?  = { rows = { {scene, new, title, line, date, callback} } },      明信片列表：缩略图 + 文字
+  tabs?  = { {text, active, callback} },                                  分类页签（一行按钮，当前项加 ✓）
+  shelf? = { cols, cells = { {icon, name, price, owned, desc, dim, callback} } }, 小铺货架：物品卡
   pager? = { page, pages, prev, next },                                   翻页条（n / m）
   buttons = { btn | {btn,...} }, on_close?
 }
@@ -190,6 +192,48 @@ function S:init()
         local t = type(l) == "table" and l or { text = l }
         table.insert(body, indent(k.text(t.text, inner, t.muted)))
         gap(6)
+    end
+    -- 分类页签
+    if v.tabs then
+        local tg = px(6)
+        local tw = math.floor((inner - tg * (#v.tabs - 1)) / #v.tabs)
+        local row = HorizontalGroup:new{}
+        for i, t in ipairs(v.tabs) do
+            if i > 1 then table.insert(row, HorizontalSpan:new{ width = tg }) end
+            table.insert(row, k.button((t.active and "✓ " or "") .. t.text, tw, t.callback))
+        end
+        table.insert(body, indent(row))
+        gap(10)
+    end
+    -- 小铺货架：物品卡（图标 + 名字 + 价格 / 已有 + 一行效果）
+    if v.shelf then
+        local cols, g = v.shelf.cols or 2, px(10)
+        local cw = math.floor((inner - g * (cols - 1)) / cols)
+        local cpad = px(8)
+        local iw = px(64)
+        local row
+        for i, c in ipairs(v.shelf.cells) do
+            if (i - 1) % cols == 0 then
+                if row then table.insert(body, indent(row)) gap(10) end
+                row = HorizontalGroup:new{ align = "top" }
+            else
+                table.insert(row, HorizontalSpan:new{ width = g })
+            end
+            local textw = cw - cpad * 2 - iw - px(8) - px(4)
+            local icon = try(function() return require("papersprite.ui.compose").icon(c.icon, iw) end) or img(c.icon, iw, iw, true)
+                or require("ui/widget/container/widgetcontainer"):new{ dimen = Geom:new{ w = iw, h = iw } }
+            local info = VerticalGroup:new{ align = "left", k.line(c.name, textw), VerticalSpan:new{ width = px(4) },
+                k.line(c.price .. "　" .. c.owned, textw, c.dim) }
+            local top = HorizontalGroup:new{ align = "center", icon, HorizontalSpan:new{ width = px(8) }, info }
+            local inner_c = VerticalGroup:new{ align = "left", top, VerticalSpan:new{ width = px(6) }, k.line(c.desc or "", cw - cpad * 2 - px(4), true, true) }
+            local box = OverlapGroup:new{ dimen = Geom:new{ w = cw - px(4) - cpad * 2,
+                h = iw + px(6) + k.line("阿", cw, true, true):getSize().h }, inner_c }
+            local framed = FrameContainer:new{ padding = cpad, bordersize = 0, box }
+            local cell = k.frame(framed, true)
+            local sz = cell:getSize()
+            table.insert(row, tap(cell, sz.w, sz.h, c.callback))
+        end
+        if row then table.insert(body, indent(row)) gap(10) end
     end
     -- 明信片墙：缩略图网格
     if v.grid then
