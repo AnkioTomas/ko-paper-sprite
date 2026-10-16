@@ -33,6 +33,7 @@ local OverlapGroup = require("ui/widget/overlapgroup")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
+local logger = require("logger")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local Interface = require("papersprite.host.interface")
@@ -98,12 +99,23 @@ local function kit(skin)
         return FrameContainer:new{ bordersize = px(1), padding = px(2), margin = 0, background = Blitbuffer.COLOR_WHITE, color = k.ink,
             TextWidget:new{ text = text, face = k.small } }
     end
+    --- 原生翻页条：同 KOReader Menu / KeyValuePage 的页脚（« ‹  n / m  › »，无边框图标按钮）
     function native.pager(w, p)
-        local bw = math.floor(w / 4)
-        local mid = CenterContainer:new{ dimen = Geom:new{ w = w - bw * 2, h = px(44) }, TextWidget:new{ text = p.page .. " / " .. p.pages, face = k.face } }
-        return HorizontalGroup:new{ align = "center",
-            native.button("‹ 上一页", bw, p.page > 1 and p.prev or function() end), mid,
-            native.button("下一页 ›", bw, p.page < p.pages and p.next or function() end) }
+        local Button = require("ui/widget/button")
+        local isz = px(32)
+        local function chev(icon, enabled, cb)
+            return Button:new{ icon = icon, icon_width = isz, icon_height = isz, bordersize = 0, enabled = enabled,
+                callback = cb or function() end, show_parent = nil }
+        end
+        local first = p.first or function() for _ = p.page, 2, -1 do p.prev() end end
+        local mid_w = px(140)
+        local mid = CenterContainer:new{ dimen = Geom:new{ w = mid_w, h = px(44) }, TextWidget:new{ text = p.page .. " / " .. p.pages, face = k.face } }
+        local row = HorizontalGroup:new{ align = "center",
+            chev("chevron.first", p.page > 1, p.go and function() p.go(1) end or nil), HorizontalSpan:new{ width = px(16) },
+            chev("chevron.left", p.page > 1, p.prev), mid,
+            chev("chevron.right", p.page < p.pages, p.next), HorizontalSpan:new{ width = px(16) },
+            chev("chevron.last", p.page < p.pages, p.go and function() p.go(p.pages) end or nil) }
+        return CenterContainer:new{ dimen = Geom:new{ w = w, h = row:getSize().h }, row }
     end
     for name, fn in pairs(native) do k[name] = fn end
     if skin == "native" then return k end
@@ -181,6 +193,35 @@ function S:init()
     local function indent(wdg) return HorizontalGroup:new{ HorizontalSpan:new{ width = pad }, wdg } end
     local function gap(n) table.insert(body, VerticalSpan:new{ width = px(n) }) end
     -- 标题栏
+    -- 页脚（翻页条 + 按钮）先建好：量出高度，内容区按剩余高度排，页脚贴屏幕底部
+    local footer = VerticalGroup:new{ align = "left" }
+    if v.pager and v.pager.pages > 1 then
+        table.insert(footer, indent(k.pager(inner, v.pager)))
+        table.insert(footer, VerticalSpan:new{ width = px(8) })
+    end
+    for _, b in ipairs(v.buttons or {}) do
+        local row = b[1] and b or { b }
+        local bg = px(8)
+        local bw = math.floor((inner - bg * (#row - 1)) / #row)
+        local g = HorizontalGroup:new{}
+        for i, btn in ipairs(row) do
+            if i > 1 then table.insert(g, HorizontalSpan:new{ width = bg }) end
+            table.insert(g, k.button(btn.text, bw, btn.callback))
+        end
+        table.insert(footer, indent(g))
+        table.insert(footer, VerticalSpan:new{ width = px(8) })
+    end
+    local footer_h = footer:getSize().h
+    -- VerticalGroup 会缓存尺寸，量高度前先 resetLayout
+    local function bodyH() if body.resetLayout then body:resetLayout() end return body:getSize().h end
+    --- 按剩余高度算一页能放几行；和当前每页数量不一样就告诉游戏（下一帧重排），保证不裁切也不留大块空白
+    local function fit(spec, cols, before, step, gapn)
+        if not spec or not spec.fit or step <= 0 then return end
+        local avail = h - before - footer_h - px(6)
+        local rows = math.max(1, math.floor((avail + gapn) / step))
+        local per = rows * cols
+        if per ~= spec.per then UIManager:nextTick(function() spec.fit(per) end) end
+    end
     local left = v.back and { icon = "arrow_back", text = "‹ 返回", callback = v.back }
         or { icon = "close", text = "✕", callback = function() self:onClose() end }
     table.insert(body, k.title(w, v.title, left, v.switch))
@@ -278,6 +319,7 @@ function S:init()
     end
     -- 小铺货架：物品卡（图标 + 名字 + 价格 / 已有 + 一行效果）
     local function renderShelf(shelf)
+        local before = bodyH()
         local cols, g = shelf.cols or 2, px(10)
         local cw = math.floor((inner - g * (cols - 1)) / cols)
         local cpad = px(8)
@@ -316,9 +358,11 @@ function S:init()
             local cell = k.frame(framed, true)
             local sz = cell:getSize()
             table.insert(row, tap(cell, sz.w, sz.h, c.callback))
+            shelf._step = shelf._step or (sz.h + px(10))
             ::continue::
         end
         if row then table.insert(body, indent(row)) gap(10) end
+        fit(shelf, cols, before, shelf._step or 0, px(10))
     end
     if v.shelf then renderShelf(v.shelf) end
     if v.lines2 then renderLines(v.lines2) end
@@ -330,6 +374,7 @@ function S:init()
         local cw = math.floor((inner - g * (cols - 1)) / cols)
         local ch = math.floor(cw / 2)
         local caph = k.line("阿", cw, true, true):getSize().h
+        fit(v.grid, cols, bodyH(), ch + caph + px(4) + px(12), px(12))
         local row
         for i, c in ipairs(v.grid.cells) do
             if (i - 1) % cols == 0 then
@@ -346,7 +391,19 @@ function S:init()
     end
     -- 明信片列表：左缩略图 + 地点 / 短句 / 日期
     if v.list then
+        -- 行高按屏幕剩余高度定：先按默认缩略图算能放几行；剩下的空白超过半行就多放一行、把缩略图略缩小
+        local g12 = px(12)
+        local before = bodyH()
+        local avail = h - before - footer_h - px(6)
+        local colh = k.line("阿", 100):getSize().h + k.line("阿", 100, true, true):getSize().h * 2 + px(4)
+        local bd = px(2)
         local th = px(84)
+        local rows = math.max(1, math.floor((avail + g12) / (math.max(th + bd, colh) + g12)))
+        local left = avail + g12 - rows * (math.max(th + bd, colh) + g12)
+        if left > (math.max(th + bd, colh) + g12) * 0.5 then
+            local th2 = math.floor((avail + g12) / (rows + 1) - g12 - bd)
+            if th2 >= colh - bd and th2 >= px(60) then th, rows = th2, rows + 1 end
+        end
         local tw = th * 2
         local textw = inner - tw - px(14)
         for _, r in ipairs(v.list.rows) do
@@ -354,30 +411,32 @@ function S:init()
                 k.line(r.title or "", textw), VerticalSpan:new{ width = px(2) },
                 k.line(r.line or "", textw, true, true), VerticalSpan:new{ width = px(2) },
                 k.line(r.date or "", textw, true, true) }
-            local rowh = math.max(th, col:getSize().h)
             local rw = HorizontalGroup:new{ align = "center", k.frame(thumb(k, r.scene, tw, th, r.new), false), HorizontalSpan:new{ width = px(14) }, col }
+            local rowh = math.max(th + bd, col:getSize().h, rw:getSize().h)
             table.insert(body, indent(tap(rw, inner, rowh, r.callback)))
             gap(12)
         end
+        if v.list.fit and rows ~= v.list.per then UIManager:nextTick(function() v.list.fit(rows) end) end
     end
-    if v.pager and v.pager.pages > 1 then
-        table.insert(body, indent(k.pager(inner, v.pager)))
-        gap(10)
-    end
-    gap(4)
-    for _, b in ipairs(v.buttons or {}) do
-        local row = b[1] and b or { b }
-        local bg = px(8)
-        local bw = math.floor((inner - bg * (#row - 1)) / #row)
-        local g = HorizontalGroup:new{}
-        for i, btn in ipairs(row) do
-            if i > 1 then table.insert(g, HorizontalSpan:new{ width = bg }) end
-            table.insert(g, k.button(btn.text, bw, btn.callback))
-        end
-        table.insert(body, indent(g))
-        gap(8)
-    end
+    local filler = h - bodyH() - footer_h
+    if filler > 0 then table.insert(body, VerticalSpan:new{ width = filler }) end
+    if footer_h > 0 then table.insert(body, footer) end
+    body:resetLayout()
     self[1] = FrameContainer:new{ width = w, height = h, padding = 0, bordersize = 0, background = k.bg, body }
+    -- 左右滑翻页（同 KOReader 列表）
+    if v.pager and v.pager.pages > 1 then
+        self.ges_events = self.ges_events or {}
+        self.ges_events.SwipePage = { GestureRange:new{ ges = "swipe", range = function() return self.dimen end } }
+    end
+end
+
+function S:onSwipePage(_, ges)
+    local p = self.view.pager
+    if not p or not ges then return false end
+    local dir = ges.direction
+    if dir == "west" and p.page < p.pages then p.next() return true end
+    if dir == "east" and p.page > 1 then p.prev() return true end
+    return dir == "west" or dir == "east"
 end
 
 function S:onClose()

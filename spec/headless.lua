@@ -287,7 +287,10 @@ assert(H.view.grid and #H.view.grid.cells == 12 and H.view.pager.pages == 3 and 
 H.view.pager.next(); assert(H.view.pager.page == 2)
 click("switch:列表"); assert(H.view.list and #H.view.list.rows == 4 and H.view.list.rows[1].date and H.view.pager.pages == 8)
 assert(H.view.list.rows[1].new, "new badge survives re-render in the same wall visit")
-click("switch:网格"); assert(H.view.grid)
+click("switch:网格")
+-- 界面按剩余高度回报每页数量：记住并重排；翻页条带 go（首页 / 末页）
+H.view.grid.fit(9); assert(#H.view.grid.cells == 9 and H.view.pager.pages == 4 and H.view.grid.per == 9)
+H.view.pager.go(4); assert(H.view.pager.page == 4 and #H.view.grid.cells == 3); assert(H.view.grid)
 g5:close()
 
 -- 13. 小铺：货架分页 / 分类 / 详情 / 购买；每件可买物品都有介绍，效果行与数据一致

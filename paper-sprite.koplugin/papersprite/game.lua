@@ -206,7 +206,7 @@ function Game:_basket()
     for _, it in ipairs(Items) do
         if it.slot == slot and Travel.count(s, it.id) > 0 then list[#list + 1] = it end
     end
-    local per = 6
+    local per = self:per("basket", 6)
     local pages = math.max(1, math.ceil(#list / per))
     local page = math.max(1, math.min(self.basket_page or 1, pages))
     self.basket_page = page
@@ -228,9 +228,9 @@ function Game:_basket()
     return { title = "收拾行囊", status = st,
         shelf = { cols = 3, icon = 48, compact = true, cells = cells },
         lines2 = { { text = "放进「" .. SLOT_NAME[slot] .. "」", label = true } },
-        shelf2 = { cols = 2, cells = picks },
+        shelf2 = { cols = 2, cells = picks, per = per, fit = self:fitter("basket") },
         empty2 = #picks == 0 and { title = "这一格没有可放的东西", caption = "去小铺看看" } or nil,
-        pager = { page = page, pages = pages, prev = function() self.basket_page = page - 1 self:render() end,
+        pager = { page = page, pages = pages, go = function(n) self.basket_page = n self:render() end, prev = function() self.basket_page = page - 1 self:render() end,
             next = function() self.basket_page = page + 1 self:render() end } }
 end
 
@@ -256,12 +256,12 @@ function Game.itemEffect(it)
 end
 
 --- 纯函数：小铺某一页（只列可买的；tab = all|food|charm|book）
-function Game.shopPage(tab, page)
+function Game.shopPage(tab, page, per_override)
     local list = {}
     for _, it in ipairs(Items) do
         if it.price > 0 and (tab == nil or tab == "all" or it.slot == tab) then list[#list + 1] = it end
     end
-    local per = Game.SHOP_COLS * Game.SHOP_ROWS
+    local per = per_override or Game.SHOP_COLS * Game.SHOP_ROWS
     local pages = math.max(1, math.ceil(#list / per))
     page = math.max(1, math.min(page or 1, pages))
     local out = {}
@@ -282,7 +282,8 @@ end
 function Game:_shop()
     local s = self.state
     local tab = self.shop_tab or "all"
-    local items, page, pages = Game.shopPage(tab, self.shop_page)
+    local sper = self:per("shop", Game.SHOP_COLS * Game.SHOP_ROWS)
+    local items, page, pages = Game.shopPage(tab, self.shop_page, sper)
     self.shop_page = page
     local cells = {}
     for _, it in ipairs(items) do
@@ -297,8 +298,8 @@ function Game:_shop()
     end
     return { title = "小铺", status = { icon = "items/paper_clip.png", icon_size = 48, title = "图钉小铺", caption = "老板是一枚不爱说话的图钉。点一件看看。",
             meta = "灵感 ✦ " .. s.inspiration },
-        tabs = tabs, shelf = { cols = Game.SHOP_COLS, cells = cells },
-        pager = { page = page, pages = pages,
+        tabs = tabs, shelf = { cols = Game.SHOP_COLS, cells = cells, per = sper, fit = self:fitter("shop") },
+        pager = { page = page, pages = pages, go = function(n) self.shop_page = n self:render() end,
             prev = function() self.shop_page = page - 1 self:render() end, next = function() self.shop_page = page + 1 self:render() end },
         buttons = {} }
 end
@@ -319,8 +320,8 @@ Game.WALL_GRID = { cols = 3, rows = 4 }
 Game.WALL_LIST = 4
 
 --- 纯函数：明信片墙的一页。mode = grid（缩略图网格）| list（缩略图 + 文字），新的在前
-function Game.wallPage(s, mode, page)
-    local per = mode == "list" and Game.WALL_LIST or Game.WALL_GRID.cols * Game.WALL_GRID.rows
+function Game.wallPage(s, mode, page, per)
+    per = per or (mode == "list" and Game.WALL_LIST or Game.WALL_GRID.cols * Game.WALL_GRID.rows)
     local total = #s.postcards
     local pages = math.max(1, math.ceil(total / per))
     page = math.max(1, math.min(page or 1, pages))
@@ -335,7 +336,9 @@ function Game:_wall()
     local seen_before = self._wall_seen0 or s.wall_seen or 0
     if s.wall_seen ~= #s.postcards then s.wall_seen = #s.postcards self:save() end
     local mode = self.host:getSetting("wall_mode", "grid") == "list" and "list" or "grid"
-    local idx, page, pages = Game.wallPage(s, mode, self.wall_page)
+    local wkey = "wall_" .. mode
+    local wper = self:per(wkey, mode == "list" and Game.WALL_LIST or Game.WALL_GRID.cols * Game.WALL_GRID.rows)
+    local idx, page, pages = Game.wallPage(s, mode, self.wall_page, wper)
     self.wall_page = page
     local v = { title = "明信片墙", lines = {} }
     if #s.postcards == 0 then v.empty = { title = "墙上还空着", caption = "等阿页寄第一张回来。" } 
@@ -346,14 +349,14 @@ function Game:_wall()
         return c, (p and p.name or c.place), (Postcards.weather_names[c.weather] or "")
     end
     if mode == "grid" then
-        v.grid = { cols = Game.WALL_GRID.cols, cells = {} }
+        v.grid = { cols = Game.WALL_GRID.cols, cells = {}, per = wper, fit = self:fitter(wkey) }
         for _, i in ipairs(idx) do
             local c, name = cardInfo(i)
             v.grid.cells[#v.grid.cells + 1] = { scene = Game.cardScene(c), new = i > seen_before, caption = name,
                 callback = function() self:go("card", i) end }
         end
     else
-        v.list = { rows = {} }
+        v.list = { rows = {}, per = wper, fit = self:fitter(wkey) }
         for _, i in ipairs(idx) do
             local c, name, wn = cardInfo(i)
             v.list.rows[#v.list.rows + 1] = { scene = Game.cardScene(c), new = i > seen_before, title = name .. " · " .. wn,
@@ -362,7 +365,8 @@ function Game:_wall()
     end
     v.pager = { page = page, pages = pages,
         prev = function() self.wall_page = page - 1 self:render() end,
-        next = function() self.wall_page = page + 1 self:render() end }
+        next = function() self.wall_page = page + 1 self:render() end,
+        go = function(n) self.wall_page = n self:render() end }
     v.switch = { icon = mode == "grid" and "view_list" or "grid_view", text = mode == "grid" and "列表" or "网格", callback = function()
         self.host:setSetting("wall_mode", mode == "grid" and "list" or "grid") self.wall_page = 1 self:render() end }
     return v
@@ -390,7 +394,8 @@ function Game:_card()
         scene = Game.cardScene(c),
         status = { title = (p and p.name or c.place) .. " · " .. (Postcards.weather_names[c.weather] or ""), caption = (c.line or "") .. "　——阿页",
             meta = os.date("%Y-%m-%d %H:%M", c.at or 0) .. "　·　第 " .. i .. " / " .. n .. " 张" },
-        pager = { page = n - i + 1, pages = n, prev = function() self.arg = i + 1 self:render() end, next = function() self.arg = i - 1 self:render() end },
+        pager = { page = n - i + 1, pages = n, prev = function() self.arg = i + 1 self:render() end, next = function() self.arg = i - 1 self:render() end,
+            go = function(pg) self.arg = n - pg + 1 self:render() end },
     }
 end
 
@@ -414,11 +419,12 @@ function Game:_cabinet()
     local ids = {}
     for id in pairs(s.souvenirs) do if Postcards.souvenirs[id] then ids[#ids + 1] = id end end
     table.sort(ids, function(a, b) return Postcards.souvenirs[a].name < Postcards.souvenirs[b].name end)
-    local pages = math.max(1, math.ceil(#ids / Game.CAB_PER))
+    local cper = self:per("cabinet", Game.CAB_PER)
+    local pages = math.max(1, math.ceil(#ids / cper))
     local page = math.max(1, math.min(self.cab_page or 1, pages))
     self.cab_page = page
     local cells = {}
-    for k = (page - 1) * Game.CAB_PER + 1, math.min(#ids, page * Game.CAB_PER) do
+    for k = (page - 1) * cper + 1, math.min(#ids, page * cper) do
         local id = ids[k]
         local sv = Postcards.souvenirs[id]
         local on = indexOf(s.decor, id)
@@ -430,8 +436,8 @@ function Game:_cabinet()
         status = { icon = s.decor[1] and ("souvenirs/" .. s.decor[1] .. ".png") or nil, title = "收集 " .. #ids .. " / " .. Game.souvenirTotal() .. " 种",
             caption = "阿页带回来的东西都在这里。点一件看看，可以摆到阁楼里。", meta = "阁楼里摆了 " .. #s.decor .. " / " .. Game.DECOR_MAX },
         empty = #ids == 0 and { title = "柜子还空着", caption = "每趟旅行回来，阿页都会带一样特产。" } or nil,
-        shelf = { cols = 2, cells = cells },
-        pager = { page = page, pages = pages, prev = function() self.cab_page = page - 1 self:render() end,
+        shelf = { cols = 2, cells = cells, per = cper, fit = self:fitter("cabinet") },
+        pager = { page = page, pages = pages, go = function(n) self.cab_page = n self:render() end, prev = function() self.cab_page = page - 1 self:render() end,
             next = function() self.cab_page = page + 1 self:render() end } }
 end
 
@@ -447,6 +453,17 @@ function Game:_souvenir()
             meta = "收着 ×" .. s.souvenirs[id] .. "　·　" .. (on and "摆在阁楼里" or "收在柜子里") },
         lines = { { text = "阁楼右墙的矮架上能摆 " .. Game.DECOR_MAX .. " 样，现在摆了 " .. #s.decor .. " 样。", muted = true, small = true } },
         buttons = { { text = on and "从阁楼收起" or "摆到阁楼里", callback = function() self:_toggleDecor(id) end } } }
+end
+
+--- 每页数量：默认值，界面按屏幕剩余高度回报实际能放的数量（fit）后记住
+function Game:per(key, default) self.per_page = self.per_page or {} return self.per_page[key] or default end
+function Game:fitter(key, cur)
+    return function(n)
+        self.per_page = self.per_page or {}
+        if self.per_page[key] == n or self.closed then return end
+        self.per_page[key] = n
+        self:render()
+    end
 end
 
 Game.PARENT = { basket = "attic", shop = "attic", wall = "attic", cabinet = "attic", shop_item = "shop", card = "wall", souvenir = "cabinet" }
