@@ -92,13 +92,20 @@ local function gapOf(T) return T and px(T, T.t.space.sm) or 6 end
 local function borderOf(T) return T and px(T, (T.t.card and T.t.card.border) or 1) or 1 end
 
 --- 可点区域：rects 为相对卡片左上角的 {x,y,w,h,fn}；没命中走 fallback
-local function tappable(w, h, content, rects, fallback, refresh)
+local function tappable(w, h, content, rects, fallback, refresh, on_swipe)
     local Geom = require("ui/geometry")
     local InputContainer = require("ui/widget/container/inputcontainer")
     local GestureRange = require("ui/gesturerange")
     local box = InputContainer:new{ dimen = Geom:new{ x = 0, y = 0, w = w, h = h }, content }
     box.rects = rects
     box.ges_events = { TapPaperSpriteWidget = { GestureRange:new{ ges = "tap", range = function() return box.dimen end } } }
+    if on_swipe then
+        box.ges_events.SwipePaperSpriteWidget = { GestureRange:new{ ges = "swipe", range = function() return box.dimen end } }
+        function box:onSwipePaperSpriteWidget(_, ges)
+            if ges and ges.direction == "south" then on_swipe() return true end
+            return false -- 左右滑照旧交给月读翻页
+        end
+    end
     function box:onTapPaperSpriteWidget(_, ges)
         local x, y = ges.pos.x - self.dimen.x, ges.pos.y - self.dimen.y
         for _, r in ipairs(self.rects or {}) do
@@ -169,7 +176,8 @@ function M.atticBuild(w, h)
         return card(T, w, h, body), {}, sig
     end
     local content, rects, sig = build()
-    return tappable(w, h, content, rects, function() M.open("attic") end, watcher(build, sig))
+    return tappable(w, h, content, rects, function() M.open("attic") end, watcher(build, sig),
+        function() pcall(function() require("papersprite.ui.paper_panel").show() end) end)
 end
 
 ------------------------------------------------------------------ 明信片
@@ -393,37 +401,24 @@ function M.settings(kind, desktop)
             { text = (m == "grid" and "✓ " or "") .. "迷你墙", callback = function() setSetting("w_postcards_mode", "grid") refresh() end },
         } }
     end
-    if kind == "attic" then
-        local on = M.panelEnabled()
-        items[#items + 1] = { buttons = {
-            { text = (on and "✓ " or "") .. "下拉面板显示阁楼", callback = function() setSetting("panel_attic", true) refresh() end },
-            { text = (not on and "✓ " or "") .. "不显示", callback = function() setSetting("panel_attic", false) refresh() end },
-        } }
-    end
     local title = ({ attic = "阁楼", postcards = "明信片", cabinet = "纪念物柜" })[kind]
     require("ui.themes.widgets.sheet"):new{ title = title, items = items }:show()
 end
 
------------------------------------------------------------------- 下拉面板阁楼卡
-function M.panelEnabled() return setting("panel_attic", true) ~= false end
-
---- 下拉快捷面板里的紧凑阁楼卡：左阁楼画面（2:1）右一行近况 + 一行小字；on_tap 由注入方给（关面板再开阁楼）
-function M.panelCard(w, on_tap)
+------------------------------------------------------------------ 阿页的下拉面板内容
+--- 自己的下拉面板（ui/paper_panel）里的内容：通栏阁楼画面 + 近况一行 + 灵感小字；整块点按 on_tap
+function M.panelContent(w, on_tap)
     local T = theme()
-    local HorizontalGroup = require("ui/widget/horizontalgroup")
-    local HorizontalSpan = require("ui/widget/horizontalspan")
     local VerticalGroup = require("ui/widget/verticalgroup")
     local VerticalSpan = require("ui/widget/verticalspan")
     local s, now, dbg = read()
     local d = Data.attic(s, now, dbg)
     local pad, gap, bd = padOf(T), gapOf(T), borderOf(T)
-    local ih = math.max(px(T, 56), math.min(px(T, 96), math.floor(w * 0.16)))
-    local h = ih + pad * 2 + bd * 2
     local inner_w = w - pad * 2 - bd * 2
-    local iw = math.min(ih * 2, math.floor(inner_w * 0.45))
-    local tw = math.max(1, inner_w - iw - gap)
-    local body = HorizontalGroup:new{ align = "center", Compose.widget(d.scene, iw, ih), HorizontalSpan:new{ width = gap },
-        VerticalGroup:new{ align = "left", line(T, "body", d.line, tw), VerticalSpan:new{ width = gap }, line(T, "caption", d.sub, tw, "faint") } }
+    local ih = math.floor(inner_w * 0.42)
+    local h = ih + gap + lineH(T, "body") + lineH(T, "caption") + pad * 2 + bd * 2
+    local body = VerticalGroup:new{ align = "left", Compose.widget(d.scene, inner_w, ih), VerticalSpan:new{ width = gap },
+        line(T, "body", d.line, inner_w), line(T, "caption", d.sub, inner_w, "faint") }
     return tappable(w, h, card(T, w, h, body), {}, on_tap)
 end
 

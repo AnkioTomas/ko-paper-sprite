@@ -20,6 +20,21 @@ local PaperSprite = WidgetContainer:extend{
 
 function PaperSprite:init()
     self.ui.menu:registerToMainMenu(self)
+    self:onDispatcherRegisterActions()
+end
+
+-- KOReader 手势动作：可在「手势」设置里绑到任意手势（装了月读时打开阿页的下拉面板，否则打开阁楼）
+function PaperSprite:onDispatcherRegisterActions()
+    pcall(function()
+        require("dispatcher"):registerAction("papersprite_panel",
+            { category = "none", event = "PaperSpritePanel", title = _("阿页的下拉面板"), general = true })
+    end)
+end
+
+function PaperSprite:onPaperSpritePanel()
+    local ok = pcall(require, "ui.themes") and pcall(function() require("papersprite.ui.paper_panel").show() end)
+    if not ok then self:launch() end
+    return true
 end
 
 function PaperSprite:addToMainMenu(menu_items)

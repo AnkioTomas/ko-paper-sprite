@@ -13,9 +13,6 @@ end
 
 local ID = "ext.papersprite"
 
--- 下拉快捷面板阁楼卡（运行时包装月读面板 Body，失败即不动；见 ui/panel_inject.lua）
-pcall(function() require("papersprite.ui.panel_inject").install() end)
-
 local function host() return require("papersprite.host.moon").new() end
 local function openGame() require("papersprite.game").new(host()):show() end
 local function loadSave() return host():loadState() end
@@ -85,7 +82,7 @@ return {
     features = { panel = { actions = function()
         return { {
             id = "attic", scope = "desktop", title = _("阿页"), icon = "home",
-            run = function() pcall(function() require("papersprite.ui.moon_widgets").open("attic") end) end,
+            run = function() pcall(function() require("papersprite.ui.paper_panel").show() end) end,
         } }
     end } },
     home_widgets = {

@@ -29,31 +29,22 @@
 - 每次绘制前比对显示数据签名（`widget_data.sig`），变了才重建内容。
 - 数据层 `ui/widget_data.lua` 是纯函数（headless 测试覆盖）。
 
-## 顶部下拉快捷面板
-### 阁楼卡（运行时注入，默认开）
-月读面板主体 `features/panel/widget/body.lua` 的 `Body:updateView()` 把内容排进一个 `VerticalGroup`（`self[1]`）：
-阅读面板时先放书名头 `header`，再放动作网格、滑杆。本插件照同样的方式往桌面面板里放一张紧凑阁楼卡（月读仓库不改）：
+## 阿页的下拉面板（自己的，不改月读的快捷面板）
+`papersprite/ui/paper_panel.lua`，照月读快捷面板（`features/panel/native.lua` 的 wrapPanel + 网点遮罩）的样子做：
+- 从屏幕顶端落下的一块：页面底色的月读 Box（不可用时 KOReader FrameContainer 白底）+ 下沿分隔线；
+  里面是阁楼卡（通栏阁楼画面 0.42 宽高 + 近况一行 + 灵感小字，月读卡片 / 文字样式）和一行按钮「收拾行囊 / 明信片墙 / 特产柜 / 收起」。
+- 面板以下铺月读主题网点遮罩（`ui.themes.widgets.mask`）。
+- 关闭：点遮罩、在面板上向上滑、返回键、「收起」；关闭时整屏 full 刷新清残影（同月读面板）。
+- 点阁楼卡 / 按钮：先关面板，下一帧全屏打开阁楼对应页。
+- 每次打开都在存档副本上重新结算（只读），画面走合成缓存。
 
-- `moon_source.lua` 加载时调用 `papersprite/ui/panel_inject.lua` 的 `install()`：包一层 `Body.updateView`——
-  原函数照常执行后，若**桌面面板**（无 header）、**非编辑态**、设置开着，就在 `self[1]` 最前面插入卡片 + 10px 间距，
-  再按新高度重算 `self.dimen`。月读的 `wrapPanel` 在 `Body:new` 之后才量高度，所以面板框自然变高。
-- 卡片：左阁楼画面（2:1，高约 56–96px，按宽度定）+ 右边近况一行 + 灵感小字，月读主题卡片框 / 文字（不可用时原生）。
-  画面走合成缓存；面板每次打开 / 刷新（`Menu.refresh` → `updateItems` → 新建 Body）都会重新结算。
-- 点卡片：调用面板自己的 `body.on_action("ext.papersprite.attic")`，月读 `Registry.execute` 先关面板再运行「阿页」动作打开阁楼
-  （动作没注册时退回直接打开阁楼）。
-- 开关：首页「阁楼」组件设置里「下拉面板显示阁楼 / 不显示」（设置键 `panel_attic`，默认开）。
+**触发方式**（都不和月读自己的面板抢手势）：
+1. 首页「阿页的阁楼」组件上**向下滑**。月读的下拉面板只认顶栏区（`SwipeTopBar`）的下滑；内容区的滑动先经过组件，
+   组件只吃 south 方向，左右滑照旧交给月读翻页。
+2. 月读快捷面板里的「阿页」开关（`provides.features.panel.actions`，id `ext.papersprite.attic`，需在面板编辑里加入）现在打开这块下拉面板。
+3. KOReader 手势动作「阿页的下拉面板」（Dispatcher `papersprite_panel`），可在 KOReader 手势设置里绑到任意手势；没装月读时退回打开阁楼。
 
-**防护**：模块缺失 / `updateView` 不是函数 → 不装；`self[1]` 不是带 `getSize` 的组、宽度异常 → 本次不插；
-注入整体 pcall，出错只记日志、面板照常；只 patch 一次（`Body._papersprite_attic` 存原函数，`uninstall()` 可还原）。
-
-**脆弱点**：依赖月读内部结构（模块路径、`updateView` 名字、`self[1]` 是纵向组、`header`/`editing`/`on_action`/`width` 字段、
-`Registry.execute` 先关面板再跑动作）。月读改了这些时最坏是卡片不出现或点了不关面板，不会弄坏面板；
-如果月读将来在 updateView 之外再缓存高度，面板可能和卡片高度对不上（目前没有）。长期还是建议月读开放正式的面板内容挂点（见下）。
-
-### 正式挂点（月读本身）
-月读对扩展只正式开放「动作开关」：`provides.features.panel.actions()` 返回 `{ id, scope, title, icon, run }`。
-本插件也注册了「阿页」开关（id `ext.papersprite.attic`，需在面板编辑里加入）。
-理想做法是月读新增 `provides.features.panel.widgets = { { id, height(w), build(w, h) } }`，由 body.lua 渲染并 pcall 隔离，届时可去掉运行时注入。
+（之前试过往月读面板里运行时注入阁楼卡，已按要求撤回，不再碰月读的面板。）
 
 ## 全屏界面皮肤（`ui/screen.lua`）
 - 默认 `ui_skin = "auto"`：只要能 `require("ui.themes")`（装了月读，不论从月读还是 KOReader 菜单打开）就用月读组件：
