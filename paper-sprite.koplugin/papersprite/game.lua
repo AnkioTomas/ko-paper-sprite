@@ -205,7 +205,7 @@ function Game.itemEffect(it)
     local short = "爱去" .. table.concat(places, "·")
     if h > 0 then short = short .. " · 旅程+" .. h .. "时" elseif h < 0 then short = short .. " · 旅程" .. h .. "时" end
     local long = { "放进藤筐后，阿页更常去" .. table.concat(places, "、") .. "的地方。" }
-    if h > 0 then long[#long + 1] = "旅程平均长 " .. h .. " 小时（路上多寄明信片的时间更宽裕）。"
+    if h > 0 then long[#long + 1] = "旅程平均长 " .. h .. " 小时，回家得晚一些。"
     elseif h < 0 then long[#long + 1] = "旅程平均短 " .. (-h) .. " 小时，早点回家。"
     else long[#long + 1] = "不影响旅程长短。" end
     long[#long + 1] = it.price == 0 and "常备物品，不会用完。" or "出门时带走一个，用掉就没了。"
