@@ -393,8 +393,38 @@ function M.settings(kind, desktop)
             { text = (m == "grid" and "✓ " or "") .. "迷你墙", callback = function() setSetting("w_postcards_mode", "grid") refresh() end },
         } }
     end
+    if kind == "attic" then
+        local on = M.panelEnabled()
+        items[#items + 1] = { buttons = {
+            { text = (on and "✓ " or "") .. "下拉面板显示阁楼", callback = function() setSetting("panel_attic", true) refresh() end },
+            { text = (not on and "✓ " or "") .. "不显示", callback = function() setSetting("panel_attic", false) refresh() end },
+        } }
+    end
     local title = ({ attic = "阁楼", postcards = "明信片", cabinet = "纪念物柜" })[kind]
     require("ui.themes.widgets.sheet"):new{ title = title, items = items }:show()
+end
+
+------------------------------------------------------------------ 下拉面板阁楼卡
+function M.panelEnabled() return setting("panel_attic", true) ~= false end
+
+--- 下拉快捷面板里的紧凑阁楼卡：左阁楼画面（2:1）右一行近况 + 一行小字；on_tap 由注入方给（关面板再开阁楼）
+function M.panelCard(w, on_tap)
+    local T = theme()
+    local HorizontalGroup = require("ui/widget/horizontalgroup")
+    local HorizontalSpan = require("ui/widget/horizontalspan")
+    local VerticalGroup = require("ui/widget/verticalgroup")
+    local VerticalSpan = require("ui/widget/verticalspan")
+    local s, now, dbg = read()
+    local d = Data.attic(s, now, dbg)
+    local pad, gap, bd = padOf(T), gapOf(T), borderOf(T)
+    local ih = math.max(px(T, 56), math.min(px(T, 96), math.floor(w * 0.16)))
+    local h = ih + pad * 2 + bd * 2
+    local inner_w = w - pad * 2 - bd * 2
+    local iw = math.min(ih * 2, math.floor(inner_w * 0.45))
+    local tw = math.max(1, inner_w - iw - gap)
+    local body = HorizontalGroup:new{ align = "center", Compose.widget(d.scene, iw, ih), HorizontalSpan:new{ width = gap },
+        VerticalGroup:new{ align = "left", line(T, "body", d.line, tw), VerticalSpan:new{ width = gap }, line(T, "caption", d.sub, tw, "faint") } }
+    return tappable(w, h, card(T, w, h, body), {}, on_tap)
 end
 
 M.heights = { attic = function(w) return (atticHeights(theme(), w)) end, postcards = function(w) return cardsHeights(theme(), w) end,

@@ -13,6 +13,9 @@ end
 
 local ID = "ext.papersprite"
 
+-- 下拉快捷面板阁楼卡（运行时包装月读面板 Body，失败即不动；见 ui/panel_inject.lua）
+pcall(function() require("papersprite.ui.panel_inject").install() end)
+
 local function host() return require("papersprite.host.moon").new() end
 local function openGame() require("papersprite.game").new(host()):show() end
 local function loadSave() return host():loadState() end

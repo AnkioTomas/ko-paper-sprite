@@ -30,14 +30,30 @@
 - 数据层 `ui/widget_data.lua` 是纯函数（headless 测试覆盖）。
 
 ## 顶部下拉快捷面板
-只读调查结论（月读仓库未改动）：月读的快捷面板对扩展只开放「**动作开关**」挂点——
-`provides.features.panel.actions()` 返回 `{ id, scope = "desktop"|"reader", title, icon, run }`，显示为面板里的一个按钮格。
-面板主体（`features/panel/widget/body.lua`）只有内置的书籍头、动作网格和灯光滑杆，**没有给扩展放自定义画面的挂点**。
+### 阁楼卡（运行时注入，默认开）
+月读面板主体 `features/panel/widget/body.lua` 的 `Body:updateView()` 把内容排进一个 `VerticalGroup`（`self[1]`）：
+阅读面板时先放书名头 `header`，再放动作网格、滑杆。本插件照同样的方式往桌面面板里放一张紧凑阁楼卡（月读仓库不改）：
 
-所以本插件在面板里加一个「阿页」开关（scope = desktop，图标 home），点一下全屏打开阁楼；阁楼画面本身放在首页「阁楼」组件里。
-用户需要在月读的快捷面板编辑里把它加进来（id `ext.papersprite.attic`）。
-要把阁楼画面直接放进下拉面板，月读需要新增类似 `provides.features.panel.widgets = { { id, height(w), build(w, h) } }` 的内容挂点
-（由 body.lua 在动作网格上方 / 下方渲染，pcall 隔离）——这需要改月读本体，本仓库不做。
+- `moon_source.lua` 加载时调用 `papersprite/ui/panel_inject.lua` 的 `install()`：包一层 `Body.updateView`——
+  原函数照常执行后，若**桌面面板**（无 header）、**非编辑态**、设置开着，就在 `self[1]` 最前面插入卡片 + 10px 间距，
+  再按新高度重算 `self.dimen`。月读的 `wrapPanel` 在 `Body:new` 之后才量高度，所以面板框自然变高。
+- 卡片：左阁楼画面（2:1，高约 56–96px，按宽度定）+ 右边近况一行 + 灵感小字，月读主题卡片框 / 文字（不可用时原生）。
+  画面走合成缓存；面板每次打开 / 刷新（`Menu.refresh` → `updateItems` → 新建 Body）都会重新结算。
+- 点卡片：调用面板自己的 `body.on_action("ext.papersprite.attic")`，月读 `Registry.execute` 先关面板再运行「阿页」动作打开阁楼
+  （动作没注册时退回直接打开阁楼）。
+- 开关：首页「阁楼」组件设置里「下拉面板显示阁楼 / 不显示」（设置键 `panel_attic`，默认开）。
+
+**防护**：模块缺失 / `updateView` 不是函数 → 不装；`self[1]` 不是带 `getSize` 的组、宽度异常 → 本次不插；
+注入整体 pcall，出错只记日志、面板照常；只 patch 一次（`Body._papersprite_attic` 存原函数，`uninstall()` 可还原）。
+
+**脆弱点**：依赖月读内部结构（模块路径、`updateView` 名字、`self[1]` 是纵向组、`header`/`editing`/`on_action`/`width` 字段、
+`Registry.execute` 先关面板再跑动作）。月读改了这些时最坏是卡片不出现或点了不关面板，不会弄坏面板；
+如果月读将来在 updateView 之外再缓存高度，面板可能和卡片高度对不上（目前没有）。长期还是建议月读开放正式的面板内容挂点（见下）。
+
+### 正式挂点（月读本身）
+月读对扩展只正式开放「动作开关」：`provides.features.panel.actions()` 返回 `{ id, scope, title, icon, run }`。
+本插件也注册了「阿页」开关（id `ext.papersprite.attic`，需在面板编辑里加入）。
+理想做法是月读新增 `provides.features.panel.widgets = { { id, height(w), build(w, h) } }`，由 body.lua 渲染并 pcall 隔离，届时可去掉运行时注入。
 
 ## 全屏界面皮肤（`ui/screen.lua`）
 - 默认 `ui_skin = "auto"`：只要能 `require("ui.themes")`（装了月读，不论从月读还是 KOReader 菜单打开）就用月读组件：
