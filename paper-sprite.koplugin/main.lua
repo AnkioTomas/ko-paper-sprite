@@ -20,20 +20,25 @@ local PaperSprite = WidgetContainer:extend{
 
 function PaperSprite:init()
     self.ui.menu:registerToMainMenu(self)
+    -- KOReader 原生顶部菜单里的「阿页」Tab（照月读快捷面板的注入方式，见 ui/komenu.lua）
+    pcall(function()
+        local K = require("papersprite.ui.komenu")
+        K.install()
+        K.inject(self.ui.menu)
+    end)
     self:onDispatcherRegisterActions()
 end
 
--- KOReader 手势动作：可在「手势」设置里绑到任意手势（装了月读时打开阿页的下拉面板，否则打开阁楼）
+-- KOReader 手势动作「阿页的阁楼」：可在「手势」设置里绑到任意手势
 function PaperSprite:onDispatcherRegisterActions()
     pcall(function()
         require("dispatcher"):registerAction("papersprite_panel",
-            { category = "none", event = "PaperSpritePanel", title = _("阿页的下拉面板"), general = true })
+            { category = "none", event = "PaperSpritePanel", title = _("阿页的阁楼"), general = true })
     end)
 end
 
 function PaperSprite:onPaperSpritePanel()
-    local ok = pcall(require, "ui.themes") and pcall(function() require("papersprite.ui.paper_panel").show() end)
-    if not ok then self:launch() end
+    self:launch()
     return true
 end
 

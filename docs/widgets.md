@@ -29,22 +29,27 @@
 - 每次绘制前比对显示数据签名（`widget_data.sig`），变了才重建内容。
 - 数据层 `ui/widget_data.lua` 是纯函数（headless 测试覆盖）。
 
-## 阿页的下拉面板（自己的，不改月读的快捷面板）
-`papersprite/ui/paper_panel.lua`，照月读快捷面板（`features/panel/native.lua` 的 wrapPanel + 网点遮罩）的样子做：
-- 从屏幕顶端落下的一块：页面底色的月读 Box（不可用时 KOReader FrameContainer 白底）+ 下沿分隔线；
-  里面是阁楼卡（通栏阁楼画面 0.42 宽高 + 近况一行 + 灵感小字，月读卡片 / 文字样式）和一行按钮「收拾行囊 / 明信片墙 / 特产柜 / 收起」。
-- 面板以下铺月读主题网点遮罩（`ui.themes.widgets.mask`）。
-- 关闭：点遮罩、在面板上向上滑、返回键、「收起」；关闭时整屏 full 刷新清残影（同月读面板）。
-- 点阁楼卡 / 按钮：先关面板，下一帧全屏打开阁楼对应页。
-- 每次打开都在存档副本上重新结算（只读），画面走合成缓存。
+## KOReader 顶部菜单里的「阿页」Tab
+从顶部下拉 / 点顶部打开的 KOReader 原生菜单（TouchMenu）里多一个「阿页」Tab（房子图标），**文件管理器和阅读中都有**。
+内容：阁楼卡（通栏阁楼画面 + 近况一行 + 灵感 / 新明信片小字）+ 一行快捷按钮「收拾行囊 / 小铺 / 明信片墙 / 特产柜」。
+点阁楼卡打开阁楼，点按钮打开对应页（先关菜单，下一帧全屏打开）。月读主题样式，拿不到主题时 KOReader 原生按钮 / 文字。
 
-**触发方式**（都不和月读自己的面板抢手势）：
-1. 首页「阿页的阁楼」组件上**向下滑**。月读的下拉面板只认顶栏区（`SwipeTopBar`）的下滑；内容区的滑动先经过组件，
-   组件只吃 south 方向，左右滑照旧交给月读翻页。
-2. 月读快捷面板里的「阿页」开关（`provides.features.panel.actions`，id `ext.papersprite.attic`，需在面板编辑里加入）现在打开这块下拉面板。
-3. KOReader 手势动作「阿页的下拉面板」（Dispatcher `papersprite_panel`），可在 KOReader 手势设置里绑到任意手势；没装月读时退回打开阁楼。
+### 怎么做的（照月读快捷面板 `book.koplugin/features/panel/native.lua`，月读不改）
+| 月读 | 本插件 `papersprite/ui/komenu.lua` |
+|---|---|
+| patch `FileManagerMenu.setUpdateItemTable`、`ReaderMenu.setUpdateItemTable` / `onShowMenu`，往 `tab_item_table` 插带标记的 Tab（`_book_quick_panel` / `_book_reader_panel`，`remember = false`） | 同样 patch 这几个函数，插 `{ icon = "home", remember = false, _papersprite_attic = true }`；已有就不插。位置在月读面板 Tab 之后（没有月读时排第一） |
+| patch `TouchMenu.updateItems`：命中自己的标记且是触屏时 `renderPanelContent` 自绘（Tab 栏 + 内容 + footer，重算 dimen，setDirty） | 同样 patch，命中 `_papersprite_attic` 时自绘阁楼卡 + 按钮；其它 Tab（包括月读的）照常往下走原函数 |
+| `syncBarSeparator`：让 Tab 栏选中框落到自绘 Tab | 同样处理 |
+| 非触屏设备用原生条目填 Tab | 同样：打开阁楼 / 收拾行囊 / 小铺 / 明信片墙 / 特产柜 |
 
-（之前试过往月读面板里运行时注入阁楼卡，已按要求撤回，不再碰月读的面板。）
+插件 `main.lua` 的 `init()` 里安装（插件在文件管理器和阅读器里都会初始化），并对当前菜单立即补一次 inject。
+全部 pcall：自绘失败时退回原生 `updateItems`，菜单照常可用。
+**脆弱点**：依赖 KOReader TouchMenu 内部字段（`item_group`、`bar`、`footer`、`page_info_*`、`menu_container`）和菜单模块的函数名；
+和月读同一套假设，KOReader 改了这些两边会一起受影响。
+
+### 之前的「自己的下拉面板」
+`e19af4c` 做的独立下拉面板（`ui/paper_panel.lua`）和阁楼组件上的下滑触发**已删除**——顶部菜单 Tab 已经覆盖同样的用途，留着是重复入口。
+月读快捷面板的「阿页」开关和 KOReader 手势动作「阿页的阁楼」（Dispatcher `papersprite_panel`）现在都直接打开阁楼。
 
 ## 全屏界面皮肤（`ui/screen.lua`）
 - 默认 `ui_skin = "auto"`：只要能 `require("ui.themes")`（装了月读，不论从月读还是 KOReader 菜单打开）就用月读组件：

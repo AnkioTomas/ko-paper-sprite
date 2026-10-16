@@ -176,8 +176,7 @@ function M.atticBuild(w, h)
         return card(T, w, h, body), {}, sig
     end
     local content, rects, sig = build()
-    return tappable(w, h, content, rects, function() M.open("attic") end, watcher(build, sig),
-        function() pcall(function() require("papersprite.ui.paper_panel").show() end) end)
+    return tappable(w, h, content, rects, function() M.open("attic") end, watcher(build, sig))
 end
 
 ------------------------------------------------------------------ 明信片
@@ -406,7 +405,7 @@ function M.settings(kind, desktop)
 end
 
 ------------------------------------------------------------------ 阿页的下拉面板内容
---- 自己的下拉面板（ui/paper_panel）里的内容：通栏阁楼画面 + 近况一行 + 灵感小字；整块点按 on_tap
+--- KOReader 顶部菜单「阿页」Tab（ui/komenu）里的内容：通栏阁楼画面 + 近况一行 + 灵感小字；整块点按 on_tap
 function M.panelContent(w, on_tap)
     local T = theme()
     local VerticalGroup = require("ui/widget/verticalgroup")

@@ -82,7 +82,7 @@ return {
     features = { panel = { actions = function()
         return { {
             id = "attic", scope = "desktop", title = _("阿页"), icon = "home",
-            run = function() pcall(function() require("papersprite.ui.paper_panel").show() end) end,
+            run = function() pcall(function() require("papersprite.ui.moon_widgets").open("attic") end) end,
         } }
     end } },
     home_widgets = {
