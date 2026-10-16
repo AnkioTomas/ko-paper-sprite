@@ -104,12 +104,21 @@ end
 --- 本趟 AI 文案（core/story.lua 写入）；只认同一趟的
 local function aiFor(sp) return type(sp.ai) == "table" and sp.ai.trip == sp.trip and sp.ai or nil end
 
+T.VISITOR_CHANCE = 0.4 -- 每次回家有客人来的总概率；具体是谁按 chance 加权
 local function arriveVisitor(s, at, u)
+    local f
+    s.seed, f = R.next(s.seed)
+    if f >= T.VISITOR_CHANCE then return end
+    local total = 0
+    for _, v in ipairs(Visitors) do total = total + v.chance end
+    s.seed, f = R.next(s.seed)
+    f = f * total
     for _, v in ipairs(Visitors) do
-        local f
-        s.seed, f = R.next(s.seed)
-        if f < v.chance then
-            s.visitor = { id = v.id, until_at = at + v.stay * u.hour }
+        f = f - v.chance
+        if f < 0 or v == Visitors[#Visitors] then
+            local pose
+            s.seed, pose = R.pick(s.seed, v.poses or { "" })
+            s.visitor = { id = v.id, pose = pose, until_at = at + v.stay * u.hour }
             State.log(s, v.arrive)
             return v
         end

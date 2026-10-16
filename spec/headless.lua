@@ -191,4 +191,46 @@ assert(first_ai >= 1 and ai2 == first_ai, "repeated AI lines rejected: " .. firs
 assert(not Story.validate({ lines = { "一样。", "一样！" } }, 2), "dup within response")
 local wk = {} for _, c in ipairs(sv.postcards) do assert(not wk[c.key], "dup in save") wk[c.key] = true end
 
+-- 10. 第 3 批：v2 → v3 迁移、背景变体、搭配限制、阁楼季节与装饰、访客姿势
+local m3 = State.load({ version = 2, postcards = { { place = "ink_lake", pose = "sit", prop = "none", weather = "clear", text_id = "p:1", key = "ink_lake|sit|none|clear|p:1" } },
+    collected = { ["ink_lake|sit|none|clear|p:1"] = 1 }, visitor = { id = "inkbug", until_at = 9 } }, 0)
+assert(m3.version == 3 and m3.postcards[1].variant == "a" and type(m3.decor) == "table" and m3.visitor.pose == "")
+assert(P.key(m3.postcards[1]) == "ink_lake|sit|none|clear|p:1", "old key stays valid")
+local cb = { place = "ink_lake", variant = "b", pose = "fish", prop = "none", weather = "clear", text_id = "p:1" }
+assert(P.key(cb) == "ink_lake@b|fish|none|clear|p:1" and P.layers(cb).bg == "places/ink_lake_b.png")
+local sd = 7
+for _ = 1, 300 do
+    local c; sd, c = P.compose(sd, "margin_desert", {}, {})
+    assert(c.pose ~= "fish" and c.pose ~= "boat" and c.prop ~= "paper_boat", "water pose in desert")
+    local c2; sd, c2 = P.compose(sd, "reading_room", {}, {})
+    assert(P.indoor_weathers[c2.weather], "rain indoors")
+end
+assert(Game.atticBg(os.time({ year = 2026, month = 4, day = 1, hour = 12 })) == "attic/attic_spring.png")
+assert(Game.atticBg(os.time({ year = 2026, month = 1, day = 1, hour = 23 }), true) == "attic/attic_night_empty.png")
+-- 特产摆进阁楼
+H.saved.souvenirs = { lake_pebble = 1, fog_jar = 2 }
+H.saved.visitor = { id = "seal_bear", pose = "_2", until_at = H.clock + 99999 }
+local g4 = Game.new(H.host):show()
+click("特产柜"); click("一瓶雾"); assert(H.saved.decor[1] == "fog_jar")
+click("回阁楼")
+local ov = {} for _, o in ipairs(H.view.scene.overlays) do ov[o.img] = true end
+assert(ov["souvenirs/fog_jar.png"] and ov["visitors/seal_bear_2.png"], "decor + visitor pose overlays")
+click("特产柜"); click("✓ 一瓶雾"); assert(#H.saved.decor == 0)
+g4:close()
+-- 资源齐全：每个被引用的图都在 assets 里
+local A = "paper-sprite.koplugin/assets/"
+local function has(f) local h = io.open(A .. f, "rb") if h then h:close() return true end end
+local miss = {}
+local function need(f) if not has(f) then miss[#miss + 1] = f end end
+for _, pl in ipairs(require("papersprite.data.places")) do need("places/" .. pl.id .. ".png") need("places/" .. pl.id .. "_b.png") end
+for _, x in ipairs(P.poses) do need("sprite/" .. x .. ".png") end
+for _, x in ipairs(P.props) do if x ~= "none" then need("props/" .. x .. ".png") end end
+for _, x in ipairs(P.weathers) do if x ~= "clear" then need("weather/" .. x .. ".png") end end
+for id in pairs(P.souvenirs) do need("souvenirs/" .. id .. ".png") end
+for _, it in ipairs(require("papersprite.data.items")) do need("items/" .. it.id .. ".png") end
+for _, v in ipairs(require("papersprite.data.visitors")) do need("visitors/" .. v.id .. ".png") need("visitors/" .. v.id .. "_2.png") end
+for _, v in ipairs({ "spring", "summer", "autumn", "winter", "night" }) do need("attic/attic_" .. v .. ".png") need("attic/attic_" .. v .. "_empty.png") end
+if os.getenv("SKIP_ASSETS") then print("  assets missing (skipped): " .. #miss)
+else assert(#miss == 0, "missing assets: " .. table.concat(miss, ", ")) end
+
 print("headless ok: postcards=" .. #st.postcards .. " places=" .. np .. " combos=" .. nc)

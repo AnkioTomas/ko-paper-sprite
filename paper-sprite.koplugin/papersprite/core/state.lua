@@ -2,7 +2,7 @@
 --[[-- 存档结构与版本迁移。存档只含纯数据表（LuaSettings 可序列化）。 --]]
 local State = {}
 
-State.VERSION = 2
+State.VERSION = 3
 
 function State.fresh(now)
     return {
@@ -15,12 +15,13 @@ function State.fresh(now)
         sprite = { status = "home" },     -- home | packed | away
         seed = (now or 0) % 2147483647 + 1,
         postcards = {},                   -- { {id, at} }，新的在后
-        wall_seen = 0,
+        wall_seen = 0,                    -- 上次看明信片墙时的张数（首页卡片据此显示「新明信片」）
         collected = {},                   -- 明信片身份 key -> 最近收到时间（去重用）
-        texts = {},                       -- 收到过的文案（归一化）-> true（AI 句去重用）                    -- 上次看明信片墙时的张数（首页卡片据此显示「新明信片」）
+        texts = {},                       -- 收到过的文案（归一化）-> true（AI 句去重用）
+        decor = {},                       -- 摆在阁楼里的特产 id（最多 4 个，按位置顺序）
         souvenirs = {},                   -- id -> count
         log = {},                         -- 阁楼里的近况（新的在后，最多 20 条）
-        visitor = nil,                    -- 墨点虫：{ until_at }
+        visitor = nil,                    -- 来访小客人：{ id, pose, until_at }
     }
 end
 
@@ -61,6 +62,12 @@ local MIGRATIONS = {
             s.sprite = { status = "home", back_at = s.sprite.left_at }
             s.basket = {}
         end
+    end,
+    -- v2 → v3：背景有了 a/b 两种（旧明信片都是 a，key 不变）；新增阁楼装饰 decor；访客带姿势
+    [2] = function(s)
+        for _, c in ipairs(s.postcards or {}) do c.variant = c.variant or "a" end
+        s.decor = s.decor or {}
+        if s.visitor then s.visitor.pose = s.visitor.pose or "" end
     end,
 }
 

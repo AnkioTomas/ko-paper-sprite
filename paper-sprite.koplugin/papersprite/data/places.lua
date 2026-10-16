@@ -1,62 +1,245 @@
 -- SPDX-License-Identifier: MIT
---[[-- 书中世界的地点（全部原创）。
-  tag：与物品 tags 匹配，命中越多越可能去；bg：assets/places/<id>.png（无角色的空景）；
-  souvenirs：可能带回的特产 id（data/souvenirs.lua）；lines：本地明信片短句库（≤ 40 字，阿页口吻）。 --]]
+-- 由 art-samples/build_data3.py 生成；全部内容原创。
+-- 地点：每处两张背景（<id>.png 与 <id>_b.png），tag 用于随身物品偏好。
 return {
-    { id = "ink_lake", name = "墨水湖", tag = "water", souvenirs = { "lake_pebble", "ink_shell" }, lines = {
+    { id = "ink_lake", name = "墨水湖", tag = "water", bgs = { "a", "b" },
+      souvenirs = { "lake_pebble", "ink_shell", "quill_reed" },
+      lines = {
         "湖水是墨做的，我没敢把脚伸进去，怕回来变成一个逗号。",
         "对岸有人在晾一整页的字，风一吹，句子就散了。",
         "我叠了一只小纸船放下去，它慢慢变成了深蓝色。" } },
-    { id = "fog_market", name = "雾里的旧书市", tag = "market", souvenirs = { "torn_ticket", "tiny_bookend" }, lines = {
+    { id = "fog_market", name = "雾里的旧书市", tag = "market", bgs = { "a", "b" },
+      souvenirs = { "torn_ticket", "tiny_bookend", "fog_jar" },
+      lines = {
         "雾里有个摊子只卖结尾，我买了一个圆满的。",
         "旧书们排着队晒潮气，我帮最薄的那本翻了个身。",
         "有人想用三个开头换我的书角，我没换。" } },
-    { id = "fold_peak", name = "折页山", tag = "mountain", souvenirs = { "crease_stone" }, lines = {
+    { id = "fold_peak", name = "折页山", tag = "mountain", bgs = { "a", "b" },
+      souvenirs = { "crease_stone" },
+      lines = {
         "爬到折痕最深的地方，能看见整本书的书脊。",
         "山顶下了一场小雨，我的角又卷了一点，不要紧。",
         "每一道山脊都是别人读到一半时折的。" } },
-    { id = "spine_corridor", name = "书脊长廊", tag = "indoor", souvenirs = { "gold_thread" }, lines = {
+    { id = "spine_corridor", name = "书脊长廊", tag = "indoor", bgs = { "a", "b" },
+      souvenirs = { "gold_thread", "spine_dust" },
+      lines = {
         "走廊很长，两边的书都背对着我，好像在偷偷听。",
         "尽头有光，我走了好久，光也往前走了好久。",
         "我数到第一千本书的时候，忘了从哪本开始数的。" } },
-    { id = "footnote_town", name = "脚注小镇", tag = "town", souvenirs = { "tiny_asterisk" }, lines = {
+    { id = "footnote_town", name = "脚注小镇", tag = "town", bgs = { "a", "b" },
+      souvenirs = { "tiny_asterisk" },
+      lines = {
         "这里的人说话都很小声，像是怕吵醒正文。",
         "镇上每户人家门口都挂着一个小小的编号。",
         "我在一条很短的街上住了一晚，街名比街还长。" } },
-    { id = "blank_snowfield", name = "空白页雪原", tag = "snow", souvenirs = { "blank_flake" }, lines = {
+    { id = "blank_snowfield", name = "空白页雪原", tag = "snow", bgs = { "a", "b" },
+      souvenirs = { "blank_flake" },
+      lines = {
         "这里什么也没写，走起来特别安静。",
         "我留下一串脚印，像一行没人读得懂的字。",
         "雪是纸屑，落在身上不冷，就是有点痒。" } },
-    { id = "index_station", name = "目录车站", tag = "travel", souvenirs = { "punched_ticket" }, lines = {
+    { id = "index_station", name = "目录车站", tag = "travel", bgs = { "a", "b" },
+      souvenirs = { "punched_ticket" },
+      lines = {
         "火车只停有名字的站，我在一个没名字的站下了车。",
         "站台上的人都在等下一章。",
         "我坐过了一站，又走回来，刚好看见日落。" } },
-    { id = "bookmark_forest", name = "书签森林", tag = "forest", souvenirs = { "ribbon_leaf" }, lines = {
+    { id = "bookmark_forest", name = "书签森林", tag = "forest", bgs = { "a", "b" },
+      souvenirs = { "ribbon_leaf" },
+      lines = {
         "树是一条条丝带书签，风一吹，整片森林都在翻页。",
         "我在一棵最旧的书签树下打了个盹，梦见了你。",
         "这里好多亲戚，可它们都不会说话。" } },
-    { id = "errata_harbor", name = "勘误港", tag = "water", souvenirs = { "correction_shell" }, lines = {
+    { id = "errata_harbor", name = "勘误港", tag = "water", bgs = { "a", "b" },
+      souvenirs = { "correction_shell" },
+      lines = {
         "港口专门停靠写错了的船，修好了再出海。",
         "灯塔是一支铅笔，夜里会把海面描一遍。",
         "我帮一条船改了一个错别字，船长请我喝了茶。" } },
-    { id = "margin_desert", name = "页边沙漠", tag = "desert", souvenirs = { "margin_sand" }, lines = {
+    { id = "margin_desert", name = "页边沙漠", tag = "desert", bgs = { "a", "b" },
+      souvenirs = { "margin_sand" },
+      lines = {
         "沙漠沿着一条直直的线走，从来不越界。",
         "这里很少有人来，只偶尔有一行批注路过。",
         "太阳晒得我有点发黄，像一本旧书。" } },
-    { id = "binding_bridge", name = "装订线大桥", tag = "mountain", souvenirs = { "binding_knot" }, lines = {
+    { id = "binding_bridge", name = "装订线大桥", tag = "mountain", bgs = { "a", "b" },
+      souvenirs = { "binding_knot" },
+      lines = {
         "桥是用线缝起来的，走在上面能听见针脚的声音。",
         "桥下是两页之间的深谷，望不到底，也不可怕。",
         "我走到桥中间，正好是一本书最中间的地方。" } },
-    { id = "reading_room", name = "灯下阅览室", tag = "indoor", souvenirs = { "lamp_glass" }, lines = {
+    { id = "reading_room", name = "灯下阅览室", tag = "indoor", bgs = { "a", "b" },
+      souvenirs = { "lamp_glass", "reading_lamp_chain" },
+      lines = {
         "每盏小绿灯下面都坐着一个看不见的读者。",
         "我找了个空位坐下，看完了一本很薄的书。",
         "这里规定不许说话，所以我只写信。" } },
-    { id = "torn_cliffs", name = "撕页崖", tag = "sea", souvenirs = { "torn_edge" }, lines = {
+    { id = "torn_cliffs", name = "撕页崖", tag = "sea", bgs = { "a", "b" },
+      souvenirs = { "torn_edge", "sea_note" },
+      lines = {
         "悬崖的边是毛的，像被谁急着撕下来带走了。",
         "海风很大，我抓紧了石头，没被吹成一张便条。",
         "崖下的海在念一封很长的信。" } },
-    { id = "cloud_archive", name = "云上书库", tag = "sky", souvenirs = { "cloud_label" }, lines = {
+    { id = "cloud_archive", name = "云上书库", tag = "sky", bgs = { "a", "b" },
+      souvenirs = { "cloud_label", "cloud_thread" },
+      lines = {
         "书架浮在云上，梯子要自己找。",
         "我借了一本云写的书，还的时候它下雨了。",
         "从这里往下看，你的阁楼只有一个句号那么大。" } },
+    { id = "comma_pond", name = "逗号池塘", tag = "water", bgs = { "a", "b" },
+      souvenirs = { "comma_pad" },
+      lines = {
+        "池塘里的叶子都弯弯的，像一池子的停顿。",
+        "我在一片逗号叶上坐了很久，停顿也是一种休息。",
+        "水面平平的，像一句还没写完的话。" } },
+    { id = "glossary_garden", name = "词汇花园", tag = "garden", bgs = { "a", "b" },
+      souvenirs = { "word_seed" },
+      lines = {
+        "每朵花都是一个词，我闻了闻『温柔』，有点像茶。",
+        "园丁说这里不许摘花，只许念出来。",
+        "我在花园里迷路了，可是每条路都有名字。" } },
+    { id = "hardcover_fortress", name = "精装城堡", tag = "town", bgs = { "a", "b" },
+      souvenirs = { "corner_guard" },
+      lines = {
+        "城墙是一本本精装书，敲一敲，会发出很厚的声音。",
+        "城堡里没有国王，只有一位很老的书脊。",
+        "我在塔顶看了一会儿风，风也翻了几页。" } },
+    { id = "dogear_valley", name = "折角山谷", tag = "mountain", bgs = { "a", "b" },
+      souvenirs = { "folded_corner" },
+      lines = {
+        "山谷里的山都折了一个角，跟我一样。",
+        "我在这里遇见了好多记号，每一个都在等人回来。",
+        "躺在山脚下，觉得自己很像一页被惦记的纸。" } },
+    { id = "inkwell_cave", name = "墨水瓶洞", tag = "underground", bgs = { "a", "b" },
+      souvenirs = { "glass_drop" },
+      lines = {
+        "洞的墙是弯的玻璃，外面的世界都变得圆圆的。",
+        "洞底有一小汪墨，安静得像没写的字。",
+        "我在洞里喊了一声，回声是一行小字。" } },
+    { id = "page_ocean", name = "纸页海", tag = "sea", bgs = { "a", "b" },
+      souvenirs = { "wave_curl" },
+      lines = {
+        "这里的浪是一页一页卷过来的，翻完又回去。",
+        "我捡到一页被海泡软的纸，上面什么都没有了。",
+        "海在不停地读自己，从来不累。" } },
+    { id = "lantern_alley", name = "纸灯小巷", tag = "town", bgs = { "a", "b" },
+      souvenirs = { "lantern_paper" },
+      lines = {
+        "巷子很窄，灯笼挨得很近，像在小声说话。",
+        "我数灯笼数到一半，就被一盏最圆的迷住了。",
+        "每扇小门后面都有人在读睡前故事。" } },
+    { id = "quill_falls", name = "羽笔瀑布", tag = "water", bgs = { "a", "b" },
+      souvenirs = { "falls_feather" },
+      lines = {
+        "瀑布是从一支大羽毛笔里流出来的，哗哗地写个不停。",
+        "水雾落在我身上，我的字都变得湿润了。",
+        "站在瀑布前面，能听见一整篇文章。" } },
+    { id = "eraser_dunes", name = "橡皮屑丘", tag = "desert", bgs = { "a", "b" },
+      souvenirs = { "eraser_crumb" },
+      lines = {
+        "这片沙丘是橡皮屑堆的，踩上去软软的。",
+        "所有被擦掉的字都在这里晒太阳。",
+        "我在沙丘上写了你的名字，风没舍得擦。" } },
+    { id = "postmark_village", name = "邮戳村", tag = "town", bgs = { "a", "b" },
+      souvenirs = { "postmark_tile" },
+      lines = {
+        "村子里的屋顶都是圆圆的邮戳，下雨时会盖章。",
+        "这里每个人都在等信，所以大家都很耐心。",
+        "我替你在村口盖了一个看不见的戳。" } },
+    { id = "shelf_canyon", name = "书架峡谷", tag = "mountain", bgs = { "a", "b" },
+      souvenirs = { "shelf_peg" },
+      lines = {
+        "峡谷的两壁都是书架，抬头看不到顶。",
+        "风从峡谷里吹过，像一万本书一起翻页。",
+        "我在最下面一格找到一本跟我一样薄的书。" } },
+    { id = "clip_railway", name = "回形针铁路", tag = "travel", bgs = { "a", "b" },
+      souvenirs = { "rail_clip" },
+      lines = {
+        "铁轨是一串回形针，列车经过时叮叮当当。",
+        "我在两节铁轨之间坐了一会儿，它们夹得很紧。",
+        "火车说它只去『下一页』，我就跟着去了。" } },
+    { id = "origami_meadow", name = "折纸草原", tag = "garden", bgs = { "a", "b" },
+      souvenirs = { "folded_flower" },
+      lines = {
+        "草原上的草都是折出来的，风一吹沙沙地响。",
+        "我也想把自己再折一遍，可是舍不得这个角。",
+        "这里的花不会谢，只会慢慢展开。" } },
+    { id = "moon_balcony", name = "月下书阁", tag = "night", bgs = { "a", "b" },
+      souvenirs = { "moon_crumb" },
+      lines = {
+        "月亮很大，大到可以在下面读完一本书。",
+        "我借了阳台上的望远镜，看见了你的阁楼。",
+        "夜风把月光一页页吹到我身上。" } },
+    { id = "typewriter_plateau", name = "打字机高原", tag = "mountain", bgs = { "a", "b" },
+      souvenirs = { "key_cap" },
+      lines = {
+        "高原上的石头都是打字机的键，我按了一个，山谷回了一声。",
+        "这里的风是一行一行吹的。",
+        "我在一张卷起来的大纸下面躲太阳。" } },
+    { id = "bookbinding_workshop", name = "装帧工坊", tag = "indoor", bgs = { "a", "b" },
+      souvenirs = { "glue_brush" },
+      lines = {
+        "工坊里的人在给书缝衣服，针脚很密。",
+        "我在这里补好了自己的一道小裂口。",
+        "压书机慢慢转，我也跟着安静下来。" } },
+    { id = "envelope_islands", name = "信封群岛", tag = "sea", bgs = { "a", "b" },
+      souvenirs = { "flap_shell" },
+      lines = {
+        "每座岛都是一封信，岛上的人都不知道自己写了什么。",
+        "我坐在一座岛的封口上，海风想帮我拆开。",
+        "群岛之间的船，只运寄不出去的话。" } },
+    { id = "tea_stain_marsh", name = "茶渍沼泽", tag = "water", bgs = { "a", "b" },
+      souvenirs = { "tea_ring" },
+      lines = {
+        "沼泽里全是一圈一圈的茶渍，闻起来很暖。",
+        "有人在这里读书时喝了很多杯茶。",
+        "我走在木板路上，脚下是凉掉的下午。" } },
+    { id = "candle_library", name = "烛光书窖", tag = "underground", bgs = { "a", "b" },
+      souvenirs = { "wax_bead" },
+      lines = {
+        "书窖在很深的地下，每根蜡烛照亮一本书。",
+        "这里的书很老，说话要轻轻的。",
+        "我在烛光下读完一页，影子也读完了。" } },
+    { id = "kite_hill", name = "风筝坡", tag = "sky", bgs = { "a", "b" },
+      souvenirs = { "kite_tail" },
+      lines = {
+        "坡上全是风筝，线都系在小木桩上，没有人放。",
+        "我差点被风筝带走，还好书角勾住了草。",
+        "天上的风筝在给云写信。" } },
+    { id = "blotter_snowtown", name = "吸墨纸雪镇", tag = "snow", bgs = { "a", "b" },
+      souvenirs = { "blot_snowball" },
+      lines = {
+        "雪落在这里不会化，被纸慢慢吸进去了。",
+        "镇上的屋顶都戴着软软的雪帽。",
+        "我在结冰的小池塘上滑了一下，没有摔。" } },
+    { id = "pressed_flower_forest", name = "压花森林", tag = "forest", bgs = { "a", "b" },
+      souvenirs = { "pressed_petal" },
+      lines = {
+        "每棵树上都夹着一朵压扁的花，像有人在这里怀念过什么。",
+        "林子里很安静，花都睡在书页里。",
+        "我也把自己夹进叶子里睡了一会儿。" } },
+    { id = "sealing_wax_volcano", name = "火漆山", tag = "mountain", bgs = { "a", "b" },
+      souvenirs = { "wax_seal_chip" },
+      lines = {
+        "这座山是火漆滴成的，早就凉了，滑滑的。",
+        "山顶有一个封印，没人知道里面封着什么。",
+        "我从山坡上滑下来，像一封寄出去的信。" } },
+    { id = "lost_page_station", name = "失页车站", tag = "travel", bgs = { "a", "b" },
+      souvenirs = { "loose_page" },
+      lines = {
+        "站台上全是走失的书页，它们也在等车。",
+        "我帮一页纸找到了它的书，它高兴得翻了个身。",
+        "这里的火车很久才来一班，没关系。" } },
+    { id = "star_chart_observatory", name = "星图天文台", tag = "sky", bgs = { "a", "b" },
+      souvenirs = { "star_pin" },
+      lines = {
+        "天文台的人在给星星编号，我请他们留一颗给你。",
+        "星图上的线连起来，像一封很长的信。",
+        "我在望远镜里看见一颗星星也有书角。" } },
+    { id = "ribbon_river", name = "丝带河", tag = "water", bgs = { "a", "b" },
+      souvenirs = { "ribbon_bow" },
+      lines = {
+        "河是一条长长的丝带，弯弯曲曲地系着整片山。",
+        "我顺着丝带河漂了一段，它把我轻轻放在岸边。",
+        "河的尽头系着一个蝴蝶结。" } },
 }

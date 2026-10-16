@@ -81,16 +81,41 @@ end
 
 function Game:go(page, arg) self.page, self.arg = page, arg self:render() end
 
-local VISITOR_POS = { -- 访客在阁楼图里的位置（中心占比）
-    inkbug = { 0.47, 0.50, 0.14 }, clip_snail = { 0.30, 0.42, 0.12 },
-    lampfly = { 0.55, 0.30, 0.12 }, stamp_turtle = { 0.30, 0.78, 0.24 },
+local VISITOR_POS = { -- 访客在阁楼图里的位置（中心占比 x, y, 高）；书桌面约 y=.55，地板约 y=.85
+    inkbug = { 0.34, 0.51, 0.08 }, clip_snail = { 0.55, 0.88, 0.10 },
+    lampfly = { 0.62, 0.30, 0.12 }, stamp_turtle = { 0.62, 0.86, 0.16 },
+    eraser_rabbit = { 0.52, 0.85, 0.14 }, pin_hedgehog = { 0.68, 0.88, 0.12 },
+    page_fish = { 0.55, 0.22, 0.14 }, ink_octopus = { 0.33, 0.50, 0.10 },
+    tape_caterpillar = { 0.58, 0.90, 0.10 }, shaving_bird = { 0.50, 0.18, 0.12 },
+    staple_crab = { 0.62, 0.90, 0.10 }, seal_bear = { 0.60, 0.84, 0.20 },
 }
+--- 阁楼里摆特产的 4 个位置（右墙矮架：架顶两处 + 中层两格）
+Game.DECOR_POS = { { 0.83, 0.50, 0.11 }, { 0.93, 0.50, 0.11 }, { 0.85, 0.69, 0.09 }, { 0.94, 0.69, 0.09 } }
+Game.DECOR_MAX = #Game.DECOR_POS
+
+--- 按时刻和季节挑阁楼背景：夜里（21 点后、6 点前）用 night，否则按月份四季
+function Game.atticBg(t, away)
+    local d = os.date("*t", t)
+    local v
+    if d.hour >= 21 or d.hour < 6 then v = "night"
+    elseif d.month >= 3 and d.month <= 5 then v = "spring"
+    elseif d.month >= 6 and d.month <= 8 then v = "summer"
+    elseif d.month >= 9 and d.month <= 11 then v = "autumn"
+    else v = "winter" end
+    return "attic/attic_" .. v .. (away and "_empty" or "") .. ".png"
+end
 
 function Game:_attic()
     local s, now = self.state, self.host:now()
     local sp = s.sprite
     local lines = {}
-    local scene = { bg = sp.status == "away" and "attic/attic_empty.png" or "attic/attic.png", overlays = {} }
+    local scene = { bg = Game.atticBg(now, sp.status == "away"), overlays = {} }
+    for i, id in ipairs(s.decor or {}) do
+        local pos = Game.DECOR_POS[i]
+        if pos and Postcards.souvenirs[id] then
+            scene.overlays[#scene.overlays + 1] = { img = "souvenirs/" .. id .. ".png", x = pos[1], y = pos[2], h = pos[3] }
+        end
+    end
     if sp.status == "home" then
         lines[1] = "阿页坐在书桌边，油灯亮着。"
     elseif sp.status == "packed" then
@@ -104,7 +129,7 @@ function Game:_attic()
         if v then
             lines[#lines + 1] = s.visitor.line or v.here
             local pos = VISITOR_POS[v.id] or { 0.5, 0.6, 0.12 }
-            scene.overlays[#scene.overlays + 1] = { img = "visitors/" .. v.id .. ".png", x = pos[1], y = pos[2], h = pos[3] }
+            scene.overlays[#scene.overlays + 1] = { img = "visitors/" .. v.id .. (s.visitor.pose or "") .. ".png", x = pos[1], y = pos[2], h = pos[3] }
         end
     end
     local unseen = #s.postcards - (s.wall_seen or 0)
@@ -218,20 +243,39 @@ function Game:_card()
     }
 end
 
+local function indexOf(t, x) for i, y in ipairs(t) do if y == x then return i end end end
+
 function Game:_cabinet()
     local s = self.state
-    local lines = {}
-    for id, n in pairs(s.souvenirs) do
+    s.decor = s.decor or {}
+    local ids = {}
+    for id in pairs(s.souvenirs) do if Postcards.souvenirs[id] then ids[#ids + 1] = id end end
+    table.sort(ids, function(a, b) return Postcards.souvenirs[a].name < Postcards.souvenirs[b].name end)
+    local lines, b, icons = {}, {}, {}
+    lines[1] = { text = "阿页带回来的东西，都摆在这里。点一下可以摆到阁楼里（最多 " .. Game.DECOR_MAX .. " 样）。", muted = true }
+    if #ids == 0 then lines[2] = "柜子还空着。" end
+    for _, id in ipairs(ids) do
         local sv = Postcards.souvenirs[id]
-        if sv then
-            local note = (s.souvenir_notes and s.souvenir_notes[id]) or sv.note
-            lines[#lines + 1] = sv.name .. " ×" .. n .. "　" .. note
-        end
+        local note = (s.souvenir_notes and s.souvenir_notes[id]) or sv.note
+        lines[#lines + 1] = sv.name .. " ×" .. s.souvenirs[id] .. "　" .. note
     end
-    table.sort(lines)
-    if #lines == 0 then lines[1] = "柜子还空着。" end
-    table.insert(lines, 1, { text = "阿页带回来的东西，都摆在这里。", muted = true })
-    return { title = "特产柜", lines = lines, buttons = { { text = "回阁楼", callback = function() self:go("attic") end } } }
+    for _, id in ipairs(s.decor) do icons[#icons + 1] = "souvenirs/" .. id .. ".png" end
+    local row = {}
+    for _, id in ipairs(ids) do
+        local on = indexOf(s.decor, id)
+        row[#row + 1] = { text = (on and "✓ " or "") .. Postcards.souvenirs[id].name, callback = function()
+            local i = indexOf(s.decor, id)
+            if i then table.remove(s.decor, i)
+            elseif #s.decor >= Game.DECOR_MAX then self.host:notify("阁楼摆满了，先收起一样") return
+            else s.decor[#s.decor + 1] = id end
+            self:save()
+            self:render()
+        end }
+        if #row == 3 then b[#b + 1] = row row = {} end
+    end
+    if #row > 0 then b[#b + 1] = row end
+    b[#b + 1] = { text = "回阁楼", callback = function() self:go("attic") end }
+    return { title = "特产柜", icons = #icons > 0 and icons or nil, lines = lines, buttons = b }
 end
 
 function Game:view()
