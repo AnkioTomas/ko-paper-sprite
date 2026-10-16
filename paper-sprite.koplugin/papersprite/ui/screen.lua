@@ -7,8 +7,12 @@ view = {
   title, scene?（分层画面）, icons?, lines = {string|{text,muted}},
   grid?  = { cols, cells = { {scene, new, caption, callback} } },        明信片墙：缩略图网格
   list?  = { rows = { {scene, new, title, line, date, callback} } },      明信片列表：缩略图 + 文字
+  status? = { icon?, title, caption?, meta?, callback? }                  状态卡（图标 + 标题 / 说明 / 小字）
+  empty?  = { title, caption? }                                           空状态卡
+  switch? = { icon, text, callback }                                      标题栏右侧视图切换；左侧固定是返回（无 back 时关闭）
+  lines 里 { text, label = true } 是小节标签（小号灰字）
   tabs?  = { {text, active, callback} },                                  分类页签（一行按钮，当前项加 ✓）
-  shelf? = { cols, cells = { {icon, name, price, owned, desc, dim, callback} } }, 小铺货架：物品卡
+  shelf? = { cols, icon?, cells = { {icon|scene, title|name, meta|price+owned, desc|caption, check?, badge?, dim, callback} } } 卡片网格
   pager? = { page, pages, prev, next },                                   翻页条（n / m）
   buttons = { btn | {btn,...} }, on_close?, back?（有则标题栏右上角按钮 / 返回键回上一级，否则关闭）
 }
@@ -68,11 +72,24 @@ local function kit(skin)
     function native.line(text, w, muted, small)
         return TextWidget:new{ text = text, face = small and k.small or k.face, max_width = w, fgcolor = muted and k.muted or k.ink }
     end
-    function native.title(w, title, on_close)
-        local xw, hh = px(52), px(44)
-        local close = tap(CenterContainer:new{ dimen = Geom:new{ w = xw, h = hh }, TextWidget:new{ text = "✕", face = k.face, fgcolor = k.muted } }, xw, hh, on_close)
-        return HorizontalGroup:new{ align = "center",
-            LeftContainer:new{ dimen = Geom:new{ w = w - xw, h = hh }, TextWidget:new{ text = "  " .. (title or ""), face = k.face, fgcolor = k.muted, max_width = w - xw } }, close }
+    --- 标题栏：左 = 返回（主页是关闭），中 = 标题，右 = 视图切换（没有就留空，保持标题居中）
+    --- left / right = { icon, text, callback }
+    function native.title(w, title, left, right)
+        local hh = px(48)
+        local function side(sd, sw)
+            if not sd then return HorizontalSpan:new{ width = sw } end
+            return tap(CenterContainer:new{ dimen = Geom:new{ w = sw, h = hh },
+                TextWidget:new{ text = sd.text, face = k.face, fgcolor = k.ink } }, sw, hh, sd.callback)
+        end
+        local sw = px(72)
+        return VerticalGroup:new{ align = "left",
+            HorizontalGroup:new{ align = "center", side(left, sw),
+                CenterContainer:new{ dimen = Geom:new{ w = w - sw * 2, h = hh }, TextWidget:new{ text = title or "", face = k.face, bold = true, max_width = w - sw * 2 } },
+                side(right, sw) },
+            require("ui/widget/linewidget"):new{ dimen = Geom:new{ w = w, h = px(1) }, background = k.muted } }
+    end
+    function native.head(text, w)
+        return TextWidget:new{ text = text, face = k.face, bold = true, max_width = w, fgcolor = k.ink }
     end
     function native.frame(child, border)
         return FrameContainer:new{ padding = 0, bordersize = border and px(2) or 0, color = k.ink, background = k.bg, child }
@@ -114,8 +131,13 @@ local function kit(skin)
     guarded("line", function(text, w, muted, small)
         return require("ui.themes.widgets.text").line(small and "caption" or "body", text, { width = w, color = muted and t.color.muted or nil })
     end)
-    guarded("title", function(w, title, on_close)
-        return require("ui.themes.widgets.titlebar").widget{ width = w, title = title or "", right_icon = "close", right_callback = on_close }
+    guarded("title", function(w, title, left, right)
+        return require("ui.themes.widgets.titlebar").widget{ width = w, title = title or "",
+            left_icon = left and left.icon, left_callback = left and left.callback,
+            right_icon = right and right.icon, right_callback = right and right.callback }
+    end)
+    guarded("head", function(text, w)
+        return require("ui.themes.widgets.text").line("title", text, { width = w })
     end)
     guarded("frame", function(child, border)
         local Box = require("ui.themes.widgets.box")
@@ -159,7 +181,9 @@ function S:init()
     local function indent(wdg) return HorizontalGroup:new{ HorizontalSpan:new{ width = pad }, wdg } end
     local function gap(n) table.insert(body, VerticalSpan:new{ width = px(n) }) end
     -- 标题栏
-    table.insert(body, k.title(w, v.title, function() if v.back then v.back() else self:onClose() end end))
+    local left = v.back and { icon = "arrow_back", text = "‹ 返回", callback = v.back }
+        or { icon = "close", text = "✕", callback = function() self:onClose() end }
+    table.insert(body, k.title(w, v.title, left, v.switch))
     gap(8)
     -- 分层画面：缓存合成成一张位图
     local scene = v.scene or (v.image and { bg = v.image, overlays = {} })
@@ -188,11 +212,58 @@ function S:init()
         table.insert(body, indent(row))
         gap(8)
     end
-    for _, l in ipairs(v.lines or {}) do
-        local t = type(l) == "table" and l or { text = l }
-        table.insert(body, indent(k.text(t.text, inner, t.muted)))
-        gap(6)
+    -- 状态卡：图标 + 标题 / 说明 / 小字
+    local function iconW(rel, sz)
+        if not rel then return nil end
+        return try(function() return require("papersprite.ui.compose").icon(rel, sz) end) or img(rel, sz, sz, true)
     end
+    local function cardBox(child)
+        local cpad = px(12)
+        local cw = inner - px(4) - cpad * 2
+        local sz = child:getSize()
+        local box = OverlapGroup:new{ dimen = Geom:new{ w = cw, h = sz.h }, child }
+        return k.frame(FrameContainer:new{ padding = cpad, bordersize = 0, box }, true)
+    end
+    if v.status then
+        local st = v.status
+        local isz = px(st.icon_size or 56)
+        local ic = iconW(st.icon, isz)
+        local tw = inner - px(28) - (ic and (isz + px(12)) or 0)
+        local col = VerticalGroup:new{ align = "left", k.head(st.title or "", tw) }
+        if st.caption and st.caption ~= "" then
+            table.insert(col, VerticalSpan:new{ width = px(4) })
+            table.insert(col, k.text(st.caption, tw))
+        end
+        if st.meta and st.meta ~= "" then
+            table.insert(col, VerticalSpan:new{ width = px(4) })
+            table.insert(col, k.line(st.meta, tw, true, true))
+        end
+        local row = ic and HorizontalGroup:new{ align = "center", ic, HorizontalSpan:new{ width = px(12) }, col } or col
+        local card = cardBox(row)
+        if st.callback then card = tap(card, card:getSize().w, card:getSize().h, st.callback) end
+        table.insert(body, indent(card))
+        gap(12)
+    end
+    local function renderEmpty(e)
+        local t = VerticalGroup:new{ align = "center", k.head(e.title or "", inner - px(40)) }
+        if e.caption then table.insert(t, VerticalSpan:new{ width = px(6) }) table.insert(t, k.line(e.caption, inner - px(40), true, true)) end
+        table.insert(body, indent(cardBox(CenterContainer:new{ dimen = Geom:new{ w = inner - px(28), h = t:getSize().h + px(40) }, t })))
+        gap(12)
+    end
+    local function renderLines(ls)
+    for _, l in ipairs(ls or {}) do
+        local t = type(l) == "table" and l or { text = l }
+        if t.label then
+            table.insert(body, indent(k.line(t.text, inner, true, true)))
+            gap(4)
+        else
+            table.insert(body, indent(k.text(t.text, inner, t.muted, t.small)))
+            gap(6)
+        end
+    end
+    end
+    if v.empty then renderEmpty(v.empty) end
+    renderLines(v.lines)
     -- 分类页签
     if v.tabs then
         local tg = px(6)
@@ -206,13 +277,13 @@ function S:init()
         gap(10)
     end
     -- 小铺货架：物品卡（图标 + 名字 + 价格 / 已有 + 一行效果）
-    if v.shelf then
-        local cols, g = v.shelf.cols or 2, px(10)
+    local function renderShelf(shelf)
+        local cols, g = shelf.cols or 2, px(10)
         local cw = math.floor((inner - g * (cols - 1)) / cols)
         local cpad = px(8)
-        local iw = px(64)
+        local iw = px(shelf.icon or 64)
         local row
-        for i, c in ipairs(v.shelf.cells) do
+        for i, c in ipairs(shelf.cells) do
             if (i - 1) % cols == 0 then
                 if row then table.insert(body, indent(row)) gap(10) end
                 row = HorizontalGroup:new{ align = "top" }
@@ -220,21 +291,39 @@ function S:init()
                 table.insert(row, HorizontalSpan:new{ width = g })
             end
             local textw = cw - cpad * 2 - iw - px(8) - px(4)
-            local icon = try(function() return require("papersprite.ui.compose").icon(c.icon, iw) end) or img(c.icon, iw, iw, true)
+            local icon = (c.scene and thumb(k, c.scene, iw, iw, c.new)) or iconW(c.icon, iw)
                 or require("ui/widget/container/widgetcontainer"):new{ dimen = Geom:new{ w = iw, h = iw } }
-            local info = VerticalGroup:new{ align = "left", k.line(c.name, textw), VerticalSpan:new{ width = px(4) },
-                k.line(c.price .. "　" .. c.owned, textw, c.dim) }
+            if c.badge then icon = OverlapGroup:new{ dimen = Geom:new{ w = iw, h = iw }, icon, k.badge(c.badge) } end
+            local meta = c.meta or ((c.price or "") .. "　" .. (c.owned or ""))
+            if shelf.compact then
+                -- 紧凑卡：图标居中在上，标题 + 小字两行居中
+                local tw = cw - cpad * 2 - px(4)
+                local col = VerticalGroup:new{ align = "center", icon, VerticalSpan:new{ width = px(6) },
+                    k.line((c.check and "✓ " or "") .. (c.title or ""), tw), VerticalSpan:new{ width = px(2) }, k.line(meta, tw, true, true) }
+                local box = CenterContainer:new{ dimen = Geom:new{ w = cw - px(4) - cpad * 2, h = col:getSize().h }, col }
+                local cell = k.frame(FrameContainer:new{ padding = cpad, bordersize = 0, box }, true)
+                local sz = cell:getSize()
+                table.insert(row, tap(cell, sz.w, sz.h, c.callback))
+                goto continue
+            end
+            local info = VerticalGroup:new{ align = "left", k.line((c.check and "✓ " or "") .. (c.title or c.name or ""), textw), VerticalSpan:new{ width = px(4) },
+                k.line(meta, textw, true, c.dim) }
             local top = HorizontalGroup:new{ align = "center", icon, HorizontalSpan:new{ width = px(8) }, info }
-            local inner_c = VerticalGroup:new{ align = "left", top, VerticalSpan:new{ width = px(6) }, k.line(c.desc or "", cw - cpad * 2 - px(4), true, true) }
+            local inner_c = VerticalGroup:new{ align = "left", top, VerticalSpan:new{ width = px(6) }, k.line(c.desc or c.caption or "", cw - cpad * 2 - px(4), true, true) }
             local box = OverlapGroup:new{ dimen = Geom:new{ w = cw - px(4) - cpad * 2,
                 h = iw + px(6) + k.line("阿", cw, true, true):getSize().h }, inner_c }
             local framed = FrameContainer:new{ padding = cpad, bordersize = 0, box }
             local cell = k.frame(framed, true)
             local sz = cell:getSize()
             table.insert(row, tap(cell, sz.w, sz.h, c.callback))
+            ::continue::
         end
         if row then table.insert(body, indent(row)) gap(10) end
     end
+    if v.shelf then renderShelf(v.shelf) end
+    if v.lines2 then renderLines(v.lines2) end
+    if v.shelf2 then renderShelf(v.shelf2) end
+    if v.empty2 then renderEmpty(v.empty2) end
     -- 明信片墙：缩略图网格
     if v.grid then
         local cols, g = v.grid.cols or 3, px(12)

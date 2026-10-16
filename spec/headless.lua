@@ -29,9 +29,11 @@ local function btns()
     local out = {}
     for _, c in ipairs(H.view.grid and H.view.grid.cells or {}) do out[#out + 1] = { text = c.caption, callback = c.callback } end
     for _, c in ipairs(H.view.list and H.view.list.rows or {}) do out[#out + 1] = { text = c.title, callback = c.callback } end
-    for _, c in ipairs(H.view.shelf and H.view.shelf.cells or {}) do out[#out + 1] = { text = c.name, callback = c.callback } end
+    for _, c in ipairs(H.view.shelf and H.view.shelf.cells or {}) do out[#out + 1] = { text = c.title or c.name, callback = c.callback } end
+    for _, c in ipairs(H.view.shelf2 and H.view.shelf2.cells or {}) do out[#out + 1] = { text = c.title or c.name, callback = c.callback } end
+    if H.view.switch then out[#out + 1] = { text = "switch:" .. H.view.switch.text, callback = H.view.switch.callback } end
     for _, c in ipairs(H.view.tabs or {}) do out[#out + 1] = { text = "tab:" .. c.text, callback = c.callback } end
-    for _, b in ipairs(H.view.buttons) do
+    for _, b in ipairs(H.view.buttons or {}) do
         if b[1] then for _, c in ipairs(b) do out[#out + 1] = c end else out[#out + 1] = b end
     end
     return out
@@ -43,7 +45,12 @@ local function click(prefix)
 end
 local function back() assert(H.view.back, "sub-screen must have back") H.view.back() end
 local function text()
-    local t = {} for _, l in ipairs(H.view.lines) do t[#t + 1] = type(l) == "table" and l.text or l end
+    local t = {}
+    if H.view.status then t[#t + 1] = (H.view.status.title or "") .. "\n" .. (H.view.status.caption or "") .. "\n" .. (H.view.status.meta or "") end
+    if H.view.empty then t[#t + 1] = H.view.empty.title .. "\n" .. (H.view.empty.caption or "") end
+    for _, c in ipairs(H.view.shelf and H.view.shelf.cells or {}) do t[#t + 1] = (c.title or c.name or "") .. " " .. (c.meta or "") .. " " .. (c.caption or c.desc or "") end
+    for _, l in ipairs(H.view.lines2 or {}) do t[#t + 1] = type(l) == "table" and l.text or l end
+    for _, l in ipairs(H.view.lines or {}) do t[#t + 1] = type(l) == "table" and l.text or l end
     return table.concat(t, "\n")
 end
 
@@ -69,9 +76,11 @@ assert(#H.saved.postcards >= 1, "no postcard")
 local sv = 0 for _, c in pairs(H.saved.souvenirs) do sv = sv + c end
 assert(sv == 1, "souvenir")
 -- 4. 明信片墙 → 单张（分层画面）
-click("明信片墙"); click(""); assert(H.view.scene and H.view.scene.bg and #H.view.lines == 2, "card view")
+click("明信片墙"); click(""); assert(H.view.scene and H.view.scene.bg and H.view.status.caption:find("阿页"), "card view")
 assert(H.view.scene.overlays[1].img:find("^sprite/"), "pose layer")
-back(); back(); click("特产柜"); assert(H.view.lines[2]:find("×1"), "cabinet")
+back(); back(); click("特产柜"); assert(text():find("×1"), "cabinet")
+click(H.view.shelf.cells[1].title); assert(H.view.status and H.view.buttons[1].text == "摆到阁楼里", "souvenir detail")
+click("摆到阁楼里"); assert(#g.state.decor == 1); back()
 back(); click("小铺"); back()
 g:close()
 
@@ -214,13 +223,14 @@ assert(Game.atticBg(os.time({ year = 2026, month = 4, day = 1, hour = 12 })) == 
 assert(Game.atticBg(os.time({ year = 2026, month = 1, day = 1, hour = 23 }), true) == "attic/attic_night_empty.png")
 -- 特产摆进阁楼
 H.saved.souvenirs = { lake_pebble = 1, fog_jar = 2 }
+H.saved.decor = {}
 H.saved.visitor = { id = "seal_bear", pose = "_2", until_at = H.clock + 99999 }
 local g4 = Game.new(H.host):show()
-click("特产柜"); click("一瓶雾"); assert(H.saved.decor[1] == "fog_jar")
-back()
+click("特产柜"); click("一瓶雾"); click("摆到阁楼里"); assert(H.saved.decor[1] == "fog_jar")
+back(); back()
 local ov = {} for _, o in ipairs(H.view.scene.overlays) do ov[o.img] = true end
 assert(ov["souvenirs/fog_jar.png"] and ov["visitors/seal_bear_2.png"], "decor + visitor pose overlays")
-click("特产柜"); click("✓ 一瓶雾"); assert(#H.saved.decor == 0)
+click("特产柜"); click("一瓶雾"); click("从阁楼收起"); assert(#H.saved.decor == 0)
 g4:close()
 -- 资源齐全：每个被引用的图都在 assets 里
 local A = "paper-sprite.koplugin/assets/"
@@ -275,9 +285,9 @@ local g5 = Game.new(H.host):show()
 click("明信片墙")
 assert(H.view.grid and #H.view.grid.cells == 12 and H.view.pager.pages == 3 and H.view.grid.cells[1].new)
 H.view.pager.next(); assert(H.view.pager.page == 2)
-click("列表视图"); assert(H.view.list and #H.view.list.rows == 4 and H.view.list.rows[1].date and H.view.pager.pages == 8)
+click("switch:列表"); assert(H.view.list and #H.view.list.rows == 4 and H.view.list.rows[1].date and H.view.pager.pages == 8)
 assert(H.view.list.rows[1].new, "new badge survives re-render in the same wall visit")
-click("网格视图"); assert(H.view.grid)
+click("switch:网格"); assert(H.view.grid)
 g5:close()
 
 -- 13. 小铺：货架分页 / 分类 / 详情 / 购买；每件可买物品都有介绍，效果行与数据一致
