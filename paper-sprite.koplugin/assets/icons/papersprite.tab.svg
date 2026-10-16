@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 阿页 Tab 图标（原创）：折了角的书签 + 两个圆点眼睛；24 网格、1px 线，与 KOReader mdlight 图标同风格 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <path d="M6.5,3.5 H13.5 L17.5,7.5 V20.5 L12,17.8 L6.5,20.5 Z" fill="none" stroke="#000" stroke-width="1" stroke-linejoin="round"/>
+  <path d="M13.5,3.5 V7.5 H17.5" fill="none" stroke="#000" stroke-width="1" stroke-linejoin="round"/>
+  <circle cx="10.2" cy="10.6" r="0.95" fill="#000"/>
+  <circle cx="13.8" cy="10.6" r="0.95" fill="#000"/>
+</svg>

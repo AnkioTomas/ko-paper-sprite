@@ -12,7 +12,23 @@
 --]]
 local M = {}
 local MARKER = "_papersprite_attic"
-local ICON = "home"
+local ICON_FALLBACK = "bookmark"
+
+--- Tab 图标：插件自带的 assets/icons/papersprite.tab.svg（折角书签 + 圆点眼睛）。
+--- TouchMenu 只收图标名，IconWidget 按「图标目录/名字.svg」找；用足够多的 ../ 退到根再接插件绝对路径，
+--- 任何一个图标目录都能解析到它。找不到文件就用 KOReader 自带的 bookmark。
+local function tabIcon()
+    local ok, icon = pcall(function()
+        local lfs = require("libs/libkoreader-lfs")
+        local dir = debug.getinfo(1, "S").source:match("^@(.*)/papersprite/ui/[^/]*$")
+        if not dir then return nil end
+        if dir:sub(1, 1) ~= "/" then dir = lfs.currentdir() .. "/" .. dir end
+        local base = dir .. "/assets/icons/papersprite.tab"
+        if lfs.attributes(base .. ".svg", "mode") ~= "file" then return nil end
+        return ("../"):rep(32) .. base:sub(2)
+    end)
+    return ok and icon or ICON_FALLBACK
+end
 local PAGES = { { "attic", "打开阁楼" }, { "basket", "收拾行囊" }, { "shop", "小铺" }, { "wall", "明信片墙" }, { "cabinet", "特产柜" } }
 
 local function hostFor()
@@ -41,7 +57,7 @@ local function populate(tab)
 end
 
 local function newTab()
-    local tab = { icon = ICON, remember = false, [MARKER] = true }
+    local tab = { icon = tabIcon(), remember = false, [MARKER] = true }
     tab.callback = function() populate(tab) end
     populate(tab)
     return tab
