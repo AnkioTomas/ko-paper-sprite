@@ -3,3 +3,6 @@
 *.zip
 *.log
 art-samples/
+__pycache__/
+*.pyc
+dist/

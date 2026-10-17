@@ -1,68 +1,59 @@
 # 阿页的阁楼 · ko-paper-sprite
 
-KOReader 插件，也可作为[月读](https://github.com/AnkioTomas/moon)扩展使用。完全离线。
+[![CI](https://github.com/AnkioTomas/ko-paper-sprite/actions/workflows/ci.yml/badge.svg)](https://github.com/AnkioTomas/ko-paper-sprite/actions/workflows/ci.yml)
 
-## 设定
-书页里住着一只小纸灵 **阿页**：一张旧书签变的，折纸身子，头上翘着一个书角。
-它住在阅读器里的小阁楼：书桌、油灯、藤筐，还有一面贴明信片的墙。
+一个住在阅读器里的小纸灵。KOReader 插件，同时也是[月读](https://github.com/AnkioTomas/moon)扩展。完全离线，为墨水屏设计。
 
-- **收拾行囊**：往藤筐放干粮、护身物、随身小书各一样，决定它去哪儿、去多久。
-- **自己出门**：行囊收好后过一阵（20–90 分钟）它会悄悄出发，留下一张纸条；旅程 3–30 小时，按真实时间计。
-- **寄回明信片**：途中寄回 1–2 张黑白明信片，地点都在书中世界：墨水湖、雾里的旧书市、折页山……
-- **带回特产**：回家时带回小物件。
-- **家里常备**：饼干、铅笔头、地图册取之不尽；其他物品要用灵感换。
-- **灵感**：在 KOReader 里读书翻页会攒灵感（骨架：每 20 次有效翻页 = 1 灵感），用来在小铺买干粮和道具（第 3 批）。
-- **访客**：墨点虫、回形针蜗牛、书灯萤、邮票龟偶尔来串门，走时留点灵感。
-- **AI 文案（可选）**：在月读里且已配置 AI 时，每趟旅行的明信片短句、旁白由 AI 现写并存进存档，见 [docs/ai.md](docs/ai.md)。
-- 没有失败和惩罚。
+<p>
+  <img src="docs/screenshots/attic.png" width="24%" alt="阁楼">
+  <img src="docs/screenshots/recent.png" width="24%" alt="来客与最近">
+  <img src="docs/screenshots/wall.png" width="24%" alt="明信片墙">
+  <img src="docs/screenshots/shop.png" width="24%" alt="小铺">
+</p>
+
+## 这是什么
+书页里住着 **阿页**：一张旧书签变成的小纸灵，折纸身子，头上翘着一个书角。它住在一间小阁楼里，有书桌、油灯、藤筐，还有一面贴明信片的墙。
+
+- **收拾行囊**：往藤筐里放一样干粮、一样护身物、一本随身小书。带什么决定它爱去哪儿、去多久。
+- **自己出门**：收好行囊后过一阵它会悄悄出发，留下一张纸条。旅程按真实时间计，几小时到一天多。
+- **寄回明信片**：路上寄回黑白明信片。地点都在书中世界（墨水湖、折页山、烛光书窖……），由背景、姿势、小物、天气、短句分层合成，组合上千种。
+- **带回特产**：回家时带回小物件，收进特产柜，还能摆进阁楼。
+- **访客**：墨点虫、印泥熊等小客人偶尔来串门，走时留点灵感。
+- **灵感**：在 KOReader 里读书翻页攒灵感，到小铺换干粮和护身物。
+- **最近**：阁楼里记着阿页出门、回家、来客、收到明信片的时间。
+- **可选 AI 文案**：在月读里且已配置 AI 时，明信片短句和旁白可以由 AI 现写，见 [docs/ai.md](docs/ai.md)。
+- 没有失败和惩罚，不需要每天打卡。
+
+## 界面
+- 全屏界面支持 KOReader 原生和月读主题两套皮肤，卡片无边框，翻页用页脚加左右滑动，每页条数按屏幕高度自动调整。
+- KOReader 顶部菜单里多一个「阿页」页签（阅读器和文件管理器都有），能看阁楼近况，也有快捷入口。
+- 月读首页组件：「阿页」近况卡片、「阿页的阁楼」、「阿页的明信片」（列表 / 迷你墙）、「纪念物柜」，各有小 / 中 / 大三种尺寸。
+
+<img src="docs/screenshots/moon_home.png" width="30%" alt="月读首页组件">
 
 ## 安装
-把 `paper-sprite.koplugin` 复制到 KOReader 的 `plugins/`，在主菜单「工具 → 阿页的阁楼」打开。
-装了月读时，首页组件里会多一张「阿页」卡片，点按全屏打开阁楼。
+### KOReader
+1. 在 [Releases](https://github.com/AnkioTomas/ko-paper-sprite/releases) 下载 `paper-sprite.koplugin.zip`。
+2. 解压后把 `paper-sprite.koplugin` 目录复制到 KOReader 的 `plugins/` 下（如 Kindle 上的 `koreader/plugins/`）。
+3. 重启 KOReader。从顶部菜单的「阿页」页签，或「工具 → 阿页的阁楼」打开。
 
-## 结构
+### 月读
+同一个插件就能用，不需要另装。启用月读和本插件后，在月读首页编辑状态下点「添加组件」，加入「阿页」系列组件；点组件会全屏打开阁楼。
+
+存档保存在 KOReader 的 settings 目录，更新插件不会丢。
+
+## 开发
 ```
-paper-sprite.koplugin/
-  _meta.lua  main.lua  moon_source.lua(ext.papersprite)
-  papersprite/
-    host/   interface / koreader / moon   宿主适配
-    core/   state(存档+版本迁移) travel(真实时间结算) rng reading(阅读账本)
-    data/   places items postcards(分层明信片：地点+姿势+小物+天气+短句)
-    ui/     screen(全屏浮层，KOReader/月读两套皮肤) moon_card(首页卡片)
-    game.lua
-  assets/   正式素材（4 级灰）+ 规格（assets/README.md）
-spec/headless.lua   虚拟时钟冒烟测试
-tools/process_art.py   原图 → 4 级灰抖动素材；生成天气层
+lua spec/headless.lua                                   # 虚拟时钟冒烟测试
+find paper-sprite.koplugin spec -name '*.lua' -exec luac -p {} +
+tools/release.sh 1.0.1                                  # 改版本号、更新 CHANGELOG、打包到 dist/、提交并打 tag
 ```
-旅行不依赖后台定时器：每次打开时按「上次到现在」的真实时间一次性结算；界面开着时只在下一件事到点时刷新。
+推送 `v*` tag 后，GitHub Actions 会跑测试、打包，并创建 Release。
 
-调试：设置 `debug_fast = true`（KOReader：`settings/papersprite.lua` 里 `setting_debug_fast`；月读：`ext.papersprite.settings.debug_fast`）后，分钟变秒、小时变 10 秒。
+文档：[世界设定](docs/world.md) · [玩法与数值](docs/gameplay.md) · [架构](docs/architecture.md) · [数据格式](docs/data-format.md) · [素材规格](docs/assets.md) · [测试](docs/testing.md) · [首页组件与皮肤](docs/widgets.md) · [路线图](docs/roadmap.md) · [更新日志](CHANGELOG.md)
 
-## 测试
-```
-lua spec/headless.lua
-for f in $(find . -name '*.lua'); do luac -p "$f"; done
-```
-
-## 路线图
-1. ✅ 项目骨架
-2. ✅ 旅行与明信片：分层明信片（40 地点 × 2 背景 × 24 姿势 × 25 小物 × 10 天气）、12 位访客（各 2 种姿势）、48 种特产（可摆进阁楼）、四季与夜晚阁楼、特产柜、小铺、可选 AI 文案、正式美术
-3. 灵感细化（阅读时长）、物品效果、访客礼物
-4. 更多内容、明信片包加载器
-5. 月读打磨与发布
-
-详见 [docs/roadmap.md](docs/roadmap.md)。
-
-## 文档
-- [世界与角色设定](docs/world.md)
-- [玩法说明与数值](docs/gameplay.md)
-- [架构](docs/architecture.md)
-- [数据格式](docs/data-format.md)
-- [素材规格与明信片包投稿](docs/assets.md)
-- [测试与模拟器](docs/testing.md)
-- [可选 AI 文案层](docs/ai.md)
-- [月读首页组件、快捷面板与界面皮肤](docs/widgets.md)
-- [路线图](docs/roadmap.md)
-
-## 协议
-MIT，见 LICENSE / NOTICE。所有内容原创。
+## 协议与致谢
+- 代码以 MIT 协议发布，见 [LICENSE](LICENSE) / [NOTICE](NOTICE)。
+- 角色、地点、物品、文案与数值全部原创。
+- 美术原创：插画由作者按原创设定用 Teamo 图像生成后，经 `tools/process_art.py` 处理成墨水屏 4 级灰；天气层由程序生成。未使用任何第三方作品或素材。
+- 本项目是独立作品，与任何游戏、公司或品牌无关联。
