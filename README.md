@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" width="128" alt="阿页的阁楼">
+</p>
+
 # 阿页的阁楼 · ko-paper-sprite
 
 [![CI](https://github.com/AnkioTomas/ko-paper-sprite/actions/workflows/ci.yml/badge.svg)](https://github.com/AnkioTomas/ko-paper-sprite/actions/workflows/ci.yml)

@@ -6,3 +6,4 @@ art-samples/
 __pycache__/
 *.pyc
 dist/
+skills-workspace/
