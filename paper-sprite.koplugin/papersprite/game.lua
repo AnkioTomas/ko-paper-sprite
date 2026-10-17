@@ -147,18 +147,6 @@ function Game:_attic()
     end
     local unseen = #s.postcards - (s.wall_seen or 0)
     st.meta = "灵感 ✦ " .. s.inspiration .. "　·　明信片 " .. #s.postcards .. (unseen > 0 and ("（新 " .. unseen .. "）") or "")
-    local lines = {}
-    if s.visitor then
-        local v = Travel.visitor(s.visitor.id)
-        if v then
-            lines[#lines + 1] = { text = "来客", label = true }
-            lines[#lines + 1] = v.name .. "：" .. (s.visitor.line or v.here)
-        end
-    end
-    if #s.log > 0 then
-        lines[#lines + 1] = { text = "最近", label = true }
-        for i = #s.log, math.max(1, #s.log - 1), -1 do lines[#lines + 1] = { text = s.log[i], muted = true, small = true } end
-    end
     local ids = {}
     for id in pairs(s.souvenirs or {}) do if Postcards.souvenirs[id] then ids[#ids + 1] = id end end
     table.sort(ids)
@@ -177,7 +165,44 @@ function Game:_attic()
           meta = #ids .. " / " .. Game.souvenirTotal() .. " 种", caption = "摆在阁楼 " .. #(s.decor or {}) .. " / " .. Game.DECOR_MAX,
           callback = function() self:go("cabinet") end },
     }
-    return { title = "阿页的阁楼", scene = scene, status = st, lines2 = lines, shelf = { cols = 4, icon = 48, compact = true, cells = cells } }
+    -- 第 1 页：画面 + 状态 + 入口；第 2 页起：来客 + 最近（每页条数按高度自适应）
+    local per = self:per("attic_log", 6)
+    local logs = {}
+    for i = #s.log, 1, -1 do logs[#logs + 1] = s.log[i] end
+    local lead = self:per("attic_lead", 2)
+    local c2 = math.max(1, per - lead)   -- 第 2 页有来客卡，少放几条
+    local log_pages = 1 + math.ceil(math.max(0, #logs - c2) / per)
+    local pages = 1 + log_pages
+    local page = math.max(1, math.min(self.attic_page or 1, pages))
+    self.attic_page = page
+    local pager = { page = page, pages = pages, go = function(n) self.attic_page = n self:render() end,
+        prev = function() self.attic_page = page - 1 self:render() end, next = function() self.attic_page = page + 1 self:render() end }
+    if page == 1 then
+        return { title = "阿页的阁楼", scene = scene, status = st, shelf = { cols = 4, icon = 48, compact = true, cells = cells }, pager = pager }
+    end
+    local v = { title = "阿页的阁楼", pager = pager, lines = {} }
+    if page == 2 then
+        local vis = s.visitor and Travel.visitor(s.visitor.id)
+        if vis then
+            v.status = { icon = "visitors/" .. vis.id .. (s.visitor.pose or "") .. ".png", icon_size = 72, title = "来客 · " .. vis.name,
+                caption = s.visitor.line or vis.here, meta = "还会待一会儿" }
+        else
+            v.status = { icon = "sprite/carry.png", title = "今天没有客人", caption = "小客人会在阿页回家后来串门。" }
+        end
+    end
+    local first = page == 2 and 1 or (c2 + (page - 3) * per + 1)
+    local cnt = page == 2 and c2 or per
+    v.lines[1] = { text = "最近" .. (#logs > 0 and ("（" .. math.min(#logs, first) .. "–" .. math.min(#logs, first + cnt - 1) .. " / " .. #logs .. "）") or ""), label = true }
+    if #logs == 0 then v.empty = { title = "还没有什么新鲜事", caption = "阿页出门、回家、来客都会记在这里。" } end
+    local rows = {}
+    for i = first, math.min(#logs, first + cnt - 1) do rows[#rows + 1] = { text = logs[i] } end
+    v.notes = { rows = rows, per = per, lead = lead, fit = function(full, ld)
+        self.per_page = self.per_page or {}
+        if self.closed or (self.per_page.attic_log == full and self.per_page.attic_lead == ld) then return end
+        self.per_page.attic_log, self.per_page.attic_lead = full, ld
+        self:render()
+    end }
+    return v
 end
 
 function Game.souvenirTotal()

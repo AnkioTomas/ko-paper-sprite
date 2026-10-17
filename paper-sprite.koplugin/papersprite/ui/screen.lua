@@ -10,6 +10,7 @@ view = {
   status? = { icon?, title, caption?, meta?, callback? }                  状态卡（图标 + 标题 / 说明 / 小字）
   empty?  = { title, caption? }                                           空状态卡
   switch? = { icon, text, callback }                                      标题栏右侧视图切换；左侧固定是返回（无 back 时关闭）
+  notes?  = { rows = { {text, meta?} }, per, fit }                        文字卡列表（按最高一张自适应每页条数）
   lines 里 { text, label = true } 是小节标签（小号灰字）
   tabs?  = { {text, active, callback} },                                  分类页签（一行按钮，当前项加 ✓）
   shelf? = { cols, icon?, cells = { {icon|scene, title|name, meta|price+owned, desc|caption, check?, badge?, dim, callback} } } 卡片网格
@@ -229,8 +230,8 @@ function S:init()
     -- 分层画面：缓存合成成一张位图
     local scene = v.scene or (v.image and { bg = v.image, overlays = {} })
     if scene then
-        local SW = inner
-        local SH = math.floor(SW / 2)
+        local SH = self._scene_h or math.floor(inner / 2)
+        local SW = SH * 2
         local pic = try(function() return require("papersprite.ui.compose").widget(scene, SW, SH) end)
         if not pic then
             local grp = OverlapGroup:new{ dimen = Geom:new{ w = SW, h = SH } }
@@ -265,6 +266,7 @@ function S:init()
         local box = OverlapGroup:new{ dimen = Geom:new{ w = cw, h = sz.h }, child }
         return k.frame(FrameContainer:new{ padding = cpad, bordersize = 0, box }, true)
     end
+    local status_h0 = bodyH()
     if v.status then
         local st = v.status
         local isz = px(st.icon_size or 56)
@@ -303,8 +305,30 @@ function S:init()
         end
     end
     end
+    local status_h = bodyH() - status_h0
     if v.empty then renderEmpty(v.empty) end
     renderLines(v.lines)
+    -- 文字卡列表（阁楼「最近」）：每条一张卡；按最高那张算一页能放几条
+    if v.notes then
+        local before = bodyH()
+        local tallest = 0
+        for _, r in ipairs(v.notes.rows) do
+            local col = VerticalGroup:new{ align = "left", k.text(r.text, inner - px(28)) }
+            if r.meta then table.insert(col, VerticalSpan:new{ width = px(2) }) table.insert(col, k.line(r.meta, inner - px(28), true, true)) end
+            local c = cardBox(col)
+            tallest = math.max(tallest, c:getSize().h + px(8))
+            table.insert(body, indent(c))
+            gap(8)
+        end
+        if v.notes.fit and tallest > 0 then
+            -- 报两个数：没有顶部状态卡时一页几条；状态卡占掉几条（阁楼第 2 页的来客卡）
+            local room = h - before - footer_h - px(6) + px(8)
+            local full = math.max(1, math.floor((room + status_h) / tallest))
+            local lead = full - math.max(1, math.floor(room / tallest))
+            if status_h == 0 then lead = v.notes.lead or 0 end  -- 没有状态卡的页量不出来，沿用
+            if full ~= v.notes.per or lead ~= (v.notes.lead or 0) then UIManager:nextTick(function() v.notes.fit(full, lead) end) end
+        end
+    end
     -- 分类页签
     if v.tabs then
         local tg = px(6)
@@ -417,6 +441,12 @@ function S:init()
             gap(12)
         end
         if v.list.fit and rows ~= v.list.per then UIManager:nextTick(function() v.list.fit(rows) end) end
+    end
+    -- 还是放不下：缩小顶部画面再排一次（只缩一次）
+    local over = bodyH() + footer_h - h
+    if over > 0 and scene and not self._scene_h then
+        self._scene_h = math.max(px(80), math.floor(inner / 2) - over - px(4))
+        return self:init()
     end
     local filler = h - bodyH() - footer_h
     if filler > 0 then table.insert(body, VerticalSpan:new{ width = filler }) end

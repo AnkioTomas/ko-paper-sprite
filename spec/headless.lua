@@ -331,4 +331,17 @@ for _, pg in ipairs({ "basket", "shop", "wall", "cabinet" }) do
 end
 g7:close()
 
+-- 15. 阁楼主页分页：第 1 页画面 + 状态 + 入口；第 2 页来客 + 最近；日志多时更多页
+local sa = State.fresh(0)
+for k = 1, 15 do sa.log[k] = "事" .. k end
+sa.visitor = { id = "inkbug", pose = "", until_at = 1e12 }
+H.saved = sa
+local g8 = Game.new(H.host):show()
+assert(H.view.scene and H.view.shelf and #H.view.shelf.cells == 4 and H.view.pager.pages >= 2 and not H.view.notes)
+H.view.pager.next(); assert(H.view.status.title:find("墨点虫") and H.view.notes and H.view.notes.rows[1].text == "事15")
+H.view.notes.fit(5, 2); assert(H.view.pager.pages == 5 and #H.view.notes.rows == 3)
+H.view.pager.go(3); assert(H.view.notes.rows[1].text == "事12" and #H.view.notes.rows == 5 and not H.view.status)
+H.view.pager.go(5); assert(H.view.notes.rows[1].text == "事2" and #H.view.notes.rows == 2)
+g8:close()
+
 print("headless ok: postcards=" .. #st.postcards .. " places=" .. np .. " combos=" .. nc)
