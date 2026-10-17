@@ -20,9 +20,9 @@ elif ! grep -q "^## $V" CHANGELOG.md; then
     echo "CHANGELOG.md 里没有「## 未发布」或「## $V」段落"; exit 1
 fi
 
-mkdir -p dist && rm -f "dist/paper-sprite.koplugin-v$V.zip"
-zip -qr "dist/paper-sprite.koplugin-v$V.zip" paper-sprite.koplugin -x '*.DS_Store'
+mkdir -p dist && rm -f "dist/paper-sprite.koplugin-v${V}.zip"
+zip -qr "dist/paper-sprite.koplugin-v${V}.zip" paper-sprite.koplugin -x '*.DS_Store'
 git add paper-sprite.koplugin/_meta.lua CHANGELOG.md
 git commit -qm "Release v$V"
 git tag -a "v$V" -m "v$V"
-echo "已打 tag v$V，包在 dist/paper-sprite.koplugin-v$V.zip。推送：git push origin main --tags"
+echo "已打 tag v${V}，包在 dist/paper-sprite.koplugin-v${V}.zip。推送：git push origin main --tags"
