@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 --[[--
 阅读账本：KOReader 翻页事件记次数（不读书的内容），打开阁楼时折算成灵感。
-账本存 KOReader settings/papersprite_reading.lua，KOReader 与月读两种宿主共用。
+账本存 <数据目录>/.moon/game/paper-sprite/reading.lua（见 core/storage），KOReader 与月读两种宿主共用。
 骨架规则（原创，待第 3 批细化）：每 20 次翻页 = 1 灵感；同一分钟内多次翻页只算 1 次（防连点）。
 --]]
 local M = { PAGES_PER_POINT = 20 }
@@ -9,8 +9,7 @@ local M = { PAGES_PER_POINT = 20 }
 local store
 local function open()
     if not store then
-        local DataStorage = require("datastorage")
-        store = require("luasettings"):open(DataStorage:getSettingsDir() .. "/papersprite_reading.lua")
+        store = require("papersprite.core.storage").open("reading")
     end
     return store
 end

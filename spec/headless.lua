@@ -361,4 +361,32 @@ do
     g9:close()
 end
 
+-- 17. 存档位置与迁移：新目录 <data>/.moon/game/paper-sprite；旧 KOReader / 月读存档只复制不删，取进度多的
+do
+    local St = require("papersprite.core.storage")
+    local files, made = {}, {}
+    local function fake(path)
+        files[path] = files[path] or { data = {} }
+        local f = files[path]
+        return { data = f.data, readSetting = function(_, k) return f.data[k] end,
+            saveSetting = function(_, k, v) f.data[k] = v end, flush = function() f.flushed = true end }
+    end
+    local moon = { postcards = { 1, 2, 3 }, trips = 5 }
+    St.deps = { dataDir = function() return "/D" end, settingsDir = function() return "/D/settings" end,
+        open = fake, exists = function(p) return files[p] ~= nil end, mkdirp = function(p) made[#made + 1] = p end,
+        moonState = function() return moon end }
+    St._reset()
+    fake("/D/settings/papersprite.lua").saveSetting(nil, "state", { postcards = { 1 }, trips = 1 })
+    fake("/D/settings/papersprite.lua").saveSetting(nil, "setting_ui_skin", "native")
+    fake("/D/settings/papersprite_reading.lua").saveSetting(nil, "pages", 42)
+    local sv = St.open("save")
+    assert(made[1] == "/D/.moon/game/paper-sprite" and files["/D/.moon/game/paper-sprite/save.lua"].flushed)
+    assert(sv:readSetting("state") == moon and sv:readSetting("setting_ui_skin") == "native" and sv:readSetting("migrated_from"))
+    assert(files["/D/settings/papersprite.lua"].data.state.trips == 1)   -- 旧文件原样保留
+    assert(St.open("reading"):readSetting("pages") == 42)
+    -- 已有新存档：不再迁移
+    St._reset(); moon = { postcards = { 1, 2, 3, 4, 5, 6 }, trips = 9 }
+    assert(St.open("save"):readSetting("state").trips == 5)
+end
+
 print("headless ok: postcards=" .. #st.postcards .. " places=" .. np .. " combos=" .. nc)

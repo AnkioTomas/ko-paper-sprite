@@ -399,8 +399,7 @@ function S:init()
                 local cell = k.frame(FrameContainer:new{ padding = cpad, bordersize = 0, box }, true)
                 local sz = cell:getSize()
                 table.insert(row, tap(cell, sz.w, sz.h, c.callback))
-                goto continue
-            end
+            else
             local info = VerticalGroup:new{ align = "left", k.line((c.check and "✓ " or "") .. (c.title or c.name or ""), textw), VerticalSpan:new{ width = px(4) },
                 k.line(meta, textw, true, c.dim) }
             local top = HorizontalGroup:new{ align = "center", icon, HorizontalSpan:new{ width = px(8) }, info }
@@ -412,7 +411,7 @@ function S:init()
             local sz = cell:getSize()
             table.insert(row, tap(cell, sz.w, sz.h, c.callback))
             shelf._step = shelf._step or (sz.h + px(10))
-            ::continue::
+            end
         end
         if row then table.insert(body, indent(row)) gap(10) end
         fit(shelf, cols, before, shelf._step or 0, px(10))

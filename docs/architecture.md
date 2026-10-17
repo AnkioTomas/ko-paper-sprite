@@ -15,8 +15,8 @@ paper-sprite.koplugin/
 
 ## 宿主适配（host/）
 `host/interface.lua` 定义游戏可用的全部外部能力：`showScreen / closeScreen / schedule / unschedule / loadState / saveState / getSetting / setSetting / notify / now`。
-- `koreader.lua`：UIManager 显示与定时，`settings/papersprite.lua`（LuaSettings）存档。
-- `moon.lua`：继承 KOReader 宿主；存档写月读扩展独立表 `utils.settings.getSource("ext.papersprite")`，界面用月读主题皮肤，提示用月读 Toast。月读模块缺失时自动回落。
+- `koreader.lua`：UIManager 显示与定时；存档用 LuaSettings，文件由 `core/storage.lua` 给出（见下文「存档位置」）。
+- `moon.lua`：继承 KOReader 宿主；存档与 KOReader 宿主共用同一个文件；只有设置还写在月读扩展独立表 `utils.settings.getSource("ext.papersprite").settings`，界面用月读主题皮肤，提示用月读 Toast。月读模块缺失时自动回落。
 - 测试用宿主见 `spec/headless.lua`（虚拟时钟）。
 
 ## 界面
@@ -36,7 +36,7 @@ paper-sprite.koplugin/
 - 随机数用存档里的种子（`core/rng.lua`，LCG），同一存档同一时刻结果确定，便于测试复现。
 
 ## 阅读账本
-`core/reading.lua`：`main.lua` 的 `onPageUpdate` 只记次数（不读书的内容），写 `settings/papersprite_reading.lua`；打开阁楼时按差值折算灵感。两种宿主共用这本账。
+`core/reading.lua`：`main.lua` 的 `onPageUpdate` 只记次数（不读书的内容），写 `.moon/game/paper-sprite/reading.lua`；打开阁楼时按差值折算灵感。两种宿主共用这本账。
 
 ## 可选 AI
 `host:ai()`（仅月读宿主）→ `core/story.lua` 异步请求、校验、写存档；详见 [ai.md](ai.md)。
@@ -44,3 +44,11 @@ paper-sprite.koplugin/
 ## 画面
 `view.scene = { bg, overlays = { {img, x, y, h, full?} }, frame }`：`ui/screen.lua` 用 OverlapGroup 叠 ImageWidget（alpha）。
 明信片的图层位置在 `Game.cardScene`；访客在阁楼里的位置在 `VISITOR_POS`。
+
+## 存档位置
+`core/storage.lua`：所有落盘数据放在 `DataStorage:getDataDir() .. "/.moon/game/paper-sprite"`（会一层层建好目录）。
+- `save.lua`：`state`（存档，含 AI 写下的明信片短句 / 旁白）和 KOReader 宿主的设置 `setting_*`。
+- `reading.lua`：阅读账本。
+- 缩略图 / 合成缓存只在内存里（`ui/compose` 的 LRU），不落盘。
+
+迁移：新文件不存在时，从旧位置复制。来源有三个：`settings/papersprite.lua`、`settings/papersprite_reading.lua`，以及月读的 `ext.papersprite.state`。两份存档都有时，取「明信片数 + 旅行次数」更大的那份。新文件 flush 后写入 `migrated_from`。旧文件不删，留作备份。

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 --[[--
-KOReader 宿主：UIManager 显示 / 定时，LuaSettings 存档（settings/papersprite.lua）。
+KOReader 宿主：UIManager 显示 / 定时，LuaSettings 存档（<数据目录>/.moon/game/paper-sprite/save.lua，见 core/storage）。
 结构沿用 ko-adarkroom 的 host/koreader.lua。
 --]]
 local Interface = require("papersprite.host.interface")
@@ -8,17 +8,17 @@ local Interface = require("papersprite.host.interface")
 local Host = {}
 Host.__index = Host
 
-local STATE_FILE = "papersprite.lua"
-
 function Host.new(opts)
     return Interface.check(setmetatable({ opts = opts or {} }, Host))
 end
 
 function Host:_store()
     if not self.store then
-        local DataStorage = require("datastorage")
-        local LuaSettings = require("luasettings")
-        self.store = LuaSettings:open(self.opts.state_path or (DataStorage:getSettingsDir() .. "/" .. STATE_FILE))
+        if self.opts.state_path then
+            self.store = require("luasettings"):open(self.opts.state_path)
+        else
+            self.store = require("papersprite.core.storage").open("save")
+        end
     end
     return self.store
 end

@@ -37,6 +37,6 @@
 
 ## 调试：debug_fast
 开启后「分钟 → 秒，小时 → 10 秒」，几分钟就能走完一趟。
-- KOReader：`settings/papersprite.lua` 里 `["setting_debug_fast"] = true`
+- KOReader：`.moon/game/paper-sprite/save.lua` 里 `["setting_debug_fast"] = true`
 - 月读：`.moon/settings/ext.papersprite.lua` 的 `settings.debug_fast = true`
 - 代码：`host:setSetting("debug_fast", true)`
