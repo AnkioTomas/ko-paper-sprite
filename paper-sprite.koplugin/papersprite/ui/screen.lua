@@ -349,7 +349,12 @@ function S:init()
         local row = HorizontalGroup:new{}
         for i, t in ipairs(v.tabs) do
             if i > 1 then table.insert(row, HorizontalSpan:new{ width = tg }) end
-            table.insert(row, k.button((t.active and "✓ " or "") .. t.text, tw, t.callback))
+            -- 无边框页签：文字 + 选中项下面一条粗线
+            local th = px(40)
+            local lab = CenterContainer:new{ dimen = Geom:new{ w = tw, h = th }, k.line((t.active and "✓ " or "") .. t.text, tw, not t.active) }
+            local col = VerticalGroup:new{ lab, require("ui/widget/linewidget"):new{ dimen = Geom:new{ w = tw, h = t.active and px(3) or px(1) },
+                background = t.active and Blitbuffer.COLOR_BLACK or Blitbuffer.Color8(0xCC) } }
+            table.insert(row, tap(col, tw, th + px(3), t.callback))
         end
         table.insert(body, indent(row))
         gap(10)
@@ -361,6 +366,17 @@ function S:init()
         local cw = math.floor((inner - g * (cols - 1)) / cols)
         local cpad = px(8)
         local iw = px(shelf.icon or 64)
+        -- 按剩余高度定图标大小：余下的空白够大半行时，把图标缩一点多放一行（不小于 44）
+        if shelf.fit and not shelf.compact then
+            local lh = k.line("阿", cw, true, true):getSize().h
+            local extra = px(6) + lh + cpad * 2 + px(10)
+            local avail = h - before - footer_h - px(6) + px(10)
+            local rows = math.max(1, math.floor(avail / (iw + extra)))
+            if avail - rows * (iw + extra) > (iw + extra) * 0.35 then
+                local iw2 = math.floor(avail / (rows + 1)) - extra
+                if iw2 >= px(44) then iw = iw2 end
+            end
+        end
         local row
         for i, c in ipairs(shelf.cells) do
             if (i - 1) % cols == 0 then

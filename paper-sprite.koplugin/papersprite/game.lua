@@ -179,7 +179,7 @@ function Game:_attic()
     local pager = { page = page, pages = pages, go = function(n) self.attic_page = n self:render() end,
         prev = function() self.attic_page = page - 1 self:render() end, next = function() self.attic_page = page + 1 self:render() end }
     if page == 1 then
-        return { title = "阿页的阁楼", scene = scene, status = st, shelf = { cols = 4, icon = 48, compact = true, cells = cells }, pager = pager }
+        return { title = "阿页的阁楼", scene = scene, status = st, shelf = { cols = 4, icon = 64, compact = true, cells = cells }, pager = pager }
     end
     local v = { title = "阿页的阁楼", pager = pager, lines = {} }
     if page == 2 then
@@ -188,7 +188,7 @@ function Game:_attic()
             v.status = { icon = "visitors/" .. vis.id .. (s.visitor.pose or "") .. ".png", icon_size = 72, title = "来客 · " .. vis.name,
                 caption = s.visitor.line or vis.here, meta = "还会待一会儿" }
         else
-            v.status = { icon = "sprite/carry.png", title = "今天没有客人", caption = "小客人会在阿页回家后来串门。" }
+            v.status = { icon = "sprite/peek.png", title = "今天没有客人", caption = "小客人会在阿页回家后来串门。" }
         end
     end
     local first = page == 2 and 1 or (c2 + (page - 3) * per + 1)
@@ -220,7 +220,7 @@ function Game:_basket()
     for _, sl in ipairs(Travel.SLOTS) do
         local cur = s.basket[sl] and Travel.item(s.basket[sl])
         if cur then filled = filled + 1 end
-        cells[#cells + 1] = { icon = cur and ("items/" .. cur.id .. ".png") or "sprite/carry.png", title = SLOT_NAME[sl],
+        cells[#cells + 1] = { icon = cur and ("items/" .. cur.id .. ".png") or "props/basket.png", title = SLOT_NAME[sl],
             meta = cur and cur.name or "（空）", caption = cur and (Game.itemEffect(cur)) or "点这里挑一样", check = sl == slot,
             callback = function() self.basket_slot = sl self.basket_page = 1 self:render() end }
     end

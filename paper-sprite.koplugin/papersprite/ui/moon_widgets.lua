@@ -290,7 +290,8 @@ function M.postcardsBuild(w, h)
             end end
             local pager, own = pagerWidget(T, pw, d.page, d.pages, turn(-1), turn(1))
             headRow = require("ui/widget/horizontalgroup"):new{ align = "center", line(T, "title", head, math.floor(inner * 0.25)),
-                line(T, "caption", meta, inner - pw - math.floor(inner * 0.25), "muted"), pager }
+                require("ui/widget/horizontalspan"):new{ width = gapOf(T) },
+                line(T, "caption", meta, inner - pw - math.floor(inner * 0.25) - gapOf(T), "muted"), pager }
             if not own then -- 文字兜底：自己按左右半边分翻页（月读 Pager 的按钮自带回调，不能再算一次）
                 rects[#rects + 1] = { pad + bd + inner - pw, pad + bd, math.floor(pw / 2), hh, turn(-1) }
                 rects[#rects + 1] = { pad + bd + inner - math.floor(pw / 2), pad + bd, math.floor(pw / 2), hh, turn(1) }
