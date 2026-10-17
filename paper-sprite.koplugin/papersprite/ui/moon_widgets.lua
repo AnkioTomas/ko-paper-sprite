@@ -7,6 +7,14 @@
 尺寸档位 小 / 中 / 大 在组件设置里选，决定默认高度与行数。
 图片走 ui/compose 的合成缓存；每次绘制前比对数据签名，变了才重建。月读主题不可用时回落朴素样式。
 --]]
+--- 去边框：拷一份主题样式，把 border 置 0（用户不要卡片描边，靠留白 / 细分隔线 / 底色区分）
+local function noBorder(style)
+    if type(style) ~= "table" then return style end
+    local c = {} for kk, vv in pairs(style) do c[kk] = vv end
+    c.border = 0
+    return c
+end
+
 local Data = require("papersprite.ui.widget_data")
 local Compose = require("papersprite.ui.compose")
 
@@ -79,12 +87,12 @@ local function card(T, w, h, child)
     local bd = T and px(T, (T.t.card and T.t.card.border) or 1) or 1
     child = OverlapGroup:new{ dimen = Geom:new{ w = math.max(1, w - pad * 2 - bd * 2), h = math.max(1, h - pad * 2 - bd * 2) }, child }
     if T then
-        local ok, b = pcall(function() return T.Box:new{ style = T.t.card, width = w, height = h, padding = px(T, T.t.space.md), child } end)
+        local ok, b = pcall(function() return T.Box:new{ style = noBorder(T.t.card), width = w, height = h, padding = px(T, T.t.space.md), child } end)
         if ok then return b end
     end
     local FrameContainer = require("ui/widget/container/framecontainer")
     local Blitbuffer = require("ffi/blitbuffer")
-    return FrameContainer:new{ width = w, height = h, bordersize = 1, radius = 4, padding = 10, background = Blitbuffer.COLOR_WHITE, child }
+    return FrameContainer:new{ width = w, height = h, bordersize = 0, radius = 4, padding = 10, background = Blitbuffer.COLOR_WHITE, child }
 end
 
 local function padOf(T) return T and px(T, T.t.space.md) or 10 end
@@ -315,7 +323,7 @@ function M.postcardsBuild(w, h)
                             local FrameContainer = require("ui/widget/container/framecontainer")
                             local Blitbuffer = require("ffi/blitbuffer")
                             cell = OverlapGroup:new{ dimen = Geom:new{ w = cw, h = ch }, cell,
-                                FrameContainer:new{ bordersize = 1, padding = 2, margin = 0, background = Blitbuffer.COLOR_WHITE,
+                                FrameContainer:new{ bordersize = 0, padding = 2, margin = 0, background = Blitbuffer.COLOR_WHITE,
                                     line(T, "caption", "新", cw) } }
                         end
                         row[#row + 1] = cell

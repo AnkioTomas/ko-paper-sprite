@@ -21,6 +21,7 @@ function State.fresh(now)
         decor = {},                       -- 摆在阁楼里的特产 id（最多 4 个，按位置顺序）
         souvenirs = {},                   -- id -> count
         log = {},                         -- 阁楼里的近况（新的在后，最多 20 条）
+        log_at = {},                      -- 与 log 一一对应的发生时间（0 = 旧存档没有时间）
         visitor = nil,                    -- 来访小客人：{ id, pose, until_at }
     }
 end
@@ -82,12 +83,18 @@ function State.load(raw, now)
     end
     -- 缺字段补默认
     for k, v in pairs(State.fresh(now)) do if s[k] == nil then s[k] = v end end
+    -- 旧存档的日志没有时间：前面补 0 对齐（显示时不写时间）
+    while #s.log_at < #s.log do table.insert(s.log_at, 1, 0) end
+    while #s.log_at > #s.log do table.remove(s.log_at, 1) end
     return s
 end
 
-function State.log(s, text)
+function State.log(s, text, at)
+    s.log_at = s.log_at or {}
+    while #s.log_at < #s.log do table.insert(s.log_at, 1, 0) end
     s.log[#s.log + 1] = text
-    while #s.log > 20 do table.remove(s.log, 1) end
+    s.log_at[#s.log] = at or os.time()
+    while #s.log > 20 do table.remove(s.log, 1) table.remove(s.log_at, 1) end
 end
 
 return State

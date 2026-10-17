@@ -19,6 +19,14 @@ view = {
 }
 缩略图走 ui/compose 的合成缓存（墨水屏上不反复解码缩放）。
 --]]
+--- 去边框：拷一份主题样式，把 border 置 0（用户不要卡片描边，靠留白 / 细分隔线 / 底色区分）
+local function noBorder(style)
+    if type(style) ~= "table" then return style end
+    local c = {} for kk, vv in pairs(style) do c[kk] = vv end
+    c.border = 0
+    return c
+end
+
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
 local Font = require("ui/font")
@@ -66,7 +74,7 @@ local function kit(skin)
         muted = Blitbuffer.Color8(0x77), face = Font:getFace("cfont", 19), small = Font:getFace("cfont", 15) }
     local native = {}
     function native.button(text, w, cb)
-        return require("ui/widget/button"):new{ text = text, width = w, callback = cb, bordersize = px(1), radius = px(4), text_font_size = 17 }
+        return require("ui/widget/button"):new{ text = text, width = w, callback = cb, bordersize = 0, radius = px(4), text_font_size = 17 }
     end
     function native.text(text, w, muted, small)
         return TextBoxWidget:new{ text = text, face = small and k.small or k.face, width = w, fgcolor = muted and k.muted or k.ink }
@@ -94,11 +102,11 @@ local function kit(skin)
         return TextWidget:new{ text = text, face = k.face, bold = true, max_width = w, fgcolor = k.ink }
     end
     function native.frame(child, border)
-        return FrameContainer:new{ padding = 0, bordersize = border and px(2) or 0, color = k.ink, background = k.bg, child }
+        return FrameContainer:new{ padding = 0, bordersize = 0, color = k.ink, background = k.bg, child }
     end
     function native.badge(text)
-        return FrameContainer:new{ bordersize = px(1), padding = px(2), margin = 0, background = Blitbuffer.COLOR_WHITE, color = k.ink,
-            TextWidget:new{ text = text, face = k.small } }
+        return FrameContainer:new{ bordersize = 0, padding = px(2), margin = 0, background = Blitbuffer.COLOR_BLACK,
+            TextWidget:new{ text = text, face = k.small, fgcolor = Blitbuffer.COLOR_WHITE } }
     end
     --- 原生翻页条：同 KOReader Menu / KeyValuePage 的页脚（« ‹  n / m  › »，无边框图标按钮）
     function native.pager(w, p)
@@ -155,9 +163,8 @@ local function kit(skin)
     guarded("frame", function(child, border)
         local Box = require("ui.themes.widgets.box")
         local sz = child:getSize()
-        local style = border and t.card or t.image
-        local inset = Theme.px((style and style.border) or 0) * 2
-        return Box:new{ style = style, width = sz.w + inset, height = sz.h + inset, child }
+        local style = noBorder(border and t.card or t.image)
+        return Box:new{ style = style, width = sz.w, height = sz.h, child }
     end)
     guarded("pager", function(w, p)
         return require("ui.themes.widgets.pager").widget{ width = w, page = p.page, pages = p.pages, on_prev = p.prev, on_next = p.next }
@@ -259,6 +266,10 @@ function S:init()
         if not rel then return nil end
         return try(function() return require("papersprite.ui.compose").icon(rel, sz) end) or img(rel, sz, sz, true)
     end
+    -- 细分隔线：列表卡之间用，代替描边
+    local function hair()
+        return require("ui/widget/linewidget"):new{ dimen = Geom:new{ w = inner, h = math.max(1, px(1)) }, background = Blitbuffer.Color8(0xCC) }
+    end
     local function cardBox(child)
         local cpad = px(12)
         local cw = inner - px(4) - cpad * 2
@@ -285,6 +296,7 @@ function S:init()
         local card = cardBox(row)
         if st.callback then card = tap(card, card:getSize().w, card:getSize().h, st.callback) end
         table.insert(body, indent(card))
+        table.insert(body, indent(hair()))
         gap(12)
     end
     local function renderEmpty(e)
@@ -316,8 +328,9 @@ function S:init()
             local col = VerticalGroup:new{ align = "left", k.text(r.text, inner - px(28)) }
             if r.meta then table.insert(col, VerticalSpan:new{ width = px(2) }) table.insert(col, k.line(r.meta, inner - px(28), true, true)) end
             local c = cardBox(col)
-            tallest = math.max(tallest, c:getSize().h + px(8))
+            tallest = math.max(tallest, c:getSize().h + px(1) + px(8))
             table.insert(body, indent(c))
+            table.insert(body, indent(hair()))
             gap(8)
         end
         if v.notes.fit and tallest > 0 then

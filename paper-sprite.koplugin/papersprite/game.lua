@@ -168,7 +168,8 @@ function Game:_attic()
     -- 第 1 页：画面 + 状态 + 入口；第 2 页起：来客 + 最近（每页条数按高度自适应）
     local per = self:per("attic_log", 6)
     local logs = {}
-    for i = #s.log, 1, -1 do logs[#logs + 1] = s.log[i] end
+    local log_at = s.log_at or {}
+    for i = #s.log, 1, -1 do logs[#logs + 1] = { text = s.log[i], at = log_at[i] } end
     local lead = self:per("attic_lead", 2)
     local c2 = math.max(1, per - lead)   -- 第 2 页有来客卡，少放几条
     local log_pages = 1 + math.ceil(math.max(0, #logs - c2) / per)
@@ -195,7 +196,7 @@ function Game:_attic()
     v.lines[1] = { text = "最近" .. (#logs > 0 and ("（" .. math.min(#logs, first) .. "–" .. math.min(#logs, first + cnt - 1) .. " / " .. #logs .. "）") or ""), label = true }
     if #logs == 0 then v.empty = { title = "还没有什么新鲜事", caption = "阿页出门、回家、来客都会记在这里。" } end
     local rows = {}
-    for i = first, math.min(#logs, first + cnt - 1) do rows[#rows + 1] = { text = logs[i] } end
+    for i = first, math.min(#logs, first + cnt - 1) do rows[#rows + 1] = { text = logs[i].text, meta = Game.when(logs[i].at, now) } end
     v.notes = { rows = rows, per = per, lead = lead, fit = function(full, ld)
         self.per_page = self.per_page or {}
         if self.closed or (self.per_page.attic_log == full and self.per_page.attic_lead == ld) then return end
@@ -482,6 +483,18 @@ end
 
 --- 每页数量：默认值，界面按屏幕剩余高度回报实际能放的数量（fit）后记住
 function Game:per(key, default) self.per_page = self.per_page or {} return self.per_page[key] or default end
+--- 事件时间：1 分钟内「刚刚」，1 小时内「N 分钟前」，当天内「N 小时前」，更早用明信片同款「MM-DD HH:MM」；没时间返回 nil
+function Game.when(at, now)
+    if not at or at <= 0 then return nil end
+    now = now or os.time()
+    local d = now - at
+    if d < 0 then return os.date("%m-%d %H:%M", at) end
+    if d < 60 then return "刚刚" end
+    if d < 3600 then return math.floor(d / 60) .. " 分钟前" end
+    if d < 86400 then return math.floor(d / 3600) .. " 小时前" end
+    return os.date("%m-%d %H:%M", at)
+end
+
 function Game:fitter(key, cur)
     return function(n)
         self.per_page = self.per_page or {}
@@ -494,7 +507,7 @@ end
 Game.PARENT = { basket = "attic", shop = "attic", wall = "attic", cabinet = "attic", shop_item = "shop", card = "wall", souvenir = "cabinet" }
 
 function Game:view()
-    if self.page == "basket" and self.state.sprite.status == "away" then self.page = "attic" end
+    if self.page == "basket" and self.state.sprite.status == "away" then self.page, self.attic_page = "attic", 1 end
     local v = self["_" .. self.page](self)
     -- 子页面不再放「回阁楼」按钮：标题栏右上角的按钮就是返回上一级（阁楼页才是关闭）
     local parent = Game.PARENT[self.page]

@@ -344,4 +344,21 @@ H.view.pager.go(3); assert(H.view.notes.rows[1].text == "事12" and #H.view.note
 H.view.pager.go(5); assert(H.view.notes.rows[1].text == "事2" and #H.view.notes.rows == 2)
 g8:close()
 
+-- 16. 日志时间：新日志记时间；旧存档无时间不显示；格式
+do
+    local G = Game
+    assert(G.when(1000, 1030) == "刚刚" and G.when(1000, 1000 + 180) == "3 分钟前" and G.when(1000, 1000 + 3 * 3600) == "3 小时前")
+    assert(G.when(1000, 1000 + 3 * 86400) == os.date("%m-%d %H:%M", 1000) and G.when(0, 5) == nil and G.when(nil, 5) == nil)
+    local old = State.fresh(0); old.log = { "旧1", "旧2" }; old.log_at = nil
+    local ls = State.load(old, 0)
+    assert(#ls.log_at == 2 and ls.log_at[1] == 0)
+    State.log(ls, "新", 12345); assert(ls.log_at[3] == 12345)
+    for k = 1, 30 do State.log(ls, "x" .. k, k) end
+    assert(#ls.log == 20 and #ls.log_at == 20 and ls.log_at[20] == 30)
+    H.saved = ls
+    local g9 = Game.new(H.host):show(); H.view.pager.next()
+    local r1 = H.view.notes.rows[1]; assert(r1.text == "x30" and r1.meta)
+    g9:close()
+end
+
 print("headless ok: postcards=" .. #st.postcards .. " places=" .. np .. " combos=" .. nc)

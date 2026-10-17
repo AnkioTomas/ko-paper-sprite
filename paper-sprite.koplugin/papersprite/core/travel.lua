@@ -98,7 +98,7 @@ local function depart(s, at, u)
     s.sprite = { status = "away", trip = s.trips, place = place.id, left_at = at, return_at = ret,
         mail = mail, souvenir = sv, basket = basket, hours = hours }
     s.note = "出去走走，别担心。"
-    State.log(s, "阿页背上藤筐出门了，书桌上留了张纸条。")
+    State.log(s, "阿页背上藤筐出门了，书桌上留了张纸条。", at)
 end
 
 --- 本趟 AI 文案（core/story.lua 写入）；只认同一趟的
@@ -119,7 +119,7 @@ local function arriveVisitor(s, at, u)
             local pose
             s.seed, pose = R.pick(s.seed, v.poses or { "" })
             s.visitor = { id = v.id, pose = pose, until_at = at + v.stay * u.hour }
-            State.log(s, v.arrive)
+            State.log(s, v.arrive, at)
             return v
         end
     end
@@ -155,7 +155,7 @@ function T.settle(s, now, debug_fast)
                 card.at = m.at
                 if card.key then s.collected[card.key] = m.at end
                 table.insert(s.postcards, card)
-                State.log(s, "邮差夹进来一张明信片。")
+                State.log(s, "邮差夹进来一张明信片。", m.at)
                 events[#events + 1] = "postcard"
             end
         end
@@ -169,7 +169,7 @@ function T.settle(s, now, debug_fast)
                 s.souvenir_notes = s.souvenir_notes or {}
                 s.souvenir_notes[sv] = ai.souvenir_note
             end
-            State.log(s, back)
+            State.log(s, back, sp.return_at)
             s.basket, s.note = {}, nil
             s.sprite = { status = "home", back_at = sp.return_at }
             events[#events + 1] = "return"
@@ -182,9 +182,10 @@ function T.settle(s, now, debug_fast)
     end
     if s.visitor and now >= s.visitor.until_at then
         local v = T.visitor(s.visitor.id) or Visitors[1]
+        local left_at = s.visitor.until_at
         s.visitor = nil
         s.inspiration = s.inspiration + v.gift
-        State.log(s, v.leave)
+        State.log(s, v.leave, left_at)
     end
     return events
 end
