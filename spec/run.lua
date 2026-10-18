@@ -389,4 +389,34 @@ do
     assert(St.open("save"):readSetting("state").trips == 5)
 end
 
+-- 18. 多语言：英文目录下各页没有残留中文（地点 / 物品 / 访客名也走译文），占位符数与中文一致
+do
+    local L10n = require("papersprite.l10n")
+    L10n.load("en")
+    -- 数据表在 require 时取译文，换语言后要重新加载（真实环境里语言切换必须重启）
+    for k in pairs(package.loaded) do
+        if k:find("^papersprite%.") and k ~= "papersprite.l10n" and k ~= "papersprite.core.reading" then package.loaded[k] = nil end
+    end
+    local GameEn, StateEn = require("papersprite.game"), require("papersprite.core.state")
+    local function cjk(str) return str:find("[\228-\233]") end
+    local function clean(where)
+        local all = text()
+        for _, b in ipairs(btns()) do all = all .. "\n" .. b.text end
+        assert(not cjk(all), where .. " 有残留中文: " .. all)
+    end
+    H.saved = StateEn.fresh(0)
+    for k, v in pairs(st.souvenirs or {}) do H.saved.souvenirs[k] = v end
+    H.saved.postcards = st.postcards
+    H.saved.inspiration = 50
+    local ge = GameEn.new(H.host):show()
+    clean("attic")
+    for _, pg in ipairs({ "basket", "shop", "wall", "cabinet" }) do ge:go(pg) clean(pg) back() end
+    ge.attic_page = 2 ge:render() clean("attic p2")
+    ge:close()
+    L10n.load("zh_CN")
+    for k in pairs(package.loaded) do
+        if k:find("^papersprite%.") and k ~= "papersprite.l10n" and k ~= "papersprite.core.reading" then package.loaded[k] = nil end
+    end
+end
+
 print("headless ok: postcards=" .. #st.postcards .. " places=" .. np .. " combos=" .. nc)

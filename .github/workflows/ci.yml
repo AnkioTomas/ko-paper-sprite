@@ -12,6 +12,6 @@ jobs:
       - name: Syntax check (luac -p)
         run: find paper-sprite.koplugin spec -name '*.lua' -print0 | xargs -0 luac5.1 -p
       - name: Headless tests (Lua 5.1)
-        run: lua5.1 spec/headless.lua
+        run: lua5.1 spec/run.lua
       - name: Headless tests (LuaJIT)
-        run: luajit spec/headless.lua
+        run: luajit spec/run.lua
