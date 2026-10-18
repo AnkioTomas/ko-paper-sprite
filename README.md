@@ -37,20 +37,20 @@
 
 ## 安装
 ### KOReader
-1. 在 [Releases](https://github.com/AnkioTomas/ko-paper-sprite/releases) 下载 `paper-sprite.koplugin.zip`。
+1. 在 [Releases](https://github.com/AnkioTomas/ko-paper-sprite/releases) 下载 `paper-sprite.koplugin-<版本>.zip`。
 2. 解压后把 `paper-sprite.koplugin` 目录复制到 KOReader 的 `plugins/` 下（如 Kindle 上的 `koreader/plugins/`）。
 3. 重启 KOReader。从顶部菜单的「阿页」页签，或「工具 → 阿页的阁楼」打开。
 
 ### 月读
-同一个插件就能用，不需要另装。启用月读和本插件后，在月读首页编辑状态下点「添加组件」，加入「阿页」系列组件；点组件会全屏打开阁楼。
+同一个插件就能用，不需要另装。月读设置的「系统」里有「阿页的阁楼（版本号）」页，可开关自动检查更新、手动检查并一键更新。启用月读和本插件后，在月读首页编辑状态下点「添加组件」，加入「阿页」系列组件；点组件会全屏打开阁楼。
 
 存档保存在 KOReader 数据目录下的 `.moon/game/paper-sprite/`（`save.lua` 存档与设置、`reading.lua` 阅读账本），KOReader 和月读共用，更新插件不会丢。旧版本的存档会在第一次打开时自动复制过来，旧文件原样保留作备份。
 
 ## 开发
 ```
-lua spec/headless.lua                                   # 虚拟时钟冒烟测试
+lua spec/run.lua                                   # 虚拟时钟冒烟测试
 find paper-sprite.koplugin spec -name '*.lua' -exec luac -p {} +
-tools/release.sh 1.0.1                                  # 改版本号、更新 CHANGELOG、打包到 dist/、提交并打 tag
+tools/release.sh 1.0.1                                  # 更新 CHANGELOG、用 tools/package.sh 注入版本号并打包到 dist/、提交并打 tag
 ```
 推送 `v*` tag 后，GitHub Actions 会跑测试、打包，并创建 Release。
 

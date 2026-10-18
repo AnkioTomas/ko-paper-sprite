@@ -1,5 +1,12 @@
 # 更新日志
 
+## 未发布
+
+- 修复：阿页出门时阁楼不再出现阿页和访客；重绘秋 / 春 / 夏三张出门阁楼图。
+- 多语言：界面与数据文案走 `papersprite.l10n`，提供 English / 繁體中文。
+- 自更新：月读设置「系统」里新增「阿页的阁楼」页，可检查并安装 GitHub Release 新版，首页组件出现后每天最多自动检查一次。
+- 工程：版本号改由 `papersprite/version.lua` 打包注入；打包脚本 `tools/package.sh`；测试入口改为 `spec/run.lua`；发布包名改为 `paper-sprite.koplugin-<版本>.zip`。
+
 ## 1.0.1 - 2026-10-17
 
 - 存档改放到 KOReader 数据目录下的 `.moon/game/paper-sprite/`（`save.lua` / `reading.lua`），KOReader 与月读共用一份。第一次打开时自动从旧位置复制（旧文件保留作备份）；两边都有存档时取进度多的。

@@ -17,7 +17,12 @@ paper-sprite.koplugin/
 `host/interface.lua` 定义游戏可用的全部外部能力：`showScreen / closeScreen / schedule / unschedule / loadState / saveState / getSetting / setSetting / notify / now`。
 - `koreader.lua`：UIManager 显示与定时；存档用 LuaSettings，文件由 `core/storage.lua` 给出（见下文「存档位置」）。
 - `moon.lua`：继承 KOReader 宿主；存档与 KOReader 宿主共用同一个文件；只有设置还写在月读扩展独立表 `utils.settings.getSource("ext.papersprite").settings`，界面用月读主题皮肤，提示用月读 Toast。月读模块缺失时自动回落。
-- 测试用宿主见 `spec/headless.lua`（虚拟时钟）。
+- 测试用宿主见 `spec/run.lua`（虚拟时钟）。
+
+## 多语言与自更新
+- `papersprite/l10n.lua`：源字符串是简体中文，`T("文案 %s", x)` 先翻译再 `string.format`；按 KOReader 语言加载 `l10n/en.lua` / `l10n/zh_TW.lua`，没有译文回落原文。新增文案要同步加两份译文，键不能重复。数据表（地点 / 物品 / 明信片句子等）在 require 时取译文，语言切换需重启。
+- `papersprite/version.lua`：版本占位符，`tools/package.sh <版本> [zip]` 打包时注入，源码运行显示 `0.0.0-dev`。
+- `papersprite/update.lua`：复用月读的 GitHub Release 管线自更新（只在月读里可用，月读模块惰性 require）；资产名必须是 `paper-sprite.koplugin-<版本>.zip`（版本不带 v）。月读首页组件出现 5 秒后自动检查（24h 一次，只提示不静默安装）。
 
 ## 界面
 `ui/screen.lua` 是 `covers_fullscreen + modal` 的全屏浮层，在月读里盖住首页和底部导航；新界面先 show 再 close 旧的，并整屏刷新（`"ui"`），避免墨水屏残影。两套皮肤：装了月读就用 `ui.themes` 组件（逐个 pcall，失败的单个组件退回原生），否则 KOReader 原生控件；见 [widgets.md](widgets.md)。
