@@ -6,14 +6,6 @@
 --]]
 local T = require("papersprite.l10n")
 
---- 去边框：拷一份主题样式，把 border 置 0（用户不要卡片描边，靠留白 / 细分隔线 / 底色区分）
-local function noBorder(style)
-    if type(style) ~= "table" then return style end
-    local c = {} for kk, vv in pairs(style) do c[kk] = vv end
-    c.border = 0
-    return c
-end
-
 local Card = {}
 
 local function copy(t)
@@ -76,7 +68,7 @@ local function themed(s, w, h)
     if col:getSize().h > avail then
         col = VerticalGroup:new{ align = "left", Text.line("body", s.title .. " · " .. s.line1, { width = text_w }) }
     end
-    return Box:new{ style = noBorder(t.card), width = w, height = h, padding = pad, HorizontalGroup:new{ align = "center",
+    return Box:new{ style = t.card, width = w, height = h, padding = pad, HorizontalGroup:new{ align = "center",
         Icon.widget{ name = "bookmark", size = 40 }, HorizontalSpan:new{ width = gap },
         LeftContainer:new{ dimen = Geom:new{ w = text_w, h = col:getSize().h }, col },
         HorizontalSpan:new{ width = gap }, Icon.widget{ name = "chevron_right", size = 24 } } }
@@ -89,7 +81,7 @@ local function plain(s, w, h)
     local TextWidget = require("ui/widget/textwidget")
     local Font = require("ui/font")
     local inner = w - 24
-    return FrameContainer:new{ width = w, height = h, bordersize = 0, radius = 4, padding = 10, background = Blitbuffer.COLOR_WHITE,
+    return FrameContainer:new{ width = w, height = h, bordersize = 1, radius = 4, padding = 10, background = Blitbuffer.COLOR_WHITE,
         VerticalGroup:new{ align = "left",
             TextWidget:new{ text = s.title, face = Font:getFace("tfont", 22), bold = true, max_width = inner },
             TextWidget:new{ text = s.line1, face = Font:getFace("cfont", 18), max_width = inner },
