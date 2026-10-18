@@ -119,7 +119,7 @@ function Game.atticScene(s, now)
             scene.overlays[#scene.overlays + 1] = { img = "souvenirs/" .. id .. ".png", x = pos[1], y = pos[2], h = pos[3] }
         end
     end
-    if s.visitor then
+    if s.visitor and sp.status ~= "away" then -- 阿页出门时阁楼是空的，不招待客人
         local v = Travel.visitor(s.visitor.id)
         if v then
             local pos = VISITOR_POS[v.id] or { 0.5, 0.6, 0.12 }
@@ -183,7 +183,7 @@ function Game:_attic()
     end
     local v = { title = "阿页的阁楼", pager = pager, lines = {} }
     if page == 2 then
-        local vis = s.visitor and Travel.visitor(s.visitor.id)
+        local vis = s.visitor and sp.status ~= "away" and Travel.visitor(s.visitor.id)
         if vis then
             v.status = { icon = "visitors/" .. vis.id .. (s.visitor.pose or "") .. ".png", icon_size = 72, title = "来客 · " .. vis.name,
                 caption = s.visitor.line or vis.here, meta = "还会待一会儿" }
