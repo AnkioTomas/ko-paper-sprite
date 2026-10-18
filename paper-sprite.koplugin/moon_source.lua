@@ -4,14 +4,19 @@
 组件都是只读视图，点按全屏打开阁楼对应的页面。尺寸 / 模式在首页编辑态的组件设置里选。
 契约见月读 examples/moonsource-demo.koplugin/moon_source.lua（api = 1，id = ext.<name>）。
 --]]
-local _ = require("gettext")
 
 local PLUGIN_DIR = debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$") or "."
 if not package.path:find(PLUGIN_DIR .. "/?.lua", 1, true) then
     package.path = PLUGIN_DIR .. "/?.lua;" .. package.path
 end
+local _ = require("papersprite.l10n")
 
 local ID = "ext.papersprite"
+
+-- 首页出现后稍等再查更新，不和首屏渲染抢网络；update.autoCheck 自己保证每进程一次、24h 一次
+local function scheduleUpdateCheck()
+    require("ui/uimanager"):scheduleIn(5, function() pcall(require("papersprite.update").autoCheck) end)
+end
 
 local function host() return require("papersprite.host.moon").new() end
 local function openGame() require("papersprite.game").new(host()):show() end
@@ -26,6 +31,7 @@ local widget = {
         return { height = ok and Card.height() or 110 }
     end,
     build = function(_ctx, w, h)
+        scheduleUpdateCheck()
         local ok, card = pcall(function() return require("papersprite.ui.moon_card").build(w, h, loadSave, openGame) end)
         if ok and card then return card end
         local Button = require("ui/widget/button")
@@ -63,6 +69,7 @@ local function imageWidget(kind, title, icon, builder, page)
             return { height = ok and h or DEFAULT_H[kind] }
         end,
         build = function(_ctx, w, h)
+            scheduleUpdateCheck()
             local ok, wdg = pcall(function() return require("papersprite.ui.moon_widgets")[builder](w, h) end)
             if ok and wdg then return wdg end
             return fallback(w, h, _(title), page)
@@ -73,13 +80,55 @@ local function imageWidget(kind, title, icon, builder, page)
     }
 end
 
+-- 月读设置里的「阿页的阁楼（版本号）」页：自动检查更新开关与手动检查。
+local function settingEntries(desktop)
+    local Update = require("papersprite.update")
+    local Row = require("ui.themes.widgets.row")
+    local title = string.format("%s（%s）", _("阿页的阁楼"), Update.version())
+    return { {
+        group = "system",
+        order = 91,
+        id = "main",
+        icon = "bookmark",
+        title = title,
+        page = {
+            title = title,
+            sections = function()
+                return { { title = _("更新"), rows = {
+                    function(iw)
+                        local on = Update.autoEnabled()
+                        return Row.widget({
+                            width = iw, chevron = false, kind = "toggle", icon = "update",
+                            title = _("自动检查更新"),
+                            subtitle = _("每天最多一次，有新版本时提示"),
+                            status = on and _("开") or _("关"), status_on = on,
+                            callback = function()
+                                Update.setAuto(not on)
+                                desktop:updateView()
+                            end,
+                        })
+                    end,
+                    function(iw)
+                        return Row.widget({
+                            width = iw, chevron = false, kind = "action", icon = "system_update",
+                            title = _("检查更新"),
+                            status = Update.version(), status_on = true,
+                            callback = function() Update.manualCheck() end,
+                        })
+                    end,
+                } } }
+            end,
+        },
+    } }
+end
+
 return {
     api = 1,
     id = ID,
     provides = { source = false,
     -- 顶部下拉快捷面板：月读只开放「动作开关」挂点（title / icon / run），不能放自定义画面，
     -- 所以这里放一个「阿页」开关，点一下全屏打开阁楼（画面在首页「阁楼」组件里看）。
-    features = { panel = { actions = function()
+    features = { setting = { entries = settingEntries }, panel = { actions = function()
         return { {
             id = "attic", scope = "desktop", title = _("阿页"), icon = "home",
             run = function() pcall(function() require("papersprite.ui.moon_widgets").open("attic") end) end,
