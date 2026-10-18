@@ -10,6 +10,8 @@
 插入位置：月读的面板 Tab 之后（有的话），否则第一个。点卡片 / 按钮：关菜单，下一帧全屏打开阁楼对应页。
 所有自绘都 pcall；结构不符就退回原函数。
 --]]
+local T = require("papersprite.l10n")
+
 local M = {}
 local MARKER = "_papersprite_attic"
 local ICON_FALLBACK = "bookmark"
@@ -29,7 +31,7 @@ local function tabIcon()
     end)
     return ok and icon or ICON_FALLBACK
 end
-local PAGES = { { "attic", "打开阁楼" }, { "basket", "收拾行囊" }, { "shop", "小铺" }, { "wall", "明信片墙" }, { "cabinet", "特产柜" } }
+local PAGES = { { "attic", T("打开阁楼") }, { "basket", T("收拾行囊") }, { "shop", T("小铺") }, { "wall", T("明信片墙") }, { "cabinet", T("特产柜") } }
 
 local function hostFor()
     -- 装了月读用月读宿主（和首页组件同一份存档 / 设置），否则 KOReader 宿主

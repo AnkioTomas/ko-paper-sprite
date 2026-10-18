@@ -6,12 +6,12 @@
 宿主差异由 papersprite.host.* 适配；游戏逻辑在 papersprite/core 与 papersprite/game.lua。
 --]]
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
-local _ = require("gettext")
 
 local PLUGIN_DIR = debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$") or "."
 if not package.path:find(PLUGIN_DIR .. "/?.lua", 1, true) then
     package.path = PLUGIN_DIR .. "/?.lua;" .. package.path
 end
+local _ = require("papersprite.l10n")
 
 local PaperSprite = WidgetContainer:extend{
     name = "papersprite",

@@ -4,6 +4,8 @@
 每次绘制前比对摘要，变了就重建（从阁楼返回首页即刷新）。月读主题不可用时回落朴素样式。
 近况按真实时间在「只读副本」上结算，不写存档。
 --]]
+local T = require("papersprite.l10n")
+
 --- 去边框：拷一份主题样式，把 border 置 0（用户不要卡片描边，靠留白 / 细分隔线 / 底色区分）
 local function noBorder(style)
     if type(style) ~= "table" then return style end
@@ -25,20 +27,20 @@ function Card.summary(raw, now, debug_fast)
     local Travel = require("papersprite.core.travel")
     local s = State.load(copy(raw), now)
     Travel.settle(s, now, debug_fast)
-    local out = { title = "阿页" }
+    local out = { title = T("阿页") }
     local sp = s.sprite
     if sp.status == "away" then
         local h = math.floor((now - sp.left_at) / Travel.timing(debug_fast).hour) -- 调试模式下 1 小时 = 10 秒
-        out.line1 = h >= 1 and ("出门了，已经走了 " .. h .. " 小时") or "刚出门，纸条还压在桌上"
+        out.line1 = h >= 1 and T("出门了，已经走了 %d 小时", h) or T("刚出门，纸条还压在桌上")
     elseif sp.status == "packed" then
-        out.line1 = "行囊收好了，正望着窗外"
+        out.line1 = T("行囊收好了，正望着窗外")
     else
         local v = s.visitor and Travel.visitor(s.visitor.id)
-        out.line1 = v and ("在阁楼招待" .. v.name) or "在阁楼打盹"
+        out.line1 = v and T("在阁楼招待%s", v.name) or T("在阁楼打盹")
     end
     -- 「新」= 上次看明信片墙之后到的（之前用存档前后差值，阁楼开着时寄到的就漏算了）
     local new = #s.postcards - (s.wall_seen or 0)
-    out.line2 = (new > 0 and ("有 " .. new .. " 张新明信片 · ") or "") .. "灵感 " .. s.inspiration
+    out.line2 = (new > 0 and T("有 %d 张新明信片 · ", new) or "") .. T("灵感 %d", s.inspiration)
     return out
 end
 
@@ -120,7 +122,7 @@ function Card.build(w, h, load, open)
         local dbg = false
         pcall(function() dbg = require("papersprite.host.moon").new():getSetting("debug_fast", false) end)
         local ok2, s = pcall(Card.summary, ok and st or nil, os.time(), dbg)
-        return ok2 and s or { title = "阿页", line1 = "在阁楼打盹", line2 = "" }
+        return ok2 and s or { title = T("阿页"), line1 = T("在阁楼打盹"), line2 = "" }
     end
     local s = read()
     local card = InputContainer:new{ dimen = Geom:new{ x = 0, y = 0, w = w, h = h }, content(s, w, h) }

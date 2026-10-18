@@ -18,6 +18,8 @@ end
 local Data = require("papersprite.ui.widget_data")
 local Compose = require("papersprite.ui.compose")
 
+local tr = require("papersprite.l10n")
+
 local M = {}
 
 local function host() return require("papersprite.host.moon").new() end
@@ -198,13 +200,13 @@ function M.atticBuild(w, h)
             local tw = math.max(1, inner_w - iw - gapOf(T))
             body = HorizontalGroup:new{ align = "center", Compose.widget(d.scene, iw, ih),
                 HorizontalSpan:new{ width = gapOf(T) },
-                VerticalGroup:new{ align = "left", line(T, "caption", "阿页的阁楼", tw, "muted"), VerticalSpan:new{ width = px(T, 2) },
+                VerticalGroup:new{ align = "left", line(T, "caption", tr("阿页的阁楼"), tw, "muted"), VerticalSpan:new{ width = px(T, 2) },
                     line(T, "body", d.line, tw), VerticalSpan:new{ width = px(T, 2) }, line(T, "caption", d.sub, tw, "faint") } }
         else
             local text = lineH(T, "body") + lineH(T, "caption") + gapOf(T)
             local ih = math.max(1, inner_h - text - gapOf(T))
             ih = math.max(1, ih - head_h)
-            body = VerticalGroup:new{ align = "left", (header(T, "阿页的阁楼", nil, inner_w)), VerticalSpan:new{ width = gapOf(T) },
+            body = VerticalGroup:new{ align = "left", (header(T, tr("阿页的阁楼"), nil, inner_w)), VerticalSpan:new{ width = gapOf(T) },
                 Compose.widget(d.scene, inner_w, ih), VerticalSpan:new{ width = gapOf(T) },
                 line(T, "body", d.line, inner_w), line(T, "caption", d.sub, inner_w, "faint") }
         end
@@ -277,8 +279,8 @@ function M.postcardsBuild(w, h)
         M.cards_page = d.page
         local sig = Data.sig({ d.total, d.new, d.page, size, mode, w, h, (function()
             local ks = {} for _, c in ipairs(d.cards) do ks[#ks + 1] = c.index .. (c.new and "n" or "") end return ks end)() })
-        local head = "明信片"
-        local meta = (d.total == 0) and "还没有" or (d.total .. " 张" .. (d.new > 0 and (" · 新 " .. d.new) or ""))
+        local head = tr("明信片")
+        local meta = (d.total == 0) and tr("还没有") or (d.new > 0 and tr("%d 张 · 新 %d", d.total, d.new) or tr("%d 张", d.total))
         local rects = {}
         local headRow
         if d.pages > 1 then
@@ -307,7 +309,7 @@ function M.postcardsBuild(w, h)
         if d.total == 0 then
             local CenterContainer = require("ui/widget/container/centercontainer")
             col[#col + 1] = CenterContainer:new{ dimen = Geom:new{ w = inner, h = math.max(lineH(T, "body") * 2, avail - gap) },
-                VerticalGroup:new{ align = "center", line(T, "body", "墙上还空着", inner), line(T, "caption", "阿页旅行时会寄明信片回来", inner, "faint") } }
+                VerticalGroup:new{ align = "center", line(T, "body", tr("墙上还空着"), inner), line(T, "caption", tr("阿页旅行时会寄明信片回来"), inner, "faint") } }
             return card(T, w, h, col), rects, sig
         end
         if mode == "grid" then
@@ -325,7 +327,7 @@ function M.postcardsBuild(w, h)
                             local Blitbuffer = require("ffi/blitbuffer")
                             cell = OverlapGroup:new{ dimen = Geom:new{ w = cw, h = ch }, cell,
                                 FrameContainer:new{ bordersize = 0, padding = 2, margin = 0, background = Blitbuffer.COLOR_WHITE,
-                                    line(T, "caption", "新", cw) } }
+                                    line(T, "caption", tr("新"), cw) } }
                         end
                         row[#row + 1] = cell
                         rects[#rects + 1] = { pad + bd + (c - 1) * (cw + gap), y0 + (r - 1) * (ch + gap), cw, ch, open(pc.index) }
@@ -345,7 +347,7 @@ function M.postcardsBuild(w, h)
                 if pc then
                     col[#col + 1] = HorizontalGroup:new{ align = "center", Compose.widget(pc.scene, tw2, rh), HorizontalSpan:new{ width = gap },
                         VerticalGroup:new{ align = "left",
-                            line(T, "body", (pc.new and "新 · " or "") .. pc.place .. " · " .. pc.weather, tw),
+                            line(T, "body", (pc.new and tr("新 · ") or "") .. pc.place .. " · " .. pc.weather, tw),
                             line(T, "caption", pc.line, tw, "muted"),
                             line(T, "caption", pc.date, tw, "faint") } }
                     rects[#rects + 1] = { pad + bd, y0 + (k - 1) * (rh + gap), inner, rh, open(pc.index) }
@@ -398,10 +400,10 @@ function M.cabinetBuild(w, h)
             cols = math.max(3, math.floor((inner + gapOf(T)) / (cell + gapOf(T))))
         end
         local sig = Data.sig({ d, size, w, h })
-        local col = VerticalGroup:new{ align = "left", (header(T, "纪念物柜", "收集 " .. d.have .. " / " .. d.total, inner)), VerticalSpan:new{ width = gapOf(T) } }
+        local col = VerticalGroup:new{ align = "left", (header(T, tr("纪念物柜"), tr("收集 %d / %d", d.have, d.total), inner)), VerticalSpan:new{ width = gapOf(T) } }
         if d.have == 0 then
             col[#col + 1] = CenterContainer:new{ dimen = Geom:new{ w = inner, h = math.max(lineH(T, "body") * 2, avail) },
-                VerticalGroup:new{ align = "center", line(T, "body", "柜子还空着", inner), line(T, "caption", "阿页每趟旅行回来都会带一件", inner, "faint") } }
+                VerticalGroup:new{ align = "center", line(T, "body", tr("柜子还空着"), inner), line(T, "caption", tr("阿页每趟旅行回来都会带一件"), inner, "faint") } }
         end
         local show = rows * cols
         local more = d.have > show
@@ -443,11 +445,11 @@ function M.settings(kind, desktop)
     if kind == "postcards" then
         local m = M.mode()
         items[2] = { buttons = {
-            { text = (m == "list" and "✓ " or "") .. "最近列表", callback = function() setSetting("w_postcards_mode", "list") refresh() end },
-            { text = (m == "grid" and "✓ " or "") .. "迷你墙", callback = function() setSetting("w_postcards_mode", "grid") refresh() end },
+            { text = (m == "list" and "✓ " or "") .. tr("最近列表"), callback = function() setSetting("w_postcards_mode", "list") refresh() end },
+            { text = (m == "grid" and "✓ " or "") .. tr("迷你墙"), callback = function() setSetting("w_postcards_mode", "grid") refresh() end },
         } }
     end
-    local title = ({ attic = "阁楼", postcards = "明信片", cabinet = "纪念物柜" })[kind]
+    local title = ({ attic = tr("阁楼"), postcards = tr("明信片"), cabinet = tr("纪念物柜") })[kind]
     require("ui.themes.widgets.sheet"):new{ title = title, items = items }:show()
 end
 

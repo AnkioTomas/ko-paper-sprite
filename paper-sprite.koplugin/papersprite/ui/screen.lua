@@ -27,6 +27,7 @@ local function noBorder(style)
     return c
 end
 
+local T = require("papersprite.l10n")
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
 local Font = require("ui/font")
@@ -186,7 +187,7 @@ local function thumb(k, scene, w, h, new)
     local pic = try(Compose.widget, scene, w, h)
     if not pic then return require("ui/widget/container/widgetcontainer"):new{ dimen = Geom:new{ w = w, h = h } } end
     if not new then return pic end
-    return OverlapGroup:new{ dimen = Geom:new{ w = w, h = h }, pic, k.badge("新") }
+    return OverlapGroup:new{ dimen = Geom:new{ w = w, h = h }, pic, k.badge(T("新")) }
 end
 
 function S:init()
@@ -230,7 +231,7 @@ function S:init()
         local per = rows * cols
         if per ~= spec.per then UIManager:nextTick(function() spec.fit(per) end) end
     end
-    local left = v.back and { icon = "arrow_back", text = "‹ 返回", callback = v.back }
+    local left = v.back and { icon = "arrow_back", text = T("‹ 返回"), callback = v.back }
         or { icon = "close", text = "✕", callback = function() self:onClose() end }
     table.insert(body, k.title(w, v.title, left, v.switch))
     gap(8)

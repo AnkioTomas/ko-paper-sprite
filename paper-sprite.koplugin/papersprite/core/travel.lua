@@ -7,6 +7,7 @@
   sprite.ai：可选的 AI 文案（core/story.lua 异步写入），寄达 / 回家时优先使用，缺了用本地库
 时长（原创数值）：出发等待 20–90 分钟，旅程 3–30 小时；debug_fast 时分钟→秒、小时→10 秒。
 --]]
+local L = require("papersprite.l10n")
 local Items = require("papersprite.data.items")
 local Places = require("papersprite.data.places")
 local Postcards = require("papersprite.data.postcards")
@@ -97,8 +98,8 @@ local function depart(s, at, u)
     s.trips = (s.trips or 0) + 1
     s.sprite = { status = "away", trip = s.trips, place = place.id, left_at = at, return_at = ret,
         mail = mail, souvenir = sv, basket = basket, hours = hours }
-    s.note = "出去走走，别担心。"
-    State.log(s, "阿页背上藤筐出门了，书桌上留了张纸条。", at)
+    s.note = L("出去走走，别担心。")
+    State.log(s, L("阿页背上藤筐出门了，书桌上留了张纸条。"), at)
 end
 
 --- 本趟 AI 文案（core/story.lua 写入）；只认同一趟的
@@ -155,7 +156,7 @@ function T.settle(s, now, debug_fast)
                 card.at = m.at
                 if card.key then s.collected[card.key] = m.at end
                 table.insert(s.postcards, card)
-                State.log(s, "邮差夹进来一张明信片。", m.at)
+                State.log(s, L("邮差夹进来一张明信片。"), m.at)
                 events[#events + 1] = "postcard"
             end
         end
@@ -163,7 +164,7 @@ function T.settle(s, now, debug_fast)
             local p = T.place(sp.place)
             local sv = sp.souvenir
             s.souvenirs[sv] = (s.souvenirs[sv] or 0) + 1
-            local back = "阿页从" .. p.name .. "回来了，带回了" .. Postcards.souvenirs[sv].name .. "。"
+            local back = L("阿页从%s回来了，带回了%s。", p.name, Postcards.souvenirs[sv].name)
             if ai and ai.narration then back = back .. ai.narration end
             if ai and ai.souvenir_note then
                 s.souvenir_notes = s.souvenir_notes or {}

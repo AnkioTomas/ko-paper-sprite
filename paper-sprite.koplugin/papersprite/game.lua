@@ -6,6 +6,7 @@
 view.scene = { bg, overlays = { {img, x, y, h} } }：分层画面（x/y 为中心点占比，h 为高度占比）
 view.icons = { 资源路径... }：一行小图标
 --]]
+local T = require("papersprite.l10n")
 local State = require("papersprite.core.state")
 local Travel = require("papersprite.core.travel")
 local Story = require("papersprite.core.story")
@@ -15,7 +16,7 @@ local Postcards = require("papersprite.data.postcards")
 local Game = {}
 Game.__index = Game
 
-local SLOT_NAME = { food = "干粮", charm = "护身物", book = "随身小书" }
+local SLOT_NAME = { food = T("干粮"), charm = T("护身物"), book = T("随身小书") }
 local unpack = unpack or table.unpack
 
 function Game.new(host)
@@ -73,9 +74,9 @@ function Game:_arm()
 end
 
 local function fmtDur(sec, debug)
-    if debug then return sec .. " 秒" end
-    if sec >= 3600 then return math.floor(sec / 3600) .. " 小时" end
-    return math.max(1, math.floor(sec / 60)) .. " 分钟"
+    if debug then return T("%d 秒", sec) end
+    if sec >= 3600 then return T("%d 小时", math.floor(sec / 3600)) end
+    return T("%d 分钟", math.max(1, math.floor(sec / 60)))
 end
 
 function Game:go(page, arg)
@@ -135,34 +136,34 @@ function Game:_attic()
     local scene = Game.atticScene(s, now)
     local st = { icon = "sprite/carry.png" }
     if sp.status == "home" then
-        st.title, st.caption = "阿页在家", "坐在书桌边，油灯亮着。收拾好行囊，它就会出门。"
+        st.title, st.caption = T("阿页在家"), T("坐在书桌边，油灯亮着。收拾好行囊，它就会出门。")
     elseif sp.status == "packed" then
-        st.title, st.caption = "快要出门了", "藤筐收拾好了，阿页在窗边发呆。"
+        st.title, st.caption = T("快要出门了"), T("藤筐收拾好了，阿页在窗边发呆。")
     else
         local p = sp.place and Travel.place(sp.place)
-        st.title = "阿页在路上 · 已出门 " .. fmtDur(now - sp.left_at, self.debug)
-        st.caption = "书桌上压着一张纸条：「" .. (s.note or "") .. "」"
+        st.title = T("阿页在路上 · 已出门 %s", fmtDur(now - sp.left_at, self.debug))
+        st.caption = T("书桌上压着一张纸条：「%s」", s.note or "")
         st.icon = nil
         if p then st.title = st.title end
     end
     local unseen = #s.postcards - (s.wall_seen or 0)
-    st.meta = "灵感 ✦ " .. s.inspiration .. "　·　明信片 " .. #s.postcards .. (unseen > 0 and ("（新 " .. unseen .. "）") or "")
+    st.meta = T("灵感 ✦ %d　·　明信片 %d", s.inspiration, #s.postcards) .. (unseen > 0 and T("（新 %d）", unseen) or "")
     local ids = {}
     for id in pairs(s.souvenirs or {}) do if Postcards.souvenirs[id] then ids[#ids + 1] = id end end
     table.sort(ids)
     local last = s.postcards[#s.postcards]
     local cells = {
-        { icon = "sprite/carry.png", title = "收拾行囊", meta = sp.status == "away" and "阿页在路上" or (sp.status == "packed" and "已收拾好" or "还没收拾"),
-          caption = "干粮 · 护身物 · 随身小书", dim = sp.status == "away",
-          callback = function() if sp.status == "away" then self.host:notify("阿页还在路上") else self:go("basket") end end },
-        { icon = "items/paper_umbrella.png", title = "小铺", meta = "灵感 ✦ " .. s.inspiration, caption = "用灵感换行囊里的东西",
+        { icon = "sprite/carry.png", title = T("收拾行囊"), meta = sp.status == "away" and T("阿页在路上") or (sp.status == "packed" and T("已收拾好") or T("还没收拾")),
+          caption = T("干粮 · 护身物 · 随身小书"), dim = sp.status == "away",
+          callback = function() if sp.status == "away" then self.host:notify(T("阿页还在路上")) else self:go("basket") end end },
+        { icon = "items/paper_umbrella.png", title = T("小铺"), meta = T("灵感 ✦ %d", s.inspiration), caption = T("用灵感换行囊里的东西"),
           callback = function() self:go("shop") end },
-        { scene = last and Game.cardScene(last), icon = (not last) and "sprite/carry.png" or nil, title = "明信片墙",
-          meta = #s.postcards .. " 张" .. (unseen > 0 and ("　新 " .. unseen) or ""), badge = unseen > 0 and "新" or nil,
-          caption = last and ("最近：" .. ((Travel.place(last.place) or {}).name or "")) or "还没有寄回来的",
+        { scene = last and Game.cardScene(last), icon = (not last) and "sprite/carry.png" or nil, title = T("明信片墙"),
+          meta = T("%d 张", #s.postcards) .. (unseen > 0 and T("　新 %d", unseen) or ""), badge = unseen > 0 and T("新") or nil,
+          caption = last and T("最近：%s", (Travel.place(last.place) or {}).name or "") or T("还没有寄回来的"),
           callback = function() self.wall_page = 1 self:go("wall") end },
-        { icon = ids[1] and ("souvenirs/" .. ids[1] .. ".png") or "sprite/carry.png", title = "特产柜",
-          meta = #ids .. " / " .. Game.souvenirTotal() .. " 种", caption = "摆在阁楼 " .. #(s.decor or {}) .. " / " .. Game.DECOR_MAX,
+        { icon = ids[1] and ("souvenirs/" .. ids[1] .. ".png") or "sprite/carry.png", title = T("特产柜"),
+          meta = T("%d / %d 种", #ids, Game.souvenirTotal()), caption = T("摆在阁楼 %d / %d", #(s.decor or {}), Game.DECOR_MAX),
           callback = function() self:go("cabinet") end },
     }
     -- 第 1 页：画面 + 状态 + 入口；第 2 页起：来客 + 最近（每页条数按高度自适应）
@@ -179,22 +180,22 @@ function Game:_attic()
     local pager = { page = page, pages = pages, go = function(n) self.attic_page = n self:render() end,
         prev = function() self.attic_page = page - 1 self:render() end, next = function() self.attic_page = page + 1 self:render() end }
     if page == 1 then
-        return { title = "阿页的阁楼", scene = scene, status = st, shelf = { cols = 4, icon = 64, compact = true, cells = cells }, pager = pager }
+        return { title = T("阿页的阁楼"), scene = scene, status = st, shelf = { cols = 4, icon = 64, compact = true, cells = cells }, pager = pager }
     end
-    local v = { title = "阿页的阁楼", pager = pager, lines = {} }
+    local v = { title = T("阿页的阁楼"), pager = pager, lines = {} }
     if page == 2 then
         local vis = s.visitor and sp.status ~= "away" and Travel.visitor(s.visitor.id)
         if vis then
-            v.status = { icon = "visitors/" .. vis.id .. (s.visitor.pose or "") .. ".png", icon_size = 72, title = "来客 · " .. vis.name,
-                caption = s.visitor.line or vis.here, meta = "还会待一会儿" }
+            v.status = { icon = "visitors/" .. vis.id .. (s.visitor.pose or "") .. ".png", icon_size = 72, title = T("来客 · %s", vis.name),
+                caption = s.visitor.line or vis.here, meta = T("还会待一会儿") }
         else
-            v.status = { icon = "sprite/peek.png", title = "今天没有客人", caption = "小客人会在阿页回家后来串门。" }
+            v.status = { icon = "sprite/peek.png", title = T("今天没有客人"), caption = T("小客人会在阿页回家后来串门。") }
         end
     end
     local first = page == 2 and 1 or (c2 + (page - 3) * per + 1)
     local cnt = page == 2 and c2 or per
-    v.lines[1] = { text = "最近" .. (#logs > 0 and ("（" .. math.min(#logs, first) .. "–" .. math.min(#logs, first + cnt - 1) .. " / " .. #logs .. "）") or ""), label = true }
-    if #logs == 0 then v.empty = { title = "还没有什么新鲜事", caption = "阿页出门、回家、来客都会记在这里。" } end
+    v.lines[1] = { text = T("最近") .. (#logs > 0 and T("（%d–%d / %d）", math.min(#logs, first), math.min(#logs, first + cnt - 1), #logs) or ""), label = true }
+    if #logs == 0 then v.empty = { title = T("还没有什么新鲜事"), caption = T("阿页出门、回家、来客都会记在这里。") } end
     local rows = {}
     for i = first, math.min(#logs, first + cnt - 1) do rows[#rows + 1] = { text = logs[i].text, meta = Game.when(logs[i].at, now) } end
     v.notes = { rows = rows, per = per, lead = lead, fit = function(full, ld)
@@ -221,12 +222,12 @@ function Game:_basket()
         local cur = s.basket[sl] and Travel.item(s.basket[sl])
         if cur then filled = filled + 1 end
         cells[#cells + 1] = { icon = cur and ("items/" .. cur.id .. ".png") or "props/basket.png", title = SLOT_NAME[sl],
-            meta = cur and cur.name or "（空）", caption = cur and (Game.itemEffect(cur)) or "点这里挑一样", check = sl == slot,
+            meta = cur and cur.name or T("（空）"), caption = cur and (Game.itemEffect(cur)) or T("点这里挑一样"), check = sl == slot,
             callback = function() self.basket_slot = sl self.basket_page = 1 self:render() end }
     end
-    local st = { icon = "sprite/carry.png", title = "藤筐 " .. filled .. " / 3",
-        caption = s.sprite.status == "packed" and "收拾好了，阿页过一会儿就出门。" or "三格都放好，阿页就会出门。",
-        meta = "带的东西决定它爱去哪儿、走多久" }
+    local st = { icon = "sprite/carry.png", title = T("藤筐 %d / 3", filled),
+        caption = s.sprite.status == "packed" and T("收拾好了，阿页过一会儿就出门。") or T("三格都放好，阿页就会出门。"),
+        meta = T("带的东西决定它爱去哪儿、走多久") }
     -- 当前格可放的物品（有存货的 + 常备）
     local list = {}
     for _, it in ipairs(Items) do
@@ -241,7 +242,7 @@ function Game:_basket()
         local it = list[i]
         local n = Travel.count(s, it.id)
         picks[#picks + 1] = { icon = "items/" .. it.id .. ".png", title = it.name, check = s.basket[slot] == it.id,
-            meta = n == math.huge and "常备" or ("有 " .. n), caption = (Game.itemEffect(it)),
+            meta = n == math.huge and T("常备") or T("有 %d", n), caption = (Game.itemEffect(it)),
             callback = function()
                 Travel.put(s, it.id, self.host:now(), self.debug)
                 -- 放好后自动跳到下一个空格
@@ -251,19 +252,19 @@ function Game:_basket()
             end }
     end
     -- 两组卡片：三格 + 可选物品；用 lines 标签分隔
-    return { title = "收拾行囊", status = st,
+    return { title = T("收拾行囊"), status = st,
         shelf = { cols = 3, icon = 48, compact = true, cells = cells },
-        lines2 = { { text = "放进「" .. SLOT_NAME[slot] .. "」", label = true } },
+        lines2 = { { text = T("放进「%s」", SLOT_NAME[slot]), label = true } },
         shelf2 = { cols = 2, cells = picks, per = per, fit = self:fitter("basket") },
-        empty2 = #picks == 0 and { title = "这一格没有可放的东西", caption = "去小铺看看" } or nil,
+        empty2 = #picks == 0 and { title = T("这一格没有可放的东西"), caption = T("去小铺看看") } or nil,
         pager = { page = page, pages = pages, go = function(n) self.basket_page = n self:render() end, prev = function() self.basket_page = page - 1 self:render() end,
             next = function() self.basket_page = page + 1 self:render() end } }
 end
 
 Game.SHOP_COLS, Game.SHOP_ROWS = 2, 3
-Game.SHOP_TABS = { { id = "all", name = "全部" }, { id = "food", name = "干粮" }, { id = "charm", name = "护身物" }, { id = "book", name = "随身小书" } }
-local TAG_NAME = { water = "水边", forest = "森林", market = "集市", indoor = "屋里", town = "小镇", travel = "车站", snow = "雪地",
-    sky = "天上", mountain = "山里", desert = "沙丘", sea = "海边", garden = "花园", night = "夜里", underground = "地下" }
+Game.SHOP_TABS = { { id = "all", name = T("全部") }, { id = "food", name = T("干粮") }, { id = "charm", name = T("护身物") }, { id = "book", name = T("随身小书") } }
+local TAG_NAME = { water = T("水边"), forest = T("森林"), market = T("集市"), indoor = T("屋里"), town = T("小镇"), travel = T("车站"), snow = T("雪地"),
+    sky = T("天上"), mountain = T("山里"), desert = T("沙丘"), sea = T("海边"), garden = T("花园"), night = T("夜里"), underground = T("地下") }
 Game.TAG_NAME = TAG_NAME
 
 --- 纯函数：由数据算出物品的实际效果（tags 让目的地更偏向这些地方；hours_bias 加减旅程小时）
@@ -271,13 +272,13 @@ function Game.itemEffect(it)
     local places = {}
     for _, t in ipairs(it.tags or {}) do places[#places + 1] = TAG_NAME[t] or t end
     local h = it.hours_bias or 0
-    local short = "爱去" .. table.concat(places, "·")
-    if h > 0 then short = short .. " · 旅程+" .. h .. "时" elseif h < 0 then short = short .. " · 旅程" .. h .. "时" end
-    local long = { "放进藤筐后，阿页更常去" .. table.concat(places, "、") .. "的地方。" }
-    if h > 0 then long[#long + 1] = "旅程平均长 " .. h .. " 小时，回家得晚一些。"
-    elseif h < 0 then long[#long + 1] = "旅程平均短 " .. (-h) .. " 小时，早点回家。"
-    else long[#long + 1] = "不影响旅程长短。" end
-    long[#long + 1] = it.price == 0 and "常备物品，不会用完。" or "出门时带走一个，用掉就没了。"
+    local short = T("爱去%s", table.concat(places, "·"))
+    if h > 0 then short = short .. T(" · 旅程+%d时", h) elseif h < 0 then short = short .. T(" · 旅程%d时", h) end
+    local long = { T("放进藤筐后，阿页更常去%s的地方。", table.concat(places, T("、"))) }
+    if h > 0 then long[#long + 1] = T("旅程平均长 %d 小时，回家得晚一些。", h)
+    elseif h < 0 then long[#long + 1] = T("旅程平均短 %d 小时，早点回家。", -h)
+    else long[#long + 1] = T("不影响旅程长短。") end
+    long[#long + 1] = it.price == 0 and T("常备物品，不会用完。") or T("出门时带走一个，用掉就没了。")
     return short, long
 end
 
@@ -297,11 +298,11 @@ end
 
 function Game:_buy(it)
     local s = self.state
-    if s.inspiration < it.price then self.host:notify("灵感不够") return end
+    if s.inspiration < it.price then self.host:notify(T("灵感不够")) return end
     s.inspiration = s.inspiration - it.price
     s.inventory[it.id] = (s.inventory[it.id] or 0) + 1
     self:save()
-    self.host:notify("买下了" .. it.name)
+    self.host:notify(T("买下了%s", it.name))
     self:render()
 end
 
@@ -315,15 +316,15 @@ function Game:_shop()
     for _, it in ipairs(items) do
         local short = Game.itemEffect(it)
         cells[#cells + 1] = { icon = "items/" .. it.id .. ".png", name = it.name, price = "✦ " .. it.price,
-            owned = "有 " .. (s.inventory[it.id] or 0), desc = short, dim = s.inspiration < it.price,
+            owned = T("有 %d", s.inventory[it.id] or 0), desc = short, dim = s.inspiration < it.price,
             callback = function() self:go("shop_item", it.id) end }
     end
     local tabs = {}
     for _, t in ipairs(Game.SHOP_TABS) do
         tabs[#tabs + 1] = { text = t.name, active = t.id == tab, callback = function() self.shop_tab, self.shop_page = t.id, 1 self:render() end }
     end
-    return { title = "小铺", status = { icon = "items/paper_clip.png", icon_size = 48, title = "图钉小铺", caption = "老板是一枚不爱说话的图钉。点一件看看。",
-            meta = "灵感 ✦ " .. s.inspiration },
+    return { title = T("小铺"), status = { icon = "items/paper_clip.png", icon_size = 48, title = T("图钉小铺"), caption = T("老板是一枚不爱说话的图钉。点一件看看。"),
+            meta = T("灵感 ✦ %d", s.inspiration) },
         tabs = tabs, shelf = { cols = Game.SHOP_COLS, cells = cells, per = sper, fit = self:fitter("shop") },
         pager = { page = page, pages = pages, go = function(n) self.shop_page = n self:render() end,
             prev = function() self.shop_page = page - 1 self:render() end, next = function() self.shop_page = page + 1 self:render() end },
@@ -335,11 +336,11 @@ function Game:_shop_item()
     local it = Travel.item(self.arg)
     if not it then self.page = "shop" return self:_shop() end
     local _, long = Game.itemEffect(it)
-    local lines = { { text = "效果", label = true } }
+    local lines = { { text = T("效果"), label = true } }
     for _, l in ipairs(long) do lines[#lines + 1] = "· " .. l end
     return { title = it.name, status = { icon = "items/" .. it.id .. ".png", icon_size = 96, title = it.name, caption = it.desc or "",
-            meta = "✦ " .. it.price .. "　·　已有 " .. (s.inventory[it.id] or 0) .. "　·　灵感 ✦ " .. s.inspiration }, lines = lines,
-        buttons = { { text = "买一个（✦ " .. it.price .. "）", callback = function() self:_buy(it) end } } }
+            meta = T("✦ %d　·　已有 %d　·　灵感 ✦ %d", it.price, s.inventory[it.id] or 0, s.inspiration) }, lines = lines,
+        buttons = { { text = T("买一个（✦ %d）", it.price), callback = function() self:_buy(it) end } } }
 end
 
 Game.WALL_GRID = { cols = 3, rows = 4 }
@@ -366,9 +367,9 @@ function Game:_wall()
     local wper = self:per(wkey, mode == "list" and Game.WALL_LIST or Game.WALL_GRID.cols * Game.WALL_GRID.rows)
     local idx, page, pages = Game.wallPage(s, mode, self.wall_page, wper)
     self.wall_page = page
-    local v = { title = "明信片墙", lines = {} }
-    if #s.postcards == 0 then v.empty = { title = "墙上还空着", caption = "等阿页寄第一张回来。" } 
-    else v.lines[1] = { text = #s.postcards .. " 张 · 新的在前" .. ((#s.postcards - seen_before) > 0 and ("　·　新 " .. (#s.postcards - seen_before)) or ""), label = true } end
+    local v = { title = T("明信片墙"), lines = {} }
+    if #s.postcards == 0 then v.empty = { title = T("墙上还空着"), caption = T("等阿页寄第一张回来。") } 
+    else v.lines[1] = { text = T("%d 张 · 新的在前", #s.postcards) .. ((#s.postcards - seen_before) > 0 and T("　·　新 %d", #s.postcards - seen_before) or ""), label = true } end
     local function cardInfo(i)
         local c = s.postcards[i]
         local p = Travel.place(c.place)
@@ -393,7 +394,7 @@ function Game:_wall()
         prev = function() self.wall_page = page - 1 self:render() end,
         next = function() self.wall_page = page + 1 self:render() end,
         go = function(n) self.wall_page = n self:render() end }
-    v.switch = { icon = mode == "grid" and "view_list" or "grid_view", text = mode == "grid" and "列表" or "网格", callback = function()
+    v.switch = { icon = mode == "grid" and "view_list" or "grid_view", text = mode == "grid" and T("列表") or T("网格"), callback = function()
         self.host:setSetting("wall_mode", mode == "grid" and "list" or "grid") self.wall_page = 1 self:render() end }
     return v
 end
@@ -418,8 +419,8 @@ function Game:_card()
     return {
         title = (p and p.name or c.place),
         scene = Game.cardScene(c),
-        status = { title = (p and p.name or c.place) .. " · " .. (Postcards.weather_names[c.weather] or ""), caption = (c.line or "") .. "　——阿页",
-            meta = os.date("%Y-%m-%d %H:%M", c.at or 0) .. "　·　第 " .. i .. " / " .. n .. " 张" },
+        status = { title = (p and p.name or c.place) .. " · " .. (Postcards.weather_names[c.weather] or ""), caption = (c.line or "") .. T("　——阿页"),
+            meta = os.date("%Y-%m-%d %H:%M", c.at or 0) .. T("　·　第 %d / %d 张", i, n) },
         pager = { page = n - i + 1, pages = n, prev = function() self.arg = i + 1 self:render() end, next = function() self.arg = i - 1 self:render() end,
             go = function(pg) self.arg = n - pg + 1 self:render() end },
     }
@@ -433,7 +434,7 @@ function Game:_toggleDecor(id)
     local s = self.state
     local i = indexOf(s.decor, id)
     if i then table.remove(s.decor, i)
-    elseif #s.decor >= Game.DECOR_MAX then self.host:notify("阁楼摆满了，先收起一样") return
+    elseif #s.decor >= Game.DECOR_MAX then self.host:notify(T("阁楼摆满了，先收起一样")) return
     else s.decor[#s.decor + 1] = id end
     self:save()
     self:render()
@@ -455,13 +456,13 @@ function Game:_cabinet()
         local sv = Postcards.souvenirs[id]
         local on = indexOf(s.decor, id)
         cells[#cells + 1] = { icon = "souvenirs/" .. id .. ".png", title = sv.name, check = on ~= nil,
-            meta = "×" .. s.souvenirs[id] .. (on and "　摆在阁楼" or ""), caption = (s.souvenir_notes and s.souvenir_notes[id]) or sv.note,
+            meta = "×" .. s.souvenirs[id] .. (on and T("　摆在阁楼") or ""), caption = (s.souvenir_notes and s.souvenir_notes[id]) or sv.note,
             callback = function() self:go("souvenir", id) end }
     end
-    return { title = "特产柜",
-        status = { icon = s.decor[1] and ("souvenirs/" .. s.decor[1] .. ".png") or nil, title = "收集 " .. #ids .. " / " .. Game.souvenirTotal() .. " 种",
-            caption = "阿页带回来的东西都在这里。点一件看看，可以摆到阁楼里。", meta = "阁楼里摆了 " .. #s.decor .. " / " .. Game.DECOR_MAX },
-        empty = #ids == 0 and { title = "柜子还空着", caption = "每趟旅行回来，阿页都会带一样特产。" } or nil,
+    return { title = T("特产柜"),
+        status = { icon = s.decor[1] and ("souvenirs/" .. s.decor[1] .. ".png") or nil, title = T("收集 %d / %d 种", #ids, Game.souvenirTotal()),
+            caption = T("阿页带回来的东西都在这里。点一件看看，可以摆到阁楼里。"), meta = T("阁楼里摆了 %d / %d", #s.decor, Game.DECOR_MAX) },
+        empty = #ids == 0 and { title = T("柜子还空着"), caption = T("每趟旅行回来，阿页都会带一样特产。") } or nil,
         shelf = { cols = 2, cells = cells, per = cper, fit = self:fitter("cabinet") },
         pager = { page = page, pages = pages, go = function(n) self.cab_page = n self:render() end, prev = function() self.cab_page = page - 1 self:render() end,
             next = function() self.cab_page = page + 1 self:render() end } }
@@ -476,9 +477,9 @@ function Game:_souvenir()
     local on = indexOf(s.decor, id)
     return { title = sv.name,
         status = { icon = "souvenirs/" .. id .. ".png", icon_size = 120, title = sv.name, caption = (s.souvenir_notes and s.souvenir_notes[id]) or sv.note,
-            meta = "收着 ×" .. s.souvenirs[id] .. "　·　" .. (on and "摆在阁楼里" or "收在柜子里") },
-        lines = { { text = "阁楼右墙的矮架上能摆 " .. Game.DECOR_MAX .. " 样，现在摆了 " .. #s.decor .. " 样。", muted = true, small = true } },
-        buttons = { { text = on and "从阁楼收起" or "摆到阁楼里", callback = function() self:_toggleDecor(id) end } } }
+            meta = T("收着 ×%d　·　%s", s.souvenirs[id], on and T("摆在阁楼里") or T("收在柜子里")) },
+        lines = { { text = T("阁楼右墙的矮架上能摆 %d 样，现在摆了 %d 样。", Game.DECOR_MAX, #s.decor), muted = true, small = true } },
+        buttons = { { text = on and T("从阁楼收起") or T("摆到阁楼里"), callback = function() self:_toggleDecor(id) end } } }
 end
 
 --- 每页数量：默认值，界面按屏幕剩余高度回报实际能放的数量（fit）后记住
@@ -489,9 +490,9 @@ function Game.when(at, now)
     now = now or os.time()
     local d = now - at
     if d < 0 then return os.date("%m-%d %H:%M", at) end
-    if d < 60 then return "刚刚" end
-    if d < 3600 then return math.floor(d / 60) .. " 分钟前" end
-    if d < 86400 then return math.floor(d / 3600) .. " 小时前" end
+    if d < 60 then return T("刚刚") end
+    if d < 3600 then return T("%d 分钟前", math.floor(d / 60)) end
+    if d < 86400 then return T("%d 小时前", math.floor(d / 3600)) end
     return os.date("%m-%d %H:%M", at)
 end
 

@@ -3,6 +3,8 @@
 月读首页组件的显示数据（纯函数，无 KOReader 依赖，headless 可测）。
 都在存档的「只读副本」上按当前时间结算，不写存档；组件只读，不在里面玩。
 --]]
+local T = require("papersprite.l10n")
+
 local M = {}
 
 local function copy(t)
@@ -42,15 +44,15 @@ function M.attic(s, now, debug_fast)
     local line
     if sp.status == "away" then
         local h = math.floor((now - (sp.left_at or now)) / Travel.timing(debug_fast).hour)
-        line = h >= 1 and ("阿页出门了，走了 " .. h .. " 小时") or "阿页刚出门，纸条压在桌上"
+        line = h >= 1 and T("阿页出门了，走了 %d 小时", h) or T("阿页刚出门，纸条压在桌上")
     elseif sp.status == "packed" then
-        line = "行囊收好了，阿页正望着窗外"
+        line = T("行囊收好了，阿页正望着窗外")
     else
         local v = s.visitor and Travel.visitor(s.visitor.id)
-        line = v and ("阿页在招待" .. v.name) or "阿页坐在书桌边"
+        line = v and T("阿页在招待%s", v.name) or T("阿页坐在书桌边")
     end
     local new = #s.postcards - (s.wall_seen or 0)
-    local sub = (new > 0 and ("新明信片 " .. new .. " · ") or "") .. "灵感 " .. s.inspiration
+    local sub = (new > 0 and T("新明信片 %d · ", new) or "") .. T("灵感 %d", s.inspiration)
     return { scene = Game.atticScene(s, now), line = line, sub = sub }
 end
 
@@ -90,7 +92,7 @@ end
 
 --- 尺寸档位与行列（组件设置里可选 small / medium / large）
 M.SIZES = { "small", "medium", "large" }
-M.SIZE_NAMES = { small = "小", medium = "中", large = "大" }
+M.SIZE_NAMES = { small = T("小"), medium = T("中"), large = T("大") }
 M.LIST_ROWS = { small = 2, medium = 3, large = 5 }
 M.GRID_ROWS = { small = 1, medium = 2, large = 3 }
 M.CAB_ROWS = { small = 1, medium = 2, large = 4 }
