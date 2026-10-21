@@ -200,7 +200,10 @@ function Game:_attic()
     for i = first, math.min(#logs, first + cnt - 1) do rows[#rows + 1] = { text = logs[i].text, meta = Game.when(logs[i].at, now) } end
     v.notes = { rows = rows, per = per, lead = lead, fit = function(full, ld)
         self.per_page = self.per_page or {}
-        if self.closed or (self.per_page.attic_log == full and self.per_page.attic_lead == ld) then return end
+        -- 各页最高那张卡不一样，量出来的条数会来回跳（页数 3/5 ↔ 3/7 死循环）；只许往小收，不许回弹
+        local cur = self.per_page.attic_log
+        if cur and full > cur then full = cur end
+        if self.closed or (cur == full and self.per_page.attic_lead == ld) then return end
         self.per_page.attic_log, self.per_page.attic_lead = full, ld
         self:render()
     end }
