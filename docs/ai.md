@@ -50,4 +50,3 @@
 - **旅行文案**：出门期间在 `Game:tick` 里请求；JSON 还可带 `note`（≤24 字出门纸条）。
 - **迟到补写**（`maybeRecap`）：整趟在界面关着时走完，`Travel` 回家时留下 `s.recap`；下次打开补请求，`Travel.applyRecap` 改写那几张明信片的句子（同样去重）和特产小注。
 - **今日小纸条**（`maybeDaily`）：阿页在家时，每个「日期 + 时段」一张（≤40 字），显示在阁楼状态栏；无 AI 时用 `data/notes.lua` 按日期、钟点稳定地挑。
-- **长信**（`requestLetter`）：明信片页的按钮，仅在有 AI 时出现，结果存进 `card.letter`（≤140 字）。

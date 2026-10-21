@@ -10,7 +10,7 @@
 local Postcards = require("papersprite.data.postcards")
 local State = require("papersprite.core.state")
 
-local Story = { TIMEOUT = 180, MAX_LINE = 40, MAX_NARR = 80, MAX_TRIES = 2, MAX_NOTE = 40, MAX_LETTER = 140 }
+local Story = { TIMEOUT = 180, MAX_LINE = 40, MAX_NARR = 80, MAX_TRIES = 2, MAX_NOTE = 40 }
 
 local SYSTEM = table.concat({
     "你为一个阅读器里的小游戏写文案。主角「阿页」是一张旧书签变成的小纸灵：折纸身子，头顶一个卷起的书角，没有嘴，话少、好奇、温柔。",
@@ -223,32 +223,6 @@ function Story.maybeDaily(host, s, on_done)
     end)
     if not started then s.daily_try = try end
     return started
-end
-
---- 明信片的长信：玩家在明信片页点「请阿页多写几句」才发起；写进 postcard.letter
----@param idx integer 明信片序号
----@param on_done fun(s: table|nil)
-function Story.requestLetter(host, s, idx, on_done)
-    local c = s.postcards[idx]
-    if not c or c.letter then return false end
-    local p = Postcards.place(c.place)
-    local user = table.concat({
-        "阿页在「" .. (p and p.name or c.place) .. "」寄回一张明信片：天气/时刻 " .. (Postcards.weather_names[c.weather] or c.weather)
-            .. "，姿势 " .. c.pose .. "，小物 " .. c.prop .. "。",
-        "明信片上原本只有一句：" .. (c.line or ""),
-        "请阿页再多写几句，像明信片背面的话，第一人称，" .. Story.MAX_LETTER .. "字以内，和原来那句不要重复，别说教。",
-        '只输出 JSON：{"letter":"……"}',
-    }, "\n")
-    local messages = { { role = "system", content = SYSTEM }, { role = "user", content = user } }
-    local at, key = c.at, c.key
-    return ask(host, messages, function(r) return type(r) == "table" and clean(r.letter, Story.MAX_LETTER) or nil end, function(result)
-        if not result then return on_done(nil) end
-        local cur = reload(host)
-        for _, pc in ipairs(cur.postcards) do
-            if pc.key == key and pc.at == at then pc.letter = result host:saveState(cur) return on_done(cur) end
-        end
-        on_done(nil)
-    end)
 end
 
 return Story

@@ -460,20 +460,6 @@ function Game.cardScene(c)
     return { bg = L.bg, overlays = ov, frame = true }
 end
 
-function Game:_letter(i)
-    local c = self.state.postcards[i]
-    if not c or self._letter_busy then return end
-    self._letter_busy = true
-    local started = Story.requestLetter(self.host, self.state, i, function(cur)
-        self._letter_busy = false
-        if self.closed then return end
-        if cur then self.state = cur end
-        if self.page == "card" then self:render() end
-        if not cur then self.host:notify(T("阿页这会儿写不出来，晚点再试。")) end
-    end)
-    if started then self.host:notify(T("阿页正在写……")) else self._letter_busy = false end
-end
-
 function Game:_card()
     local s = self.state
     local i = self.arg
@@ -485,9 +471,8 @@ function Game:_card()
     return {
         title = (p and p.name or c.place),
         scene = Game.cardScene(c),
-        status = { title = (p and p.name or c.place) .. " · " .. (Postcards.weather_names[c.weather] or ""), caption = c.letter or ((c.line or "") .. T("　——阿页")),
+        status = { title = (p and p.name or c.place) .. " · " .. (Postcards.weather_names[c.weather] or ""), caption = (c.line or "") .. T("　——阿页"),
             meta = os.date("%Y-%m-%d %H:%M", c.at or 0) .. T("　·　第 %d / %d 张", i, n) },
-        buttons = (c.letter or not (type(self.host.ai) == "function" and self.host:ai())) and {} or { { text = T("请阿页多写几句"), callback = function() self:_letter(i) end } },
         pager = { page = n - i + 1, pages = n, prev = function() self.arg = i + 1 self:render() end, next = function() self.arg = i - 1 self:render() end,
             go = function(pg) self.arg = n - pg + 1 self:render() end },
     }

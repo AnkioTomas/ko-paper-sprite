@@ -154,11 +154,10 @@ assert(Story.validate({ lines = { "好" } }, 1).lines[1] == "好")
 assert(not Story.validate({ lines = { "<script>" } }, 1))
 assert(not Story.validate({ lines = {} }, 1))
 
--- 8b. 迟到的 AI：界面没开着时整趟走完 → 留 recap，之后补写；每日纸条；长信
+-- 8b. 迟到的 AI：界面没开着时整趟走完 → 留 recap，之后补写；每日纸条
 do
     local only_other = { json = function(msgs, cb)
         local c = msgs[2].content
-        if c:find("再多写几句") then return cb({ letter = "阿页多写的一长段话。" }) end
         if c:find("没有出门") then return cb({ note = "阿页在擦灯罩。" }) end
         local n = select(2, c:gsub("%d%. 天气", ""))
         local lines = {} for i = 1, n do lines[i] = "迟到的第" .. i .. "句。" end
@@ -177,8 +176,6 @@ do
     local late = 0 for _, c in ipairs(cur.postcards) do if c.line:find("迟到") then late = late + 1 end end
     assert(late >= 1, "late lines patched")
     assert(cur.daily and cur.daily.text == "阿页在擦灯罩。", "daily note")
-    assert(Story.requestLetter(H.host, cur, #cur.postcards, function() end))
-    assert(H.saved.postcards[#H.saved.postcards].letter:find("长段"), "letter saved")
     g3:close()
 end
 

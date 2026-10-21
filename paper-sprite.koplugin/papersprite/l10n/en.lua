@@ -1053,7 +1053,4 @@ return {
     ["阿页从%s回来了，书角沾着路上的风，还有%s。"] = "Aye is back from %s, its corner dusted with road wind, and %s too.",
     ["阿页拍了拍身上的尘土，从%s带回了%s。"] = "Aye dusted itself off and came back from %s with %s.",
     ["阿页从%s回来，轻轻把%s放在了桌上。"] = "Aye came back from %s and gently set %s on the desk.",
-    ["请阿页多写几句"] = "Ask Aye to write more",
-    ["阿页正在写……"] = "Aye is writing…",
-    ["阿页这会儿写不出来，晚点再试。"] = "Aye can't write right now. Try again later.",
 }
