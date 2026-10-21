@@ -38,10 +38,13 @@ paper-sprite.koplugin/
 `core/travel.lua` 是状态机 `home → packed → away → home`：
 - 收好行囊时就算好 `depart_at`；出发时一次性排好 `return_at` 和每张明信片的寄达时刻 `mail[].at`。
 - `Travel.settle(state, now)` 把所有已到时刻的事件依次落地；`Travel.nextAt` 给出下一件事的时刻，界面开着时只在那时（最多 60 秒）刷新一次，关掉即停。
-- 随机数用存档里的种子（`core/rng.lua`，LCG），同一存档同一时刻结果确定，便于测试复现。
+- 随机数用存档里的种子（`core/rng.lua`，Park–Miller 乘同余，乘积在 double 内精确），同一存档同一时刻结果确定，便于测试复现。
 
 ## 阅读账本
 `core/reading.lua`：`main.lua` 的 `onPageUpdate` 只记次数（不读书的内容），写 `.moon/game/paper-sprite/reading.lua`；打开阁楼时按差值折算灵感。两种宿主共用这本账。
+
+## 节日
+`core/festival.lua` + `data/festivals.lua`：公历节日离线，农历 / 节气来自节日接口，详见 [festival.md](festival.md)。
 
 ## 可选 AI
 `host:ai()`（仅月读宿主）→ `core/story.lua` 异步请求、校验、写存档；详见 [ai.md](ai.md)。

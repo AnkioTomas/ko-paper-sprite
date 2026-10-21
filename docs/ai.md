@@ -10,7 +10,7 @@
 - 关闭：月读扩展设置 `ext.papersprite.settings.ai_story = false`。
 
 ## 什么时候请求
-`core/story.lua` 的 `Story.maybeRequest`：阿页**出门那一刻**（结算出 `away` 时）发起一次，每趟最多一次（`sprite.ai_req = trip`）。
+`core/story.lua` 的 `Story.maybeRequest`：阿页**出门那一刻**（结算出 `away` 时）发起一次，每趟最多请求 `Story.MAX_TRIES`（2）次：失败或超时会放开 `ai_req`、记 `ai_fails`，下次刷新再试一次。提示词会带上出门当天的节日和最近寄过的几句话。只有界面开着（或打开时刚好在旅途中）才会发起；整趟旅行在界面关着时就结束了的，只能用本地文案。
 请求是异步的，界面照常使用；结果回来后：
 1. 重读存档，确认还是同一趟（`trip` 编号相同、仍在旅途中）；
 2. 校验并写入 `sprite.ai`，落盘；

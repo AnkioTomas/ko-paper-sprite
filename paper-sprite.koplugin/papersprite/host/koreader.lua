@@ -82,6 +82,25 @@ function Host:notify(text)
     require("ui/uimanager"):show(InfoMessage:new{ text = text, timeout = 2 })
 end
 
+--- 取今天的节日数据（core/festival.parse 的结果）。没联网 / 超时 / 解析失败都回调 nil；一天只会调一次。
+function Host:almanac(cb)
+    local daily
+    pcall(function()
+        local NetworkMgr = require("ui/network/manager")
+        if NetworkMgr.isConnected and not NetworkMgr:isConnected() then return end
+        local http, ltn12 = require("socket.http"), require("ltn12")
+        local socket, socketutil = require("socket"), require("socketutil")
+        local body = {}
+        socketutil:set_timeout(4, 8)
+        local code = socket.skip(1, http.request{ url = require("papersprite.core.festival").URL, sink = ltn12.sink.table(body) })
+        socketutil:reset_timeout()
+        if code ~= 200 then return end
+        local ok, payload = pcall(require("json").decode, table.concat(body))
+        if ok then daily = require("papersprite.core.festival").parse(payload) end
+    end)
+    cb(daily)
+end
+
 function Host:assetDir() return Interface.pluginDir() .. "/assets" end
 
 return Host

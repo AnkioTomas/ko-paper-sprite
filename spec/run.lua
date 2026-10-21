@@ -419,4 +419,89 @@ do
     end
 end
 
+-- 随机数：不再陷入短循环；种子越界也不崩
+do
+    local R = require("papersprite.core.rng")
+    local seed0, seed, n = 20261022, 20261022, 0
+    repeat seed = R.next(seed) n = n + 1 until seed == seed0 or n >= 300000
+    assert(n >= 300000, "rng cycle too short: " .. n)
+    local sd, f = R.next(0) assert(sd > 0 and f > 0 and f < 1)
+    sd, f = R.next(2147483647 * 3) assert(sd > 0 and f < 1)
+end
+
+-- 天气按季节 / 钟点 / 节日加权；节日当天明信片混入节日短句
+do
+    local P, R = require("papersprite.data.postcards"), require("papersprite.core.rng")
+    local function share(ctx, w)
+        local seed, hit, N = 7, 0, 600
+        for _ = 1, N do
+            local c seed, c = P.compose(seed, "ink_lake", {}, {}, ctx)
+            if c.weather == w then hit = hit + 1 end
+        end
+        return hit / N
+    end
+    assert(share({ month = 1, hour = 12 }, "snow") > 3 * share({ month = 7, hour = 12 }, "snow"), "snow favours winter")
+    assert(share({ month = 7, hour = 13 }, "night") < 0.03 and share({ month = 7, hour = 23 }, "night") > 0.15, "night follows the clock")
+    assert(share({ month = 4, hour = 12 }, "petals") > share({ month = 10, hour = 12 }, "petals"), "petals favour spring")
+    local F = require("papersprite.core.festival")
+    local fest = F.at({}, os.time({ year = 2026, month = 10, day = 1, hour = 12 }))
+    assert(fest and fest.id == "national")
+    local seed, n = 11, 0
+    for _ = 1, 100 do
+        local c seed, c = P.compose(seed, "ink_lake", {}, {}, { month = 10, hour = 12, festival = fest })
+        if c.festival == "national" then n = n + 1 assert(c.key:find("|f:national:", 1, true)) end
+    end
+    assert(n > 25 and n < 75, "about half the cards carry festival lines: " .. n)
+end
+
+-- 节日接口：解析、按天缓存、农历 / 节气识别、失败后一小时再试
+do
+    local F = require("papersprite.core.festival")
+    local daily = F.parse({ code = 200, data = { date = { ymd = "2026-09-25", lunar = "农历八月十五" },
+        almanac = { festival = "", term = "" }, holiday = { label = "中秋节" } } })
+    assert(daily and daily.ymd == "2026-09-25" and daily.holiday == "中秋节" and daily.term == nil)
+    assert(F.parse({ code = 200, data = {} }) == nil and F.parse("x") == nil)
+    local noon = os.time({ year = 2026, month = 9, day = 25, hour = 12 })
+    local st = {}
+    assert(F.store(st, daily, noon))
+    assert(F.at(st, noon).id == "midautumn", "lunar festival by name")
+    assert(F.at(st, noon + 86400 * 3) == nil, "cache only applies to its own day")
+    st.almanac = { ymd = "2026-11-07", lunar = "农历九月十八", term = "立冬" }
+    local t = F.at(st, os.time({ year = 2026, month = 11, day = 7, hour = 9 }))
+    assert(t and t.id == "term" and t.name == "立冬" and #t.lines >= 1)
+    local fresh = {}
+    assert(F.needsFetch(fresh, noon))
+    local calls = 0
+    local host = { almanac = function(_, cb) calls = calls + 1 cb(nil) end, getSetting = function(_, _, d) return d end }
+    assert(F.refresh(host, fresh, noon, function() end) and calls == 1)
+    assert(not F.refresh(host, fresh, noon + 600, function() end) and calls == 1, "failure backs off for an hour")
+    assert(F.refresh(host, fresh, noon + 3700, function() end) and calls == 2)
+    host.getSetting = function(_, k, d) if k == "festival_online" then return false end return d end
+    assert(not F.refresh(host, {}, noon, function() end), "setting turns the lookup off")
+end
+
+-- AI：失败后允许再试一次，之后放弃；提示词带节日与最近的句子
+do
+    local Story, State = require("papersprite.core.story"), require("papersprite.core.state")
+    local sv = State.fresh(1000)
+    sv.sprite = { status = "away", trip = 1, place = "ink_lake", mail = { { card = { weather = "clear", pose = "sit", prop = "none" } } },
+        souvenir = next(require("papersprite.data.postcards").souvenirs), basket = {}, left_at = os.time({ year = 2026, month = 10, day = 1, hour = 9 }) }
+    sv.postcards = { { line = "上一张的句子。" } }
+    local store, reqs = sv, 0
+    local host
+    host = { loadState = function() return store end, saveState = function(_, t) store = t end, now = function() return 1000 end,
+        schedule = function() end,
+        ai = function() return { json = function(msgs, cb)
+            reqs = reqs + 1
+            host.last = msgs[2].content
+            cb(nil, "boom")
+        end } end }
+    assert(Story.maybeRequest(host, store) and reqs == 1)
+    assert(host.last:find("国庆节", 1, true) and host.last:find("上一张的句子", 1, true), "festival and recent lines in prompt")
+    assert(store.sprite.ai_fails == 1 and store.sprite.ai_req == nil, "failure releases the request flag")
+    assert(Story.maybeRequest(host, store) and reqs == 2)
+    assert(store.sprite.ai_fails == 2)
+    assert(not Story.maybeRequest(host, store) and reqs == 2, "gives up after MAX_TRIES")
+end
+
 print("headless ok: postcards=" .. #st.postcards .. " places=" .. np .. " combos=" .. nc)

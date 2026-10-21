@@ -51,6 +51,14 @@ function Host:ai()
     }
 end
 
+--- 节日数据：优先用月读首页时钟已缓存的摸鱼日报（同一个接口），没有再自己取一次
+function Host:almanac(cb)
+    local ok, Myrl = pcall(require, "online.myrl")
+    local daily = ok and type(Myrl) == "table" and Myrl.current and select(2, pcall(Myrl.current, Myrl)) or nil
+    if type(daily) == "table" and type(daily.ymd) == "string" then return cb(daily) end
+    return KOHost.almanac(self, cb)
+end
+
 -- 存档统一走 KOReader 宿主的文件存档（loadState / saveState 继承自 KOHost）
 
 function Host:getSetting(key, default)

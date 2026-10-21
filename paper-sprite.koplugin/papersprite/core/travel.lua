@@ -13,6 +13,7 @@ local Places = require("papersprite.data.places")
 local Postcards = require("papersprite.data.postcards")
 local Visitors = require("papersprite.data.visitors")
 local R = require("papersprite.core.rng")
+local Festival = require("papersprite.core.festival")
 local State = require("papersprite.core.state")
 
 local T = {}
@@ -89,9 +90,10 @@ local function depart(s, at, u)
     local picked = {}
     for i = 1, n do
         local card
-        s.seed, card = Postcards.compose(s.seed, place.id, s.collected, picked)
+        local mt = at + math.floor((ret - at) * i / (n + 1))
+        s.seed, card = Postcards.compose(s.seed, place.id, s.collected, picked, Festival.context(s, mt))
         picked[card.key] = true
-        mail[#mail + 1] = { at = at + math.floor((ret - at) * i / (n + 1)), card = card }
+        mail[#mail + 1] = { at = mt, card = card }
     end
     local sv
     s.seed, sv = R.pick(s.seed, place.souvenirs)
@@ -106,10 +108,11 @@ end
 local function aiFor(sp) return type(sp.ai) == "table" and sp.ai.trip == sp.trip and sp.ai or nil end
 
 T.VISITOR_CHANCE = 0.4 -- 每次回家有客人来的总概率；具体是谁按 chance 加权
+T.FESTIVAL_VISITOR_CHANCE = 0.7 -- 节日当天回家，客人更爱来
 local function arriveVisitor(s, at, u)
     local f
     s.seed, f = R.next(s.seed)
-    if f >= T.VISITOR_CHANCE then return end
+    if f >= (Festival.at(s, at) and T.FESTIVAL_VISITOR_CHANCE or T.VISITOR_CHANCE) then return end
     local total = 0
     for _, v in ipairs(Visitors) do total = total + v.chance end
     s.seed, f = R.next(s.seed)

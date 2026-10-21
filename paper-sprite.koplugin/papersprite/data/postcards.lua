@@ -114,12 +114,54 @@ local function candidates(place_id)
 end
 M.candidates = candidates
 
+--- 天气权重：季节 × 钟点 × 节日偏好。没有情境时全部为 1（均匀）。
+local SEASON = {
+    [12] = "winter", [1] = "winter", [2] = "winter", [3] = "spring", [4] = "spring", [5] = "spring",
+    [6] = "summer", [7] = "summer", [8] = "summer", [9] = "autumn", [10] = "autumn", [11] = "autumn",
+}
+local SEASON_W = {
+    winter = { snow = 3, mist = 1.5, petals = 0.15, drizzle = 0.6 },
+    spring = { petals = 3, drizzle = 2, snow = 0.15, wind = 1.3 },
+    summer = { drizzle = 1.5, starry = 1.5, snow = 0.1, petals = 0.5 },
+    autumn = { wind = 2.5, mist = 1.5, dusk = 1.5, snow = 0.3, petals = 0.3 },
+}
+local function hourW(h, w)
+    if h >= 21 or h < 5 then return (w == "night" or w == "starry") and 4 or ((w == "sunrise" or w == "clear") and 0.1 or 1) end
+    if h < 8 then return w == "sunrise" and 5 or ((w == "night" or w == "starry") and 0.2 or 1) end
+    if h >= 17 and h < 20 then return w == "dusk" and 5 or ((w == "night" or w == "starry" or w == "sunrise") and 0.2 or 1) end
+    if h == 20 then return (w == "dusk" or w == "night") and 3 or ((w == "sunrise") and 0.1 or 1) end
+    return (w == "night" or w == "starry") and 0.1 or (w == "sunrise" and 0.2 or (w == "dusk" and 0.3 or 1))
+end
+function M.weatherWeight(ctx, w)
+    if not ctx then return 1 end
+    local x = 1
+    if ctx.month then x = x * ((SEASON_W[SEASON[ctx.month]] or {})[w] or 1) end
+    if ctx.hour then x = x * hourW(ctx.hour, w) end
+    if ctx.festival and ctx.festival.weather then x = x * (ctx.festival.weather[w] or 1) end
+    return x
+end
+
+local function pickWeather(seed, list, ctx)
+    if not ctx then return R.pick(seed, list) end
+    local w, total = {}, 0
+    for i, x in ipairs(list) do w[i] = M.weatherWeight(ctx, x) total = total + w[i] end
+    local f
+    seed, f = R.next(seed)
+    f = f * total
+    for i, x in ipairs(list) do
+        f = f - w[i]
+        if f < 0 then return seed, x end
+    end
+    return seed, list[#list]
+end
+
 --- 用存档种子拼一张明信片。返回 seed, card（card.key 为身份）
 ---@param collected table|nil key -> 最近一次收到的时间
 ---@param exclude table|nil 本趟已选的 key（同一趟不重复）
+---@param ctx table|nil 出片情境 { month, hour, festival }：天气按季节 / 钟点 / 节日加权，节日当天一半概率用节日短句
 --- 规则：只挑没收集过、且本趟没选过的组合；全部收集过才退回「最久没见过」的那张。
 --- 组合太多，先随机抽样最多 64 次找新的；抽不到再全量枚举。
-function M.compose(seed, place_id, collected, exclude)
+function M.compose(seed, place_id, collected, exclude, ctx)
     collected, exclude = collected or {}, exclude or {}
     local p = M.place(place_id)
     local poses, props, weathers, bgs = lists(p)
@@ -128,9 +170,20 @@ function M.compose(seed, place_id, collected, exclude)
         seed, v = R.pick(seed, bgs)
         seed, pose = R.pick(seed, poses)
         seed, prop = R.pick(seed, props)
-        seed, weather = R.pick(seed, weathers)
-        seed, t = R.pick(seed, texts(p, pose, weather))
+        seed, weather = pickWeather(seed, weathers, ctx)
+        local fest = ctx and ctx.festival
+        local f = 1
+        if fest then seed, f = R.next(seed) end
+        if fest and f < 0.5 then
+            local n
+            seed, n = R.next(seed)
+            n = math.floor(n * #fest.lines) + 1
+            t = { fest.lines[n], "f:" .. fest.id .. ":" .. n }
+        else
+            seed, t = R.pick(seed, texts(p, pose, weather))
+        end
         local c = make(p, v, pose, prop, weather, t)
+        if fest and t[2]:sub(1, 2) == "f:" then c.festival = fest.id end
         if not collected[c.key] and not exclude[c.key] then return seed, c end
     end
     local all = candidates(place_id)

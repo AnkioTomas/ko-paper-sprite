@@ -9,6 +9,7 @@
   host:notify(text)
   host:now() -> 秒（真实时间 os.time；测试注入虚拟时钟）
   host:assetDir() -> 插件 assets 目录
+  可选 host:almanac(cb(daily|nil))   取今天的农历 / 节日 / 节气（见 core/festival.lua）
   可选 host:ai() -> nil | { json = fun(messages, cb(table|nil, err)) -> handle{cancel}? }（见 core/story.lua）
 --]]
 local Interface = {}

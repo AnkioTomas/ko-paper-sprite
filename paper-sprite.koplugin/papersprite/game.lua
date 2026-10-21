@@ -10,6 +10,7 @@ local T = require("papersprite.l10n")
 local State = require("papersprite.core.state")
 local Travel = require("papersprite.core.travel")
 local Story = require("papersprite.core.story")
+local Festival = require("papersprite.core.festival")
 local Items = require("papersprite.data.items")
 local Postcards = require("papersprite.data.postcards")
 
@@ -49,7 +50,27 @@ end
 function Game:show()
     self:tick()
     self:render()
+    self:_almanac()
     return self
+end
+
+--- 界面出来后再取一次今天的节日 / 节气（一天一次，失败静默）；先让界面上屏，网络慢也不挡着
+function Game:_almanac()
+    if type(self.host.almanac) ~= "function" or not Festival.needsFetch(self.state, self.host:now()) then return end
+    self.host:schedule(2, function()
+        if self.closed then return end
+        local now = self.host:now()
+        local cur = State.load(self.host:loadState() or self.state, now)
+        if not Festival.refresh(self.host, cur, now, function(daily)
+            cur = State.load(self.host:loadState() or cur, now)
+            if not Festival.store(cur, daily, now) then cur.almanac_try = now end
+            self.host:saveState(cur)
+            if self.closed then return end
+            self.state = cur
+            self:render()
+        end) then return end
+        self.host:saveState(cur)
+    end)
 end
 
 function Game:close()
@@ -135,10 +156,13 @@ function Game:_attic()
     local sp = s.sprite
     local scene = Game.atticScene(s, now)
     local st = { icon = "sprite/carry.png" }
+    local fest = Festival.at(s, now)
     if sp.status == "home" then
         st.title, st.caption = T("阿页在家"), T("坐在书桌边，油灯亮着。收拾好行囊，它就会出门。")
+        if fest then st.title, st.caption = T("阿页在家 · %s", fest.name), fest.here end
     elseif sp.status == "packed" then
         st.title, st.caption = T("快要出门了"), T("藤筐收拾好了，阿页在窗边发呆。")
+        if fest then st.title = T("快要出门了 · %s", fest.name) end
     else
         local p = sp.place and Travel.place(sp.place)
         st.title = T("阿页在路上 · 已出门 %s", fmtDur(now - sp.left_at, self.debug))

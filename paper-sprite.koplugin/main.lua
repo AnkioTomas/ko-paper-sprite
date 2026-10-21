@@ -50,9 +50,15 @@ function PaperSprite:addToMainMenu(menu_items)
     }
 end
 
--- 阅读中每次翻页记一笔（只记次数和时间，不读书的内容）
-function PaperSprite:onPageUpdate()
+-- 阅读中每次翻页记一笔（只记次数和时间，不读书的内容）。
+-- 只认相邻翻页：改字号 / 旋转 / 重排（页码没变）和进度条跳转（一次跨好几页）都不算。
+function PaperSprite:onPageUpdate(pageno)
     if not self.ui or not self.ui.document then return end
+    local last = self._last_page
+    self._last_page = type(pageno) == "number" and pageno or nil
+    if not last or not self._last_page then return end
+    local step = math.abs(self._last_page - last)
+    if step == 0 or step > 3 then return end
     pcall(function() require("papersprite.core.reading").record(os.time()) end)
 end
 
