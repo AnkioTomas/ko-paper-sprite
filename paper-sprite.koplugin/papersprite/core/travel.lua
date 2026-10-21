@@ -13,6 +13,8 @@ local Places = require("papersprite.data.places")
 local Postcards = require("papersprite.data.postcards")
 local Visitors = require("papersprite.data.visitors")
 local R = require("papersprite.core.rng")
+local Lines = require("papersprite.data.lines")
+local Notes = require("papersprite.data.notes")
 local Festival = require("papersprite.core.festival")
 local State = require("papersprite.core.state")
 
@@ -100,8 +102,11 @@ local function depart(s, at, u)
     s.trips = (s.trips or 0) + 1
     s.sprite = { status = "away", trip = s.trips, place = place.id, left_at = at, return_at = ret,
         mail = mail, souvenir = sv, basket = basket, hours = hours }
-    s.note = L("出去走走，别担心。")
-    State.log(s, L("阿页背上藤筐出门了，书桌上留了张纸条。"), at)
+    local pick
+    s.seed, pick = R.pick(s.seed, Notes.away)
+    s.note = pick
+    s.seed, pick = R.pick(s.seed, Lines.depart)
+    State.log(s, pick, at)
 end
 
 --- 本趟 AI 文案（core/story.lua 写入）；只认同一趟的
@@ -156,10 +161,12 @@ function T.settle(s, now, debug_fast)
                     card.key = card.key and (card.key:gsub("|[^|]*$", "|ai:" .. T.norm(line))) or nil
                 end
                 T.markText(s, card.line)
-                card.at = m.at
+                card.at, card.trip = m.at, sp.trip
                 if card.key then s.collected[card.key] = m.at end
                 table.insert(s.postcards, card)
-                State.log(s, L("邮差夹进来一张明信片。"), m.at)
+                local ml
+                s.seed, ml = R.pick(s.seed, Lines.mail)
+                State.log(s, ml, m.at)
                 events[#events + 1] = "postcard"
             end
         end
@@ -167,7 +174,9 @@ function T.settle(s, now, debug_fast)
             local p = T.place(sp.place)
             local sv = sp.souvenir
             s.souvenirs[sv] = (s.souvenirs[sv] or 0) + 1
-            local back = L("阿页从%s回来了，带回了%s。", p.name, Postcards.souvenirs[sv].name)
+            local bl
+            s.seed, bl = R.pick(s.seed, Lines.back)
+            local back = bl:format(p.name, Postcards.souvenirs[sv].name)
             if ai and ai.narration then back = back .. ai.narration end
             if ai and ai.souvenir_note then
                 s.souvenir_notes = s.souvenir_notes or {}
@@ -175,6 +184,13 @@ function T.settle(s, now, debug_fast)
             end
             State.log(s, back, sp.return_at)
             s.basket, s.note = {}, nil
+            if not ai and #sp.mail > 0 then -- 没赶上 AI：留个底，之后补写
+                s.recap = { trip = sp.trip, place = sp.place, souvenir = sv, hours = sp.hours, basket = sp.basket,
+                    left_at = sp.left_at, cards = {} }
+                for _, m in ipairs(sp.mail) do s.recap.cards[#s.recap.cards + 1] = m.card end
+            else
+                s.recap = nil
+            end
             s.sprite = { status = "home", back_at = sp.return_at }
             events[#events + 1] = "return"
             local v = arriveVisitor(s, sp.return_at, u)
@@ -192,6 +208,32 @@ function T.settle(s, now, debug_fast)
         State.log(s, v.leave, left_at)
     end
     return events
+end
+
+--- 迟到的 AI 文案：改写那一趟已入册的明信片句子（保持 text 去重）、特产小注；客人还在就换台词
+function T.applyRecap(s, ai)
+    local rc = s.recap
+    if not rc then return end
+    local i = 0
+    for _, c in ipairs(s.postcards) do
+        if c.trip == rc.trip and not c.ai then
+            i = i + 1
+            local line = ai.lines and ai.lines[i]
+            if line and not T.seenText(s, line) then
+                s.collected[c.key or ""] = nil
+                c.line, c.ai = line, true
+                c.key = c.key and (c.key:gsub("|[^|]*$", "|ai:" .. T.norm(line))) or nil
+                if c.key then s.collected[c.key] = c.at end
+                T.markText(s, line)
+            end
+        end
+    end
+    if ai.souvenir_note then
+        s.souvenir_notes = s.souvenir_notes or {}
+        s.souvenir_notes[rc.souvenir] = ai.souvenir_note
+    end
+    if ai.visitor_line and s.visitor and not s.visitor.line then s.visitor.line = ai.visitor_line end
+    s.recap = nil
 end
 
 --- 文案归一化：去空白与标点，用于「几乎相同」判断

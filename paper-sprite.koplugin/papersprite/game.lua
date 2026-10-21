@@ -39,10 +39,14 @@ function Game:tick()
     if ok then pcall(Reading.collect, self.state) end
     local ev = Travel.settle(self.state, self.host:now(), self.debug)
     self:save()
-    Story.maybeRequest(self.host, self.state, function(cur)
+    local function fresh(cur)
         if self.closed then return end
         self.state = cur
-    end)
+        if self.page == "attic" then self:render() end
+    end
+    Story.maybeRequest(self.host, self.state, function(cur) if not self.closed then self.state = cur end end)
+    Story.maybeRecap(self.host, self.state, fresh)
+    Story.maybeDaily(self.host, self.state, fresh)
     self:save()
     return ev
 end
@@ -94,6 +98,10 @@ function Game:_arm()
     self.host:schedule(wait, self.timer)
 end
 
+local function dailyKey(now)
+    return os.date("%Y-%m-%d", now) .. Story.band(os.date("*t", now).hour)
+end
+
 local function fmtDur(sec, debug)
     if debug then return T("%d 秒", sec) end
     if sec >= 3600 then return T("%d 小时", math.floor(sec / 3600)) end
@@ -118,6 +126,7 @@ local VISITOR_POS = { -- 访客在阁楼图里的位置（中心占比 x, y, 高
 --- 阁楼里摆特产的 4 个位置（右墙矮架：架顶两处 + 中层两格）
 Game.DECOR_POS = { { 0.83, 0.50, 0.11 }, { 0.93, 0.50, 0.11 }, { 0.85, 0.69, 0.09 }, { 0.94, 0.69, 0.09 } }
 Game.DECOR_MAX = #Game.DECOR_POS
+Game.FEST_POS = { 0.29, 0.80, 0.16 } -- 节日应景小物摆在左边
 
 --- 按时刻和季节挑阁楼背景：夜里（21 点后、6 点前）用 night，否则按月份四季
 function Game.atticBg(t, away)
@@ -141,6 +150,10 @@ function Game.atticScene(s, now)
             scene.overlays[#scene.overlays + 1] = { img = "souvenirs/" .. id .. ".png", x = pos[1], y = pos[2], h = pos[3] }
         end
     end
+    local fest = Festival.at(s, now)
+    if fest and sp.status ~= "away" then
+        scene.overlays[#scene.overlays + 1] = { img = "props/fest_" .. fest.id .. ".png", x = Game.FEST_POS[1], y = Game.FEST_POS[2], h = Game.FEST_POS[3] }
+    end
     if s.visitor and sp.status ~= "away" then -- 阿页出门时阁楼是空的，不招待客人
         local v = Travel.visitor(s.visitor.id)
         if v then
@@ -159,7 +172,19 @@ function Game:_attic()
     local fest = Festival.at(s, now)
     if sp.status == "home" then
         st.title, st.caption = T("阿页在家"), T("坐在书桌边，油灯亮着。收拾好行囊，它就会出门。")
-        if fest then st.title, st.caption = T("阿页在家 · %s", fest.name), fest.here end
+        local daily = s.daily and s.daily.key == dailyKey(now) and s.daily.text
+        if not daily then -- 没有 AI 的纸条：按钟点从本地池里按天稳定地挑一句
+            local h = os.date("*t", now).hour
+            local pool = require("papersprite.data.notes")[(h >= 5 and h < 9) and "dawn" or (h >= 9 and h < 17) and "day" or (h >= 17 and h < 21) and "dusk" or "night"]
+            daily = pool[((tonumber(os.date("%j", now)) or 0) * 31 + math.floor(h / 2)) % #pool + 1]
+        end
+        st.caption = daily
+        if fest then
+            local alts = fest.here_alt
+            local day = tonumber(os.date("%j", now)) or 0
+            st.title = T("阿页在家 · %s", fest.name)
+            st.caption = (alts and #alts > 0 and day % (#alts + 1) > 0) and alts[day % (#alts + 1)] or fest.here
+        end
     elseif sp.status == "packed" then
         st.title, st.caption = T("快要出门了"), T("藤筐收拾好了，阿页在窗边发呆。")
         if fest then st.title = T("快要出门了 · %s", fest.name) end
@@ -435,6 +460,20 @@ function Game.cardScene(c)
     return { bg = L.bg, overlays = ov, frame = true }
 end
 
+function Game:_letter(i)
+    local c = self.state.postcards[i]
+    if not c or self._letter_busy then return end
+    self._letter_busy = true
+    local started = Story.requestLetter(self.host, self.state, i, function(cur)
+        self._letter_busy = false
+        if self.closed then return end
+        if cur then self.state = cur end
+        if self.page == "card" then self:render() end
+        if not cur then self.host:notify(T("阿页这会儿写不出来，晚点再试。")) end
+    end)
+    if started then self.host:notify(T("阿页正在写……")) else self._letter_busy = false end
+end
+
 function Game:_card()
     local s = self.state
     local i = self.arg
@@ -446,8 +485,9 @@ function Game:_card()
     return {
         title = (p and p.name or c.place),
         scene = Game.cardScene(c),
-        status = { title = (p and p.name or c.place) .. " · " .. (Postcards.weather_names[c.weather] or ""), caption = (c.line or "") .. T("　——阿页"),
+        status = { title = (p and p.name or c.place) .. " · " .. (Postcards.weather_names[c.weather] or ""), caption = c.letter or ((c.line or "") .. T("　——阿页")),
             meta = os.date("%Y-%m-%d %H:%M", c.at or 0) .. T("　·　第 %d / %d 张", i, n) },
+        buttons = (c.letter or not (type(self.host.ai) == "function" and self.host:ai())) and {} or { { text = T("请阿页多写几句"), callback = function() self:_letter(i) end } },
         pager = { page = n - i + 1, pages = n, prev = function() self.arg = i + 1 self:render() end, next = function() self.arg = i - 1 self:render() end,
             go = function(pg) self.arg = n - pg + 1 self:render() end },
     }

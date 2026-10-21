@@ -130,8 +130,9 @@ local function trip(ai_impl)
 end
 local calls = 0
 local good = { json = function(msgs, cb)
+    if not msgs[2].content:find("明信片") then return cb(nil) end -- 每日纸条等其他请求不计
     calls = calls + 1
-    assert(msgs[1].role == "system" and msgs[2].content:find("明信片"), "prompt")
+    assert(msgs[1].role == "system")
     local n = select(2, msgs[2].content:gsub("%d%. 天气", ""))
     local lines = {} for i = 1, n do lines[i] = "AI 写的第" .. i .. "句。" end
     cb({ lines = lines, narration = "它把风叠好放进了口袋。", souvenir_note = "AI 小注。", visitor_line = "AI 访客。" })
@@ -152,6 +153,34 @@ sv = trip({ json = function() return { cancel = function() end } end }); assert(
 assert(Story.validate({ lines = { "好" } }, 1).lines[1] == "好")
 assert(not Story.validate({ lines = { "<script>" } }, 1))
 assert(not Story.validate({ lines = {} }, 1))
+
+-- 8b. 迟到的 AI：界面没开着时整趟走完 → 留 recap，之后补写；每日纸条；长信
+do
+    local only_other = { json = function(msgs, cb)
+        local c = msgs[2].content
+        if c:find("再多写几句") then return cb({ letter = "阿页多写的一长段话。" }) end
+        if c:find("没有出门") then return cb({ note = "阿页在擦灯罩。" }) end
+        local n = select(2, c:gsub("%d%. 天气", ""))
+        local lines = {} for i = 1, n do lines[i] = "迟到的第" .. i .. "句。" end
+        cb({ lines = lines, souvenir_note = "迟到小注。" })
+    end }
+    H.saved, H.queue = nil, {}
+    H.host.ai = nil
+    local g3 = Game.new(H.host):show()
+    click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
+    advance(100); advance(400)
+    assert(H.saved.sprite.status == "home" and H.saved.recap, "recap kept")
+    H.host.ai = function() return only_other end
+    g3:tick()
+    local cur = H.saved
+    assert(not cur.recap, "recap consumed")
+    local late = 0 for _, c in ipairs(cur.postcards) do if c.line:find("迟到") then late = late + 1 end end
+    assert(late >= 1, "late lines patched")
+    assert(cur.daily and cur.daily.text == "阿页在擦灯罩。", "daily note")
+    assert(Story.requestLetter(H.host, cur, #cur.postcards, function() end))
+    assert(H.saved.postcards[#H.saved.postcards].letter:find("长段"), "letter saved")
+    g3:close()
+end
 
 -- 9. 明信片去重：200 趟不重复；同一趟不重复；全部收集后退回最久没见过的
 local P = require("papersprite.data.postcards")
@@ -200,7 +229,8 @@ local function again()
 end
 sv = again()
 local ai2 = 0 for _, c in ipairs(sv.postcards) do if c.ai then ai2 = ai2 + 1 end end
-assert(first_ai >= 1 and ai2 == first_ai, "repeated AI lines rejected: " .. first_ai .. " vs " .. ai2)
+local dup1 = 0 for _, c in ipairs(sv.postcards) do if c.line == "同一句话，第1张。" then dup1 = dup1 + 1 end end
+assert(first_ai >= 1 and dup1 == 1 and ai2 >= first_ai, "repeated AI lines rejected: " .. dup1)
 -- 同一回复里两句相同 → 整体放弃
 assert(not Story.validate({ lines = { "一样。", "一样！" } }, 2), "dup within response")
 local wk = {} for _, c in ipairs(sv.postcards) do assert(not wk[c.key], "dup in save") wk[c.key] = true end
