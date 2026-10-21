@@ -18,7 +18,7 @@
 | `visitors/` | 访客 `<id>.png` + `<id>_2.png`，12 位 × 2 | 200×200 | 是 |
 | `items/` | 行囊物品图标，36 种 | 128×128 | 是 |
 | `souvenirs/` | 特产图标（也是阁楼装饰），48 种 | 128×128 | 是 |
-| `props/` | 明信片前景小物，24 种 | 200×200 | 是 |
+| `props/` | 明信片前景小物，36 种（含 12 个节日小物 `fest_*`：newyear spring lantern bookday children dragon midautumn national doubleninth halloween christmas term） | 200×200 | 是 |
 | `weather/` | 天气 / 时刻层（程序生成）：drizzle snow mist dusk night wind starry sunrise petals | 1200×600 | 是 |
 
 明信片 = 背景 + 姿势 + 小物 + 天气，外加一句短文案（≤ 40 字），见 `docs/data-format.md`。
