@@ -3,12 +3,14 @@
 阁楼游戏控制器：读存档 → 按真实时间结算 →（可选）AI 文案请求 → 生成 view 交给 host 显示。
 界面开着时只在「下一件事」到点时安排一次刷新（最长 60 秒一次），关掉即停。
 页面：attic 阁楼 / basket 收拾行囊 / shop 小铺 / wall 明信片墙 / card 单张 / cabinet 特产柜
+      / scrapbook 地点剪贴簿 / place 地点页 / guestbook 来客簿 / guest 来客页
 view.scene = { bg, overlays = { {img, x, y, h} } }：分层画面（x/y 为中心点占比，h 为高度占比）
 view.icons = { 资源路径... }：一行小图标
 --]]
 local T = require("papersprite.l10n")
 local State = require("papersprite.core.state")
 local Travel = require("papersprite.core.travel")
+local Album = require("papersprite.core.album")
 local Story = require("papersprite.core.story")
 local Festival = require("papersprite.core.festival")
 local Items = require("papersprite.data.items")
@@ -201,6 +203,8 @@ function Game:_attic()
     for id in pairs(s.souvenirs or {}) do if Postcards.souvenirs[id] then ids[#ids + 1] = id end end
     table.sort(ids)
     local last = s.postcards[#s.postcards]
+    local _, places_done, places_total = Album.places(s)
+    local _, guests_have, guests_total = Album.visitors(s)
     local cells = {
         { icon = "sprite/carry.png", title = T("收拾行囊"), meta = sp.status == "away" and T("阿页在路上") or (sp.status == "packed" and T("已收拾好") or T("还没收拾")),
           caption = T("干粮 · 护身物 · 随身小书"), dim = sp.status == "away",
@@ -214,6 +218,10 @@ function Game:_attic()
         { icon = ids[1] and ("souvenirs/" .. ids[1] .. ".png") or "sprite/carry.png", title = T("特产柜"),
           meta = T("%d / %d 种", #ids, Game.souvenirTotal()), caption = T("摆在阁楼 %d / %d", #(s.decor or {}), Game.DECOR_MAX),
           callback = function() self:go("cabinet") end },
+        { icon = "items/travel_diary.png", title = T("剪贴簿"), meta = T("%d / %d 页", places_done, places_total),
+          caption = T("按地点收齐特产"), callback = function() self.scrap_page = 1 self:go("scrapbook") end },
+        { icon = "sprite/peek.png", title = T("来客簿"), meta = T("%d / %d 位", guests_have, guests_total),
+          caption = T("来过的小客人"), callback = function() self.guest_page = 1 self:go("guestbook") end },
     }
     -- 第 1 页：画面 + 状态 + 入口；第 2 页起：来客 + 最近（每页条数按高度自适应）
     local per = self:per("attic_log", 6)
@@ -229,7 +237,7 @@ function Game:_attic()
     local pager = { page = page, pages = pages, go = function(n) self.attic_page = n self:render() end,
         prev = function() self.attic_page = page - 1 self:render() end, next = function() self.attic_page = page + 1 self:render() end }
     if page == 1 then
-        return { title = T("阿页的阁楼"), scene = scene, status = st, shelf = { cols = 4, icon = 64, compact = true, cells = cells }, pager = pager }
+        return { title = T("阿页的阁楼"), scene = scene, status = st, shelf = { cols = 3, icon = 56, compact = true, cells = cells }, pager = pager }
     end
     local v = { title = T("阿页的阁楼"), pager = pager, lines = {} }
     if page == 2 then
@@ -534,6 +542,137 @@ function Game:_souvenir()
         buttons = { { text = on and T("从阁楼收起") or T("摆到阁楼里"), callback = function() self:_toggleDecor(id) end } } }
 end
 
+Game.SCRAP_PER = 6
+Game.GUEST_PER = 6
+
+function Game:_scrapbook()
+    local s = self.state
+    local list, done, total = Album.places(s)
+    local per = self:per("scrapbook", Game.SCRAP_PER)
+    local pages = math.max(1, math.ceil(#list / per))
+    local page = math.max(1, math.min(self.scrap_page or 1, pages))
+    self.scrap_page = page
+    local cells = {}
+    for i = (page - 1) * per + 1, math.min(#list, page * per) do
+        local row = list[i]
+        local p = row.place
+        local meta = row.trips > 0 and T("去过 %d 次 · 特产 %d / %d", row.trips, row.have, row.total) or T("还没去过")
+        if row.wished then meta = T("惦记中　·　") .. meta end
+        cells[#cells + 1] = {
+            icon = "places/" .. p.id .. ".png", title = p.name, check = row.done, dim = row.trips == 0,
+            meta = meta, caption = row.cards > 0 and T("明信片 %d 张", row.cards) or T("按地点收齐特产"),
+            callback = function() self:go("place", p.id) end,
+        }
+    end
+    return { title = T("地点剪贴簿"),
+        status = { icon = "items/travel_diary.png", title = T("收齐 %d / %d 页", done, total),
+            caption = T("每一页是一个地点。特产收齐、去过一次，这一页就算收齐。"),
+            meta = s.wish_place and T("正惦记：%s", (Travel.place(s.wish_place) or {}).name or s.wish_place) or T("灵感 ✦ %d", s.inspiration) },
+        shelf = { cols = 2, cells = cells, per = per, fit = self:fitter("scrapbook") },
+        pager = { page = page, pages = pages, go = function(n) self.scrap_page = n self:render() end,
+            prev = function() self.scrap_page = page - 1 self:render() end, next = function() self.scrap_page = page + 1 self:render() end } }
+end
+
+function Game:_place()
+    local s = self.state
+    local p = Travel.place(self.arg)
+    if not p then self.page = "scrapbook" return self:_scrapbook() end
+    local row = Album.place(s, p)
+    local lines = { { text = T("特产"), label = true } }
+    for _, id in ipairs(p.souvenirs or {}) do
+        local have = (s.souvenirs or {})[id] and (s.souvenirs[id] or 0) > 0
+        local name = Album.souvenirName(id)
+        lines[#lines + 1] = (have and "✓ " or "· ") .. name
+    end
+    lines[#lines + 1] = { text = T("明信片"), label = true }
+    lines[#lines + 1] = row.cards > 0 and T("墙上有 %d 张来自这里。", row.cards) or T("还没有寄回这里的明信片。")
+    if row.trips > 0 then lines[#lines + 1] = T("阿页来过 %d 次。", row.trips)
+    else lines[#lines + 1] = T("阿页还没来过。用灵感惦记这里，下一趟会直达。") end
+    local cost = Album.WISH_COST
+    local buttons = {}
+    if row.wished then
+        buttons[#buttons + 1] = { text = T("取消惦记"), callback = function()
+            s.wish_place = nil self:save() self.host:notify(T("不惦记了")) self:render()
+        end }
+    else
+        buttons[#buttons + 1] = { text = T("惦记这里（✦ %d）", cost), callback = function() self:_wish(p.id) end }
+    end
+    return { title = p.name,
+        status = { icon = "places/" .. p.id .. ".png", icon_size = 96, title = p.name,
+            caption = row.done and T("这一页收齐了。") or T("特产 %d / %d", row.have, row.total),
+            meta = T("灵感 ✦ %d", s.inspiration) },
+        lines = lines, buttons = buttons }
+end
+
+function Game:_wish(place_id)
+    local s = self.state
+    local cost = Album.WISH_COST
+    if s.sprite.status == "away" then self.host:notify(T("阿页还在路上")) return end
+    if s.wish_place == place_id then return end
+    if s.inspiration < cost then self.host:notify(T("灵感不够")) return end
+    s.inspiration = s.inspiration - cost
+    s.wish_place = place_id
+    self:save()
+    local p = Travel.place(place_id)
+    self.host:notify(T("阿页会惦记着去%s", p and p.name or place_id))
+    self:render()
+end
+
+function Game:_guestbook()
+    local s = self.state
+    local list, have, total = Album.visitors(s)
+    local per = self:per("guestbook", Game.GUEST_PER)
+    local pages = math.max(1, math.ceil(#list / per))
+    local page = math.max(1, math.min(self.guest_page or 1, pages))
+    self.guest_page = page
+    local cells = {}
+    for i = (page - 1) * per + 1, math.min(#list, page * per) do
+        local row = list[i]
+        local v = row.visitor
+        cells[#cells + 1] = {
+            icon = row.seen and ("visitors/" .. v.id .. ".png") or "sprite/peek.png",
+            title = row.seen and v.name or T("？？？"),
+            check = row.seen, dim = not row.seen,
+            meta = row.seen and T("留下 ✦ %d", v.gift) or T("还没来过"),
+            caption = row.seen and (Game.when(row.at, self.host:now()) or T("来过")) or T("回家后有时会来串门"),
+            callback = function() self:go("guest", v.id) end,
+        }
+    end
+    return { title = T("来客簿"),
+        status = { icon = "sprite/peek.png", title = T("见过 %d / %d 位", have, total),
+            caption = T("小客人来过一次就会记在这里。稀有的来得少，多等几次。"),
+            meta = T("%d / %d", have, total) },
+        shelf = { cols = 2, cells = cells, per = per, fit = self:fitter("guestbook") },
+        pager = { page = page, pages = pages, go = function(n) self.guest_page = n self:render() end,
+            prev = function() self.guest_page = page - 1 self:render() end, next = function() self.guest_page = page + 1 self:render() end } }
+end
+
+function Game:_guest()
+    local s = self.state
+    local v = Travel.visitor(self.arg)
+    if not v then self.page = "guestbook" return self:_guestbook() end
+    local at = (s.seen_visitors or {})[v.id]
+    local seen = at ~= nil
+    local lines
+    if seen then
+        lines = {
+            { text = T("来访"), label = true },
+            v.arrive or "",
+            { text = T("离开"), label = true },
+            v.leave or "",
+        }
+        if at and at > 0 then lines[#lines + 1] = T("第一次来是 %s。", os.date("%Y-%m-%d %H:%M", at)) end
+    else
+        lines = { T("见过面之后，这里会记下它的样子和留下的灵感。") }
+    end
+    return { title = seen and v.name or T("？？？"),
+        status = { icon = seen and ("visitors/" .. v.id .. ".png") or "sprite/peek.png", icon_size = 120,
+            title = seen and v.name or T("还没见过的客人"),
+            caption = seen and (v.here or "") or T("小客人会在阿页回家后来串门。"),
+            meta = seen and T("初次来访　·　留下 ✦ %d", v.gift) or T("待发现") },
+        lines = lines }
+end
+
 --- 每页数量：默认值，界面按屏幕剩余高度回报实际能放的数量（fit）后记住
 function Game:per(key, default) self.per_page = self.per_page or {} return self.per_page[key] or default end
 --- 事件时间：1 分钟内「刚刚」，1 小时内「N 分钟前」，当天内「N 小时前」，更早用明信片同款「MM-DD HH:MM」；没时间返回 nil
@@ -557,7 +696,12 @@ function Game:fitter(key, cur)
     end
 end
 
-Game.PARENT = { basket = "attic", shop = "attic", wall = "attic", cabinet = "attic", shop_item = "shop", card = "wall", souvenir = "cabinet" }
+Game.PARENT = {
+    basket = "attic", shop = "attic", wall = "attic", cabinet = "attic",
+    scrapbook = "attic", guestbook = "attic",
+    shop_item = "shop", card = "wall", souvenir = "cabinet",
+    place = "scrapbook", guest = "guestbook",
+}
 
 function Game:view()
     if self.page == "basket" and self.state.sprite.status == "away" then self.page, self.attic_page = "attic", 1 end

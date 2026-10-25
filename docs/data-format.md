@@ -51,3 +51,4 @@
 ## 存档版本
 v2 起明信片为上面的组合格式；v1 的固定 id 明信片在加载时自动迁移（`core/state.lua`）。
 v3：明信片加 `variant`（旧卡补 `"a"`，key 不变，收集记录继续有效）；新增 `decor`（阁楼里摆的特产 id 列表，最多 4 个）；访客记录加 `pose`。
+v4：`place_trips`（地点 id → 回家次数）、`seen_visitors`（访客 id → 初次来访时间）、`wish_place`（灵感惦记的下一趟目的地）。旧档从明信片 / 特产回填 `place_trips`，当前访客写入 `seen_visitors`。

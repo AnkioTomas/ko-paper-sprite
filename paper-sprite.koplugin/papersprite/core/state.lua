@@ -2,7 +2,7 @@
 --[[-- 存档结构与版本迁移。存档只含纯数据表（LuaSettings 可序列化）。 --]]
 local State = {}
 
-State.VERSION = 3
+State.VERSION = 4
 
 function State.fresh(now)
     return {
@@ -23,6 +23,9 @@ function State.fresh(now)
         log = {},                         -- 阁楼里的近况（新的在后，最多 20 条）
         log_at = {},                      -- 与 log 一一对应的发生时间（0 = 旧存档没有时间）
         visitor = nil,                    -- 来访小客人：{ id, pose, until_at }
+        seen_visitors = {},               -- 来客簿：id -> 初次来访时间
+        place_trips = {},                 -- 剪贴簿：地点 id -> 回家次数
+        wish_place = nil,                 -- 灵感惦记的下一趟目的地
     }
 end
 
@@ -69,6 +72,15 @@ local MIGRATIONS = {
         for _, c in ipairs(s.postcards or {}) do c.variant = c.variant or "a" end
         s.decor = s.decor or {}
         if s.visitor then s.visitor.pose = s.visitor.pose or "" end
+    end,
+    -- v3 → v4：地点剪贴簿 / 来客簿；从旧明信片与特产回填出行次数
+    [3] = function(s)
+        s.seen_visitors = s.seen_visitors or {}
+        if s.visitor and s.visitor.id and not s.seen_visitors[s.visitor.id] then
+            s.seen_visitors[s.visitor.id] = s.visitor.until_at or 0
+        end
+        s.place_trips = s.place_trips or {}
+        require("papersprite.core.album").rebuildTrips(s)
     end,
 }
 

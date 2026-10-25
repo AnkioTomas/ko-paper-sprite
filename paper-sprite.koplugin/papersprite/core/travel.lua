@@ -56,6 +56,12 @@ function T.put(s, id, now, debug_fast)
 end
 
 local function choosePlace(s)
+    -- 灵感「惦记」：下一趟直达该地，用过即清
+    if s.wish_place then
+        local wish = T.place(s.wish_place)
+        s.wish_place = nil
+        if wish then return wish end
+    end
     local weight = {}
     for _, slot in ipairs(T.SLOTS) do
         local it = item(s.basket[slot])
@@ -128,6 +134,8 @@ local function arriveVisitor(s, at, u)
             local pose
             s.seed, pose = R.pick(s.seed, v.poses or { "" })
             s.visitor = { id = v.id, pose = pose, until_at = at + v.stay * u.hour }
+            s.seen_visitors = s.seen_visitors or {}
+            if not s.seen_visitors[v.id] then s.seen_visitors[v.id] = at end
             State.log(s, v.arrive, at)
             return v
         end
@@ -174,6 +182,8 @@ function T.settle(s, now, debug_fast)
             local p = T.place(sp.place)
             local sv = sp.souvenir
             s.souvenirs[sv] = (s.souvenirs[sv] or 0) + 1
+            s.place_trips = s.place_trips or {}
+            s.place_trips[sp.place] = (s.place_trips[sp.place] or 0) + 1
             local bl
             s.seed, bl = R.pick(s.seed, Lines.back)
             local back = bl:format(p.name, Postcards.souvenirs[sv].name)

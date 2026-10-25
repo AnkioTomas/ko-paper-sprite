@@ -75,6 +75,8 @@ assert(H.saved.sprite.status == "home", "should be home")
 assert(#H.saved.postcards >= 1, "no postcard")
 local sv = 0 for _, c in pairs(H.saved.souvenirs) do sv = sv + c end
 assert(sv == 1, "souvenir")
+local place_id = H.saved.postcards[1].place
+assert((H.saved.place_trips or {})[place_id] == 1, "place_trips on return")
 -- 4. 明信片墙 → 单张（分层画面）
 click("明信片墙"); click(""); assert(H.view.scene and H.view.scene.bg and H.view.status.caption:find("阿页"), "card view")
 assert(H.view.scene.overlays[1].img:find("^sprite/"), "pose layer")
@@ -82,6 +84,14 @@ back(); back(); click("特产柜"); assert(text():find("×1"), "cabinet")
 click(H.view.shelf.cells[1].title); assert(H.view.status and H.view.buttons[1].text == "摆到阁楼里", "souvenir detail")
 click("摆到阁楼里"); assert(#g.state.decor == 1); back()
 back(); click("小铺"); back()
+-- 4b. 剪贴簿 / 来客簿
+click("剪贴簿"); assert(H.view.title == "地点剪贴簿" and H.view.shelf and #H.view.shelf.cells >= 1)
+g:go("place", place_id); assert(H.view.buttons and H.view.buttons[1].text:find("惦记"))
+local before_wish = g.state.inspiration
+click("惦记"); assert(g.state.wish_place == place_id and g.state.inspiration == before_wish - 5)
+back(); back()
+click("来客簿"); assert(H.view.title == "来客簿")
+back()
 g:close()
 
 -- 5. 存档版本：坏存档 / 旧字段缺失 / v1 → v2 迁移
@@ -232,10 +242,12 @@ assert(first_ai >= 1 and dup1 == 1 and ai2 >= first_ai, "repeated AI lines rejec
 assert(not Story.validate({ lines = { "一样。", "一样！" } }, 2), "dup within response")
 local wk = {} for _, c in ipairs(sv.postcards) do assert(not wk[c.key], "dup in save") wk[c.key] = true end
 
--- 10. 第 3 批：v2 → v3 迁移、背景变体、搭配限制、阁楼季节与装饰、访客姿势
-local m3 = State.load({ version = 2, postcards = { { place = "ink_lake", pose = "sit", prop = "none", weather = "clear", text_id = "p:1", key = "ink_lake|sit|none|clear|p:1" } },
-    collected = { ["ink_lake|sit|none|clear|p:1"] = 1 }, visitor = { id = "inkbug", until_at = 9 } }, 0)
-assert(m3.version == 3 and m3.postcards[1].variant == "a" and type(m3.decor) == "table" and m3.visitor.pose == "")
+-- 10. 第 3/4 批：v2 → v4 迁移、背景变体、搭配限制、阁楼季节与装饰、访客姿势、剪贴簿回填
+local m3 = State.load({ version = 2, postcards = { { place = "ink_lake", pose = "sit", prop = "none", weather = "clear", text_id = "p:1", key = "ink_lake|sit|none|clear|p:1", trip = 1 } },
+    collected = { ["ink_lake|sit|none|clear|p:1"] = 1 }, visitor = { id = "inkbug", until_at = 9 },
+    souvenirs = { lake_pebble = 1 } }, 0)
+assert(m3.version == 4 and m3.postcards[1].variant == "a" and type(m3.decor) == "table" and m3.visitor.pose == "")
+assert(m3.place_trips.ink_lake == 1 and m3.seen_visitors.inkbug == 9, "v4 album migrate")
 assert(P.key(m3.postcards[1]) == "ink_lake|sit|none|clear|p:1", "old key stays valid")
 local cb = { place = "ink_lake", variant = "b", pose = "fish", prop = "none", weather = "clear", text_id = "p:1" }
 assert(P.key(cb) == "ink_lake@b|fish|none|clear|p:1" and P.layers(cb).bg == "places/ink_lake_b.png")
@@ -351,7 +363,7 @@ g6:close()
 H.saved = State.fresh(0)
 local g7 = Game.new(H.host):show()
 assert(not H.view.back)
-for _, pg in ipairs({ "basket", "shop", "wall", "cabinet" }) do
+for _, pg in ipairs({ "basket", "shop", "wall", "cabinet", "scrapbook", "guestbook" }) do
     g7:go(pg)
     for _, b in ipairs(btns()) do assert(not (b.text:find("^回阁楼") or b.text:find("^回小铺") or b.text:find("^回明信片")), pg .. " still has " .. b.text) end
     back(); assert(g7.page == "attic")
@@ -364,7 +376,7 @@ for k = 1, 15 do sa.log[k] = "事" .. k end
 sa.visitor = { id = "inkbug", pose = "", until_at = 1e12 }
 H.saved = sa
 local g8 = Game.new(H.host):show()
-assert(H.view.scene and H.view.shelf and #H.view.shelf.cells == 4 and H.view.pager.pages >= 2 and not H.view.notes)
+assert(H.view.scene and H.view.shelf and #H.view.shelf.cells == 6 and H.view.pager.pages >= 2 and not H.view.notes)
 H.view.pager.next(); assert(H.view.status.title:find("墨点虫") and H.view.notes and H.view.notes.rows[1].text == "事15")
 H.view.notes.fit(5, 2); assert(H.view.pager.pages == 5 and #H.view.notes.rows == 3)
 H.view.pager.go(3); assert(H.view.notes.rows[1].text == "事12" and #H.view.notes.rows == 5 and not H.view.status)
@@ -529,6 +541,33 @@ do
     assert(Story.maybeRequest(host, store) and reqs == 2)
     assert(store.sprite.ai_fails == 2)
     assert(not Story.maybeRequest(host, store) and reqs == 2, "gives up after MAX_TRIES")
+end
+
+-- 剪贴簿 / 来客簿 / 惦记直达
+do
+    local Album = require("papersprite.core.album")
+    local st = State.fresh(0)
+    st.place_trips = { ink_lake = 2 }
+    st.souvenirs = { lake_pebble = 1, ink_shell = 1, quill_reed = 1 }
+    st.postcards = { { place = "ink_lake", at = 1 }, { place = "ink_lake", at = 2 } }
+    st.seen_visitors = { inkbug = 10 }
+    local row = Album.place(st, Travel.place("ink_lake"))
+    assert(row.done and row.have == 3 and row.cards == 2, "place page complete")
+    local _, done, total = Album.places(st)
+    assert(done == 1 and total == 40)
+    local guests, have, gtotal = Album.visitors(st)
+    assert(have == 1 and gtotal == 12 and guests[1].visitor.id == "inkbug")
+    -- 惦记：下一趟直达（只推进到出门，别把整趟走完）
+    H.saved = State.fresh(0)
+    H.saved.inspiration = 20
+    H.saved.wish_place = "fold_peak"
+    H.queue = {}
+    local gw = Game.new(H.host):show()
+    click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
+    local dep = H.saved.sprite.depart_at
+    advance(dep - H.clock + 1)
+    assert(H.saved.sprite.status == "away" and H.saved.sprite.place == "fold_peak" and H.saved.wish_place == nil, "wish directs trip")
+    gw:close()
 end
 
 print("headless ok: postcards=" .. #st.postcards .. " places=" .. np .. " combos=" .. nc)

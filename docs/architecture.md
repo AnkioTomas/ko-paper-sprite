@@ -6,7 +6,7 @@ paper-sprite.koplugin/
   moon_source.lua    月读扩展（ext.papersprite）：首页卡片
   papersprite/
     host/            宿主适配
-    core/            state / travel / rng / reading / story（AI，可选）
+    core/            state / travel / album（剪贴簿/来客簿聚合）/ rng / reading / story（AI，可选）
     data/            places / items / souvenirs / visitors / postcards（纯数据）
     ui/              screen（全屏浮层）/ moon_card（首页卡片）/ moon_widgets（阁楼·明信片·纪念物柜组件）
                      widget_data（组件数据，纯函数）/ compose（分层画面合成 + 位图缓存）
