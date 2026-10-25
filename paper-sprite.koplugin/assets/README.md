@@ -12,12 +12,12 @@
 ## 尺寸
 | 目录 | 内容 | 尺寸 | 透明 |
 |---|---|---|---|
-| `attic/` | 阁楼：`attic_<spring|summer|autumn|winter|night>[_empty].png`（在家 / 出门），另有基础图 attic / attic_empty | 1200×600 | 否 |
+| `attic/` | 阁楼全矩阵：`attic_<season>_<tod>_<weather>[_empty].png`（season=spring/summer/autumn/winter，tod=day/dusk/night，weather=clear/drizzle/snow/mist）；旧名 `attic_<season\|night>[_empty]` 仍保留作回落 | 1200×600 | 否 |
 | `places/` | 明信片背景（空景，不含角色），每处 `<id>.png` + `<id>_b.png`，共 80 张 | 1200×600 | 否 |
 | `sprite/` | 阿页姿势（底部对齐），24 种 | 320×320 | 是 |
-| `visitors/` | 访客 `<id>.png` + `<id>_2.png`，12 位 × 2 | 200×200 | 是 |
+| `visitors/` | 访客 `<id>.png` + `<id>_2.png`，50 位 × 2 | 200×200 | 是 |
 | `items/` | 行囊物品图标，36 种 | 128×128 | 是 |
-| `souvenirs/` | 特产图标（也是阁楼装饰），48 种 | 128×128 | 是 |
+| `souvenirs/` | 特产图标（也是阁楼装饰），300 种 | 128×128 | 是 |
 | `props/` | 明信片前景小物，36 种（含 12 个节日小物 `fest_*`：newyear spring lantern bookday children dragon midautumn national doubleninth halloween christmas term） | 200×200 | 是 |
 | `weather/` | 天气 / 时刻层（程序生成）：drizzle snow mist dusk night wind starry sunrise petals | 1200×600 | 是 |
 

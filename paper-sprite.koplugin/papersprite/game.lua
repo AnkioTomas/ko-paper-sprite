@@ -130,16 +130,61 @@ Game.DECOR_POS = { { 0.83, 0.50, 0.11 }, { 0.93, 0.50, 0.11 }, { 0.85, 0.69, 0.0
 Game.DECOR_MAX = #Game.DECOR_POS
 Game.FEST_POS = { 0.29, 0.80, 0.16 } -- 节日应景小物摆在左边
 
---- 按时刻和季节挑阁楼背景：夜里（21 点后、6 点前）用 night，否则按月份四季
-function Game.atticBg(t, away)
+--- 阁楼：季节 × 时段 × 天气（窗外）；缺图时回落到更粗的旧名
+Game.ATTIC_WEATHERS = { "clear", "drizzle", "snow", "mist" }
+
+function Game.atticSeason(t)
+    local m = os.date("*t", t).month
+    if m >= 3 and m <= 5 then return "spring" end
+    if m >= 6 and m <= 8 then return "summer" end
+    if m >= 9 and m <= 11 then return "autumn" end
+    return "winter"
+end
+
+function Game.atticTod(t)
+    local h = os.date("*t", t).hour
+    if h >= 21 or h < 6 then return "night" end
+    if h >= 17 then return "dusk" end
+    return "day"
+end
+
+--- 按日期 + 钟点稳定挑窗外天气（冬天偏雪，春天偏雨雾）
+function Game.atticWeather(t)
     local d = os.date("*t", t)
-    local v
-    if d.hour >= 21 or d.hour < 6 then v = "night"
-    elseif d.month >= 3 and d.month <= 5 then v = "spring"
-    elseif d.month >= 6 and d.month <= 8 then v = "summer"
-    elseif d.month >= 9 and d.month <= 11 then v = "autumn"
-    else v = "winter" end
-    return "attic/attic_" .. v .. (away and "_empty" or "") .. ".png"
+    local season = Game.atticSeason(t)
+    local pool = ({
+        spring = { "clear", "drizzle", "mist", "clear" },
+        summer = { "clear", "clear", "drizzle", "mist" },
+        autumn = { "clear", "mist", "drizzle", "clear" },
+        winter = { "clear", "snow", "snow", "mist" },
+    })[season]
+    local i = ((tonumber(os.date("%j", t)) or 0) * 24 + d.hour) % #pool + 1
+    return pool[i]
+end
+
+local function atticAssetExists(rel)
+    local ok, Interface = pcall(require, "papersprite.host.interface")
+    if not ok then return true end -- headless：假定新名可用，测试会点名断言
+    local root = Interface.pluginDir and Interface.pluginDir()
+    if not root then return true end
+    local f = io.open(root .. "/assets/" .. rel, "rb")
+    if f then f:close() return true end
+    return false
+end
+
+function Game.atticBg(t, away)
+    local season, tod, weather = Game.atticSeason(t), Game.atticTod(t), Game.atticWeather(t)
+    local suf = away and "_empty" or ""
+    local cands = {
+        "attic/attic_" .. season .. "_" .. tod .. "_" .. weather .. suf .. ".png",
+        "attic/attic_" .. season .. "_" .. tod .. "_clear" .. suf .. ".png",
+        "attic/attic_" .. season .. "_day_clear" .. suf .. ".png",
+        -- 旧版：夜不带季节；四季只有白天感
+        (tod == "night") and ("attic/attic_night" .. suf .. ".png") or ("attic/attic_" .. season .. suf .. ".png"),
+        "attic/attic" .. suf .. ".png",
+    }
+    for _, rel in ipairs(cands) do if atticAssetExists(rel) then return rel end end
+    return cands[#cands]
 end
 
 --- 纯函数：阁楼画面（季节/夜晚背景、在家/出门、装饰、访客）。首页组件也用它。
@@ -223,24 +268,31 @@ function Game:_attic()
         { icon = "sprite/peek.png", title = T("来客簿"), meta = T("%d / %d 位", guests_have, guests_total),
           caption = T("来过的小客人"), callback = function() self.guest_page = 1 self:go("guestbook") end },
     }
-    -- 第 1 页：画面 + 状态 + 入口；第 2 页起：来客 + 最近（每页条数按高度自适应）
+    -- 第 1 页：通栏画面 + 状态；第 2 页：六个入口；第 3 页起：来客 + 最近
     local per = self:per("attic_log", 6)
     local logs = {}
     local log_at = s.log_at or {}
     for i = #s.log, 1, -1 do logs[#logs + 1] = { text = s.log[i], at = log_at[i] } end
     local lead = self:per("attic_lead", 2)
-    local c2 = math.max(1, per - lead)   -- 第 2 页有来客卡，少放几条
+    local c2 = math.max(1, per - lead)   -- 日志首页有来客卡，少放几条
     local log_pages = 1 + math.ceil(math.max(0, #logs - c2) / per)
-    local pages = 1 + log_pages
+    local pages = 2 + log_pages
     local page = math.max(1, math.min(self.attic_page or 1, pages))
     self.attic_page = page
     local pager = { page = page, pages = pages, go = function(n) self.attic_page = n self:render() end,
         prev = function() self.attic_page = page - 1 self:render() end, next = function() self.attic_page = page + 1 self:render() end }
     if page == 1 then
-        return { title = T("阿页的阁楼"), scene = scene, status = st, shelf = { cols = 3, icon = 56, compact = true, cells = cells }, pager = pager }
+        return { title = T("阿页的阁楼"), scene = scene, scene_wide = true, status = st, pager = pager }
     end
-    local v = { title = T("阿页的阁楼"), pager = pager, lines = {} }
     if page == 2 then
+        return { title = T("阿页的阁楼"),
+            status = { icon = "sprite/carry.png", title = T("做什么"), caption = T("收拾行囊、小铺、明信片和收集都在这里。"),
+                meta = T("灵感 ✦ %d　·　明信片 %d", s.inspiration, #s.postcards) },
+            shelf = { cols = 3, icon = 56, compact = true, cells = cells }, pager = pager }
+    end
+    local log_page = page - 2
+    local v = { title = T("阿页的阁楼"), pager = pager, lines = {} }
+    if log_page == 1 then
         local vis = s.visitor and sp.status ~= "away" and Travel.visitor(s.visitor.id)
         if vis then
             v.status = { icon = "visitors/" .. vis.id .. (s.visitor.pose or "") .. ".png", icon_size = 72, title = T("来客 · %s", vis.name),
@@ -249,8 +301,8 @@ function Game:_attic()
             v.status = { icon = "sprite/peek.png", title = T("今天没有客人"), caption = T("小客人会在阿页回家后来串门。") }
         end
     end
-    local first = page == 2 and 1 or (c2 + (page - 3) * per + 1)
-    local cnt = page == 2 and c2 or per
+    local first = log_page == 1 and 1 or (c2 + (log_page - 2) * per + 1)
+    local cnt = log_page == 1 and c2 or per
     v.lines[1] = { text = T("最近") .. (#logs > 0 and T("（%d–%d / %d）", math.min(#logs, first), math.min(#logs, first + cnt - 1), #logs) or ""), label = true }
     if #logs == 0 then v.empty = { title = T("还没有什么新鲜事"), caption = T("阿页出门、回家、来客都会记在这里。") } end
     local rows = {}

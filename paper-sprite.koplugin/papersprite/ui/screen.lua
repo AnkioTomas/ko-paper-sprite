@@ -4,7 +4,7 @@
 皮肤：月读在时（能 require ui.themes）用月读主题组件——标题栏、卡片框、文字、按钮、翻页条、主题色；
 每个组件单独 pcall，某个组件失败只有它退回 KOReader 原生控件。skin = "native" 强制原生。
 view = {
-  title, scene?（分层画面）, icons?, lines = {string|{text,muted}},
+  title, scene?（分层画面）, scene_wide?（画面宽贴满内容区，阁楼主页用）, icons?, lines = {string|{text,muted}},
   grid?  = { cols, cells = { {scene, new, caption, callback} } },        明信片墙：缩略图网格
   list?  = { rows = { {scene, new, title, line, date, callback} } },      明信片列表：缩略图 + 文字
   status? = { icon?, title, caption?, meta?, callback? }                  状态卡（图标 + 标题 / 说明 / 小字）
@@ -236,10 +236,17 @@ function S:init()
     table.insert(body, k.title(w, v.title, left, v.switch))
     gap(8)
     -- 分层画面：缓存合成成一张位图
+    -- scene_wide：贴满屏宽（阁楼主页），高度默认 2:1；放不下只缩高度
     local scene = v.scene or (v.image and { bg = v.image, overlays = {} })
     if scene then
-        local SH = self._scene_h or math.floor(inner / 2)
-        local SW = SH * 2
+        local SW, SH
+        if v.scene_wide then
+            SW = w
+            SH = self._scene_h or math.floor(SW / 2)
+        else
+            SH = self._scene_h or math.floor(inner / 2)
+            SW = SH * 2
+        end
         local pic = try(function() return require("papersprite.ui.compose").widget(scene, SW, SH) end)
         if not pic then
             local grp = OverlapGroup:new{ dimen = Geom:new{ w = SW, h = SH } }
@@ -471,7 +478,7 @@ function S:init()
         end
         if v.list.fit and rows ~= v.list.per then UIManager:nextTick(function() v.list.fit(rows) end) end
     end
-    -- 还是放不下：缩小顶部画面再排一次（只缩一次）
+    -- 还是放不下：缩小顶部画面再排一次（只缩一次）；宽屏模式只缩高度，宽度仍贴满
     local over = bodyH() + footer_h - h
     if over > 0 and scene and not self._scene_h then
         self._scene_h = math.max(px(80), math.floor(inner / 2) - over - px(4))
