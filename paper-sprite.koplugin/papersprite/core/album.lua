@@ -43,7 +43,7 @@ function A.places(s)
     return list, done, #Places
 end
 
---- 来客簿：12 位访客是否见过
+--- 来客簿：访客是否见过（人数随 data/visitors.lua）
 function A.visitors(s)
     local seen = s.seen_visitors or {}
     local list, have = {}, 0
