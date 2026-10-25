@@ -53,14 +53,26 @@ local function text()
     for _, l in ipairs(H.view.lines or {}) do t[#t + 1] = type(l) == "table" and l.text or l end
     return table.concat(t, "\n")
 end
+--- 阁楼第 2 页才是操作入口；第 1 页只有通栏画面 + 状态
+local function attic_ops()
+    assert(H.view.pager, "attic pager")
+    if H.view.pager.page ~= 2 then H.view.pager.go(2) end
+    assert(H.view.shelf and #H.view.shelf.cells == 6, "attic ops")
+end
+local function attic_home()
+    assert(H.view.pager, "attic pager")
+    if H.view.pager.page ~= 1 then H.view.pager.go(1) end
+    assert(H.view.scene and H.view.scene_wide and not H.view.shelf, "attic home")
+end
 
 -- 1. 打开，收拾行囊
 local Game = require("papersprite.game")
 local g = Game.new(H.host):show()
 assert(H.view.title == "阿页的阁楼")
-click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
+assert(H.view.scene and H.view.scene_wide and not H.view.shelf, "page1 is scene only")
+attic_ops(); click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
 assert(H.saved.sprite.status == "packed", "should be packed")
-back(); assert(text():find("快要出门"))
+back(); attic_home(); assert(text():find("快要出门"))
 
 -- 2. 界面开着：到点自动出门（调试模式：分钟→秒）
 advance(100)
@@ -78,19 +90,19 @@ assert(sv == 1, "souvenir")
 local place_id = H.saved.postcards[1].place
 assert((H.saved.place_trips or {})[place_id] == 1, "place_trips on return")
 -- 4. 明信片墙 → 单张（分层画面）
-click("明信片墙"); click(""); assert(H.view.scene and H.view.scene.bg and H.view.status.caption:find("阿页"), "card view")
+attic_ops(); click("明信片墙"); click(""); assert(H.view.scene and H.view.scene.bg and H.view.status.caption:find("阿页"), "card view")
 assert(H.view.scene.overlays[1].img:find("^sprite/"), "pose layer")
-back(); back(); click("特产柜"); assert(text():find("×1"), "cabinet")
+back(); back(); attic_ops(); click("特产柜"); assert(text():find("×1"), "cabinet")
 click(H.view.shelf.cells[1].title); assert(H.view.status and H.view.buttons[1].text == "摆到阁楼里", "souvenir detail")
 click("摆到阁楼里"); assert(#g.state.decor == 1); back()
-back(); click("小铺"); back()
+back(); attic_ops(); click("小铺"); back()
 -- 4b. 剪贴簿 / 来客簿
-click("剪贴簿"); assert(H.view.title == "地点剪贴簿" and H.view.shelf and #H.view.shelf.cells >= 1)
+attic_ops(); click("剪贴簿"); assert(H.view.title == "地点剪贴簿" and H.view.shelf and #H.view.shelf.cells >= 1)
 g:go("place", place_id); assert(H.view.buttons and H.view.buttons[1].text:find("惦记"))
 local before_wish = g.state.inspiration
 click("惦记"); assert(g.state.wish_place == place_id and g.state.inspiration == before_wish - 5)
 back(); back()
-click("来客簿"); assert(H.view.title == "来客簿")
+attic_ops(); click("来客簿"); assert(H.view.title == "来客簿")
 back()
 g:close()
 
@@ -130,7 +142,7 @@ local function trip(ai_impl)
     H.saved, H.queue = nil, {}
     H.host.ai = ai_impl and function() return ai_impl end or nil
     local g2 = Game.new(H.host):show()
-    click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
+    attic_ops(); click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
     advance(100)                     -- 出门，触发 AI 请求
     assert(H.saved.sprite.status == "away")
     advance(400)                     -- 回家
@@ -176,7 +188,7 @@ do
     H.saved, H.queue = nil, {}
     H.host.ai = nil
     local g3 = Game.new(H.host):show()
-    click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
+    attic_ops(); click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
     advance(100); advance(400)
     assert(H.saved.sprite.status == "home" and H.saved.recap, "recap kept")
     H.host.ai = function() return only_other end
@@ -230,7 +242,7 @@ local first_ai = 0 for _, c in ipairs(sv.postcards) do if c.ai then first_ai = f
 local function again()
     H.host.ai = function() return same end
     local g3 = Game.new(H.host):show()
-    click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
+    attic_ops(); click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
     advance(100); advance(400); g3:close()
     return H.saved
 end
@@ -258,18 +270,22 @@ for _ = 1, 300 do
     local c2; sd, c2 = P.compose(sd, "reading_room", {}, {})
     assert(P.indoor_weathers[c2.weather], "rain indoors")
 end
-assert(Game.atticBg(os.time({ year = 2026, month = 4, day = 1, hour = 12 })) == "attic/attic_spring.png")
-assert(Game.atticBg(os.time({ year = 2026, month = 1, day = 1, hour = 23 }), true) == "attic/attic_night_empty.png")
+assert(Game.atticBg(os.time({ year = 2026, month = 4, day = 1, hour = 12 })):match("^attic/attic_spring_"))
+assert(Game.atticBg(os.time({ year = 2026, month = 1, day = 1, hour = 23 }), true):match("night") and Game.atticBg(os.time({ year = 2026, month = 1, day = 1, hour = 23 }), true):find("_empty"))
+assert(Game.atticSeason(os.time({ year = 2026, month = 4, day = 1 })) == "spring")
+assert(Game.atticTod(os.time({ year = 2026, month = 4, day = 1, hour = 12 })) == "day")
+assert(Game.atticTod(os.time({ year = 2026, month = 4, day = 1, hour = 19 })) == "dusk")
+assert(Game.atticTod(os.time({ year = 2026, month = 4, day = 1, hour = 23 })) == "night")
 -- 特产摆进阁楼
 H.saved.souvenirs = { lake_pebble = 1, fog_jar = 2 }
 H.saved.decor = {}
 H.saved.visitor = { id = "seal_bear", pose = "_2", until_at = H.clock + 99999 }
 local g4 = Game.new(H.host):show()
-click("特产柜"); click("一瓶雾"); click("摆到阁楼里"); assert(H.saved.decor[1] == "fog_jar")
-back(); back()
+attic_ops(); click("特产柜"); click("一瓶雾"); click("摆到阁楼里"); assert(H.saved.decor[1] == "fog_jar")
+back(); back(); attic_home()
 local ov = {} for _, o in ipairs(H.view.scene.overlays) do ov[o.img] = true end
 assert(ov["souvenirs/fog_jar.png"] and ov["visitors/seal_bear_2.png"], "decor + visitor pose overlays")
-click("特产柜"); click("一瓶雾"); click("从阁楼收起"); assert(#H.saved.decor == 0)
+attic_ops(); click("特产柜"); click("一瓶雾"); click("从阁楼收起"); assert(#H.saved.decor == 0)
 g4:close()
 -- 资源齐全：每个被引用的图都在 assets 里
 local A = "paper-sprite.koplugin/assets/"
@@ -283,7 +299,12 @@ for _, x in ipairs(P.weathers) do if x ~= "clear" then need("weather/" .. x .. "
 for id in pairs(P.souvenirs) do need("souvenirs/" .. id .. ".png") end
 for _, it in ipairs(require("papersprite.data.items")) do need("items/" .. it.id .. ".png") end
 for _, v in ipairs(require("papersprite.data.visitors")) do need("visitors/" .. v.id .. ".png") need("visitors/" .. v.id .. "_2.png") end
+-- 旧四季 + 夜仍保留；新矩阵至少要有四季 day_clear（生成中可逐步补齐）
 for _, v in ipairs({ "spring", "summer", "autumn", "winter", "night" }) do need("attic/attic_" .. v .. ".png") need("attic/attic_" .. v .. "_empty.png") end
+for _, v in ipairs({ "spring", "summer", "autumn", "winter" }) do
+    need("attic/attic_" .. v .. "_day_clear.png")
+    need("attic/attic_" .. v .. "_day_clear_empty.png")
+end
 if os.getenv("SKIP_ASSETS") then print("  assets missing (skipped): " .. #miss)
 else assert(#miss == 0, "missing assets: " .. table.concat(miss, ", ")) end
 
@@ -303,7 +324,7 @@ local dp2 = WD.postcards(vw, 3)
 assert(dp2.new == 1 and dp2.cards[1].new and (not dp2.cards[2] or not dp2.cards[2].new), "new mark")
 vw.souvenirs = { fog_jar = 2, lake_pebble = 1, gone_item = 3 }
 local dc = WD.cabinet(vw)
-assert(dc.total == 48 and dc.have == 2 and dc.items[1].icon:match("^souvenirs/"), "cabinet n/48")
+assert(dc.total == Game.souvenirTotal() and dc.have == 2 and dc.items[1].icon:match("^souvenirs/"), "cabinet n/total")
 assert(WD.sig(raw) == before, "widget data must not touch the save")
 assert(WD.sig({ a = 1, b = { 2 } }) == WD.sig({ b = { 2 }, a = 1 }))
 local empty = WD.view(nil, 0, false)
@@ -321,7 +342,7 @@ assert(pgs == 8 and #ids == 4 and ids[1] == 26)
 assert(select(3, Game.wallPage(State.fresh(0), "grid", 1)) == 1)
 H.saved = sw
 local g5 = Game.new(H.host):show()
-click("明信片墙")
+attic_ops(); click("明信片墙")
 assert(H.view.grid and #H.view.grid.cells == 12 and H.view.pager.pages == 3 and H.view.grid.cells[1].new)
 H.view.pager.next(); assert(H.view.pager.page == 2)
 click("switch:列表"); assert(H.view.list and #H.view.list.rows == 4 and H.view.list.rows[1].date and H.view.pager.pages == 8)
@@ -347,7 +368,7 @@ for _, it in ipairs((Game.shopPage("food", 1))) do assert(it.slot == "food" and 
 local sb = State.fresh(0); sb.inspiration = 100
 H.saved = sb
 local g6 = Game.new(H.host):show()
-click("小铺")
+attic_ops(); click("小铺")
 assert(H.view.shelf and #H.view.shelf.cells == 6 and H.view.pager.pages == sps)
 assert(H.view.shelf.cells[1].desc and H.view.shelf.cells[1].price and H.view.shelf.cells[1].owned)
 H.view.pager.next(); assert(H.view.pager.page == 2)
@@ -370,17 +391,18 @@ for _, pg in ipairs({ "basket", "shop", "wall", "cabinet", "scrapbook", "guestbo
 end
 g7:close()
 
--- 15. 阁楼主页分页：第 1 页画面 + 状态 + 入口；第 2 页来客 + 最近；日志多时更多页
+-- 15. 阁楼主页分页：第 1 页通栏画面 + 状态；第 2 页入口；第 3 页来客 + 最近；日志多时更多页
 local sa = State.fresh(0)
 for k = 1, 15 do sa.log[k] = "事" .. k end
 sa.visitor = { id = "inkbug", pose = "", until_at = 1e12 }
 H.saved = sa
 local g8 = Game.new(H.host):show()
-assert(H.view.scene and H.view.shelf and #H.view.shelf.cells == 6 and H.view.pager.pages >= 2 and not H.view.notes)
+assert(H.view.scene and H.view.scene_wide and not H.view.shelf and H.view.pager.pages >= 3 and not H.view.notes)
+H.view.pager.next(); assert(H.view.shelf and #H.view.shelf.cells == 6 and H.view.status.title:find("做什么"))
 H.view.pager.next(); assert(H.view.status.title:find("墨点虫") and H.view.notes and H.view.notes.rows[1].text == "事15")
-H.view.notes.fit(5, 2); assert(H.view.pager.pages == 5 and #H.view.notes.rows == 3)
-H.view.pager.go(3); assert(H.view.notes.rows[1].text == "事12" and #H.view.notes.rows == 5 and not H.view.status)
-H.view.pager.go(5); assert(H.view.notes.rows[1].text == "事2" and #H.view.notes.rows == 2)
+H.view.notes.fit(5, 2); assert(H.view.pager.pages == 6 and #H.view.notes.rows == 3)
+H.view.pager.go(4); assert(H.view.notes.rows[1].text == "事12" and #H.view.notes.rows == 5 and not H.view.status)
+H.view.pager.go(6); assert(H.view.notes.rows[1].text == "事2" and #H.view.notes.rows == 2)
 g8:close()
 
 -- 16. 日志时间：新日志记时间；旧存档无时间不显示；格式
@@ -395,7 +417,7 @@ do
     for k = 1, 30 do State.log(ls, "x" .. k, k) end
     assert(#ls.log == 20 and #ls.log_at == 20 and ls.log_at[20] == 30)
     H.saved = ls
-    local g9 = Game.new(H.host):show(); H.view.pager.next()
+    local g9 = Game.new(H.host):show(); H.view.pager.go(3)
     local r1 = H.view.notes.rows[1]; assert(r1.text == "x30" and r1.meta)
     g9:close()
 end
@@ -450,7 +472,8 @@ do
     local ge = GameEn.new(H.host):show()
     clean("attic")
     for _, pg in ipairs({ "basket", "shop", "wall", "cabinet" }) do ge:go(pg) clean(pg) back() end
-    ge.attic_page = 2 ge:render() clean("attic p2")
+    ge.attic_page = 2 ge:render() clean("attic ops")
+    ge.attic_page = 3 ge:render() clean("attic log")
     ge:close()
     L10n.load("zh_CN")
     for k in pairs(package.loaded) do
@@ -554,16 +577,16 @@ do
     local row = Album.place(st, Travel.place("ink_lake"))
     assert(row.done and row.have == 3 and row.cards == 2, "place page complete")
     local _, done, total = Album.places(st)
-    assert(done == 1 and total == 40)
+    assert(done == 1 and total == #require("papersprite.data.places"))
     local guests, have, gtotal = Album.visitors(st)
-    assert(have == 1 and gtotal == 12 and guests[1].visitor.id == "inkbug")
+    assert(have == 1 and gtotal == #require("papersprite.data.visitors") and guests[1].visitor.id == "inkbug")
     -- 惦记：下一趟直达（只推进到出门，别把整趟走完）
     H.saved = State.fresh(0)
     H.saved.inspiration = 20
     H.saved.wish_place = "fold_peak"
     H.queue = {}
     local gw = Game.new(H.host):show()
-    click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
+    attic_ops(); click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
     local dep = H.saved.sprite.depart_at
     advance(dep - H.clock + 1)
     assert(H.saved.sprite.status == "away" and H.saved.sprite.place == "fold_peak" and H.saved.wish_place == nil, "wish directs trip")
