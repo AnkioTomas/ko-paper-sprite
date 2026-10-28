@@ -19,11 +19,11 @@ view = {
 }
 缩略图走 ui/compose 的合成缓存（墨水屏上不反复解码缩放）。
 --]]
---- 去边框：拷一份主题样式，把 border 置 0（用户不要卡片描边，靠留白 / 细分隔线 / 底色区分）
+--- 去边框去底色：拷一份主题样式，border / bg / shadow 全关（靠留白 / 细分隔线区分；全屏页本身的底色在 S:init 的整屏 FrameContainer 上，那是页面底、不是卡片底色，必须留，否则下层残影透出来）
 local function noBorder(style)
     if type(style) ~= "table" then return style end
     local c = {} for kk, vv in pairs(style) do c[kk] = vv end
-    c.border = 0
+    c.border, c.bg, c.shadow = 0, nil, 0
     return c
 end
 
@@ -148,7 +148,8 @@ local function kit(skin)
     end
     guarded("button", function(text, w, cb) return require("ui.themes.widgets.button"):new{ text = text, width = w, callback = cb } end)
     guarded("text", function(text, w, muted, small)
-        return require("ui.themes.widgets.text").box(small and "caption" or "body", text, w, { color = muted and t.color.muted or nil, bg = t.color.page })
+        -- transparent：不铺文字底色（Text.box 默认拿 bg 铺满自身，卡片底色关了这里再铺一层就露馅）
+        return require("ui.themes.widgets.text").box(small and "caption" or "body", text, w, { color = muted and t.color.muted or nil, transparent = true })
     end)
     guarded("line", function(text, w, muted, small)
         return require("ui.themes.widgets.text").line(small and "caption" or "body", text, { width = w, color = muted and t.color.muted or nil })

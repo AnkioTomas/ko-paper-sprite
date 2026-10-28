@@ -7,11 +7,11 @@
 尺寸档位 小 / 中 / 大 在组件设置里选，决定默认高度与行数。
 图片走 ui/compose 的合成缓存；每次绘制前比对数据签名，变了才重建。月读主题不可用时回落朴素样式。
 --]]
---- 去边框：拷一份主题样式，把 border 置 0（用户不要卡片描边，靠留白 / 细分隔线 / 底色区分）
+--- 去边框去底色：拷一份主题样式，border / bg / shadow 全关（靠留白 / 细分隔线区分，底色关掉好融入月读首页背景）
 local function noBorder(style)
     if type(style) ~= "table" then return style end
     local c = {} for kk, vv in pairs(style) do c[kk] = vv end
-    c.border = 0
+    c.border, c.bg, c.shadow = 0, nil, 0
     return c
 end
 
@@ -93,8 +93,7 @@ local function card(T, w, h, child)
         if ok then return b end
     end
     local FrameContainer = require("ui/widget/container/framecontainer")
-    local Blitbuffer = require("ffi/blitbuffer")
-    return FrameContainer:new{ width = w, height = h, bordersize = 0, radius = 4, padding = 10, background = Blitbuffer.COLOR_WHITE, child }
+    return FrameContainer:new{ width = w, height = h, bordersize = 0, radius = 4, padding = 10, child }
 end
 
 local function padOf(T) return T and px(T, T.t.space.md) or 10 end

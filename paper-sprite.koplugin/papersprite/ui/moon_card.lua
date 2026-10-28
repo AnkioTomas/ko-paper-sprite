@@ -68,7 +68,10 @@ local function themed(s, w, h)
     if col:getSize().h > avail then
         col = VerticalGroup:new{ align = "left", Text.line("body", s.title .. " · " .. s.line1, { width = text_w }) }
     end
-    return Box:new{ style = t.card, width = w, height = h, padding = pad, HorizontalGroup:new{ align = "center",
+    -- 底色关掉：拷一份卡片样式清掉 bg / shadow，只留圆角，融入首页背景（边框也不要，和其它组件一致）
+    local style = {} for kk, vv in pairs(t.card) do style[kk] = vv end
+    style.bg, style.shadow, style.border = nil, 0, 0
+    return Box:new{ style = style, width = w, height = h, padding = pad, HorizontalGroup:new{ align = "center",
         Icon.widget{ name = "bookmark", size = 40 }, HorizontalSpan:new{ width = gap },
         LeftContainer:new{ dimen = Geom:new{ w = text_w, h = col:getSize().h }, col },
         HorizontalSpan:new{ width = gap }, Icon.widget{ name = "chevron_right", size = 24 } } }
@@ -81,7 +84,7 @@ local function plain(s, w, h)
     local TextWidget = require("ui/widget/textwidget")
     local Font = require("ui/font")
     local inner = w - 24
-    return FrameContainer:new{ width = w, height = h, bordersize = 1, radius = 4, padding = 10, background = Blitbuffer.COLOR_WHITE,
+    return FrameContainer:new{ width = w, height = h, bordersize = 1, radius = 4, padding = 10,
         VerticalGroup:new{ align = "left",
             TextWidget:new{ text = s.title, face = Font:getFace("tfont", 22), bold = true, max_width = inner },
             TextWidget:new{ text = s.line1, face = Font:getFace("cfont", 18), max_width = inner },
