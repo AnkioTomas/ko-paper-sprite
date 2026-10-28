@@ -272,6 +272,14 @@ for _ = 1, 300 do
 end
 assert(Game.atticBg(os.time({ year = 2026, month = 4, day = 1, hour = 12 })):match("^attic/attic_spring_"))
 assert(Game.atticBg(os.time({ year = 2026, month = 1, day = 1, hour = 23 }), true):match("night") and Game.atticBg(os.time({ year = 2026, month = 1, day = 1, hour = 23 }), true):find("_empty"))
+-- 出门选图全矩阵：四季 × 三时段都必须落到 _empty 且文件存在（素材本身有没有画人靠 tools/fix_empty_attic.py 的名单，Lua 验不了像素）
+for _, mo in ipairs({ 4, 7, 10, 1 }) do
+    for _, hr in ipairs({ 12, 19, 23 }) do
+        local bg = Game.atticBg(os.time({ year = 2026, month = mo, day = 1, hour = hr }), true)
+        assert(bg:find("_empty"), "away bg not empty: " .. bg)
+        local fh = io.open("paper-sprite.koplugin/assets/" .. bg, "rb") assert(fh, "missing " .. bg) fh:close()
+    end
+end
 assert(Game.atticSeason(os.time({ year = 2026, month = 4, day = 1 })) == "spring")
 assert(Game.atticTod(os.time({ year = 2026, month = 4, day = 1, hour = 12 })) == "day")
 assert(Game.atticTod(os.time({ year = 2026, month = 4, day = 1, hour = 19 })) == "dusk")
