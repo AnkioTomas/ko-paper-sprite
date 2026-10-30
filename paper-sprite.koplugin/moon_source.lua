@@ -80,14 +80,14 @@ local function imageWidget(kind, title, icon, builder, page)
     }
 end
 
--- 月读设置里的「阿页的阁楼（版本号）」页：自动检查更新开关与手动检查。
+-- 月读设置「游戏」组 → 三级页：自动 / 手动检查更新。
 local function settingEntries(desktop)
     local Update = require("papersprite.update")
     local Row = require("ui.themes.widgets.row")
     local title = string.format("%s（%s）", _("阿页的阁楼"), Update.version())
     return { {
-        group = "system",
-        order = 91,
+        group = "games",
+        order = 30,
         id = "main",
         icon = "bookmark",
         title = title,
