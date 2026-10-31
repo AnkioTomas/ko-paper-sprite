@@ -118,14 +118,14 @@ end
 --- 本趟 AI 文案（core/story.lua 写入）；只认同一趟的
 local function aiFor(sp) return type(sp.ai) == "table" and sp.ai.trip == sp.trip and sp.ai or nil end
 
-T.VISITOR_CHANCE = 0.4 -- 每次回家有客人来的总概率；具体是谁按 chance 加权
-T.FESTIVAL_VISITOR_CHANCE = 0.7 -- 节日当天回家，客人更爱来
+T.VISIT_HOUR_CHANCE = 0.02 -- 阿页在家时每小时有客人来的概率（约一天四成）
+T.FESTIVAL_VISIT_HOUR_CHANCE = 0.06 -- 节日 / 节气当天
+T.VISIT_LOOKBACK = 72 -- 最多回溯的小时数
+
 local function arriveVisitor(s, at, u)
-    local f
-    s.seed, f = R.next(s.seed)
-    if f >= (Festival.at(s, at) and T.FESTIVAL_VISITOR_CHANCE or T.VISITOR_CHANCE) then return end
     local total = 0
     for _, v in ipairs(Visitors) do total = total + v.chance end
+    local f
     s.seed, f = R.next(s.seed)
     f = f * total
     for _, v in ipairs(Visitors) do
@@ -144,11 +144,39 @@ end
 
 function T.visitor(id) for _, v in ipairs(Visitors) do if v.id == id then return v end end end
 
+local function visitorLeaves(s)
+    local v = T.visitor(s.visitor.id) or Visitors[1]
+    local left_at = s.visitor.until_at
+    s.visitor = nil
+    s.inspiration = s.inspiration + v.gift
+    State.log(s, v.leave, left_at)
+end
+
+--- 阿页在家的这段时间 (from, to] 里按小时抽客人；来客时阿页一定在家，走时才结算灵感
+local function rollVisits(s, from, to, u)
+    from = math.max(from, to - T.VISIT_LOOKBACK * u.hour)
+    local t = from + u.hour
+    while t <= to do
+        if s.visitor and s.visitor.until_at <= t then visitorLeaves(s) end
+        if not s.visitor then
+            local f
+            s.seed, f = R.next(s.seed)
+            if f < (Festival.at(s, t) and T.FESTIVAL_VISIT_HOUR_CHANCE or T.VISIT_HOUR_CHANCE) then
+                arriveVisitor(s, t, u)
+            end
+        end
+        t = t + u.hour
+    end
+end
+
 function T.settle(s, now, debug_fast)
     local u = T.timing(debug_fast)
     local events = {}
     local sp = s.sprite
+    s.visit_check = s.visit_check or now
     if sp.status == "packed" and now >= sp.depart_at then
+        rollVisits(s, s.visit_check, sp.depart_at, u)
+        s.visit_check = sp.depart_at
         depart(s, sp.depart_at, u)
         events[#events + 1] = "depart"
         sp = s.sprite
@@ -203,19 +231,23 @@ function T.settle(s, now, debug_fast)
             end
             s.sprite = { status = "home", back_at = sp.return_at }
             events[#events + 1] = "return"
-            local v = arriveVisitor(s, sp.return_at, u)
-            if v then
-                events[#events + 1] = "visitor"
-                if ai and ai.visitor_line then s.visitor.line = ai.visitor_line end
-            end
+            s.visit_check = sp.return_at
         end
     end
-    if s.visitor and now >= s.visitor.until_at then
-        local v = T.visitor(s.visitor.id) or Visitors[1]
-        local left_at = s.visitor.until_at
-        s.visitor = nil
-        s.inspiration = s.inspiration + v.gift
-        State.log(s, v.leave, left_at)
+    if s.sprite.status ~= "away" then
+        local before = s.visitor
+        rollVisits(s, s.visit_check, now, u)
+        s.visit_check = now
+        local v = s.visitor
+        if v and v ~= before then
+            events[#events + 1] = "visitor"
+            local ai = aiFor(sp)
+            if ai and ai.visitor_line then v.line = ai.visitor_line end
+        end
+        -- 结算时才发现已过了停留时间：从此刻起再留一阵，保证玩家见得到
+        if v and now >= v.until_at then v.until_at = now + (T.visitor(v.id) or Visitors[1]).stay * u.hour end
+    elseif s.visitor and now >= s.visitor.until_at then
+        visitorLeaves(s)
     end
     return events
 end

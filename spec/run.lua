@@ -602,3 +602,21 @@ do
 end
 
 print("headless ok: postcards=" .. #st.postcards .. " places=" .. np .. " combos=" .. nc)
+
+do -- 访客：不出门也会来；节日更勤；出门时不来
+    local Travel = require("papersprite.core.travel")
+    local State = require("papersprite.core.state")
+    local function visits()
+        local n = 0
+        for i = 1, 200 do
+            local s = State.fresh(1)
+            s.seed = i * 7919
+            s.visit_check = 1
+            s.seen_visitors = {}
+            Travel.settle(s, 1 + 3600 * 72)
+            if next(s.seen_visitors) then n = n + 1 end
+        end
+        return n
+    end
+    assert(visits() > 100, "home sprite gets visitors without trips")
+end

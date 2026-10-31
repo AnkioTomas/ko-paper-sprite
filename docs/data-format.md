@@ -21,7 +21,7 @@
 ```lua
 { id = "inkbug", name = "墨点虫", chance = 0.20, stay = 2, gift = 2, poses = { "", "_2" }, arrive = "…", here = "…", leave = "…" }
 ```
-图片 `assets/visitors/<id><pose>.png`（每位两种姿势，来访时随机一种）。`chance` 是权重：回家时先按 `Travel.VISITOR_CHANCE`（0.4）判定有没有客人，再按权重挑一位。
+图片 `assets/visitors/<id><pose>.png`（每位两种姿势，来访时随机一种）。`chance` 是权重：阿页在家（不出门也算，出门期间不来）时每小时按 `Travel.VISIT_HOUR_CHANCE`（0.02，节日 / 节气 `FESTIVAL_VISIT_HOUR_CHANCE` 0.06）判定有没有客人，再按权重挑一位；结算时最多回溯 72 小时。
 
 ## postcards.lua（分层明信片）
 存档里的一张明信片：
