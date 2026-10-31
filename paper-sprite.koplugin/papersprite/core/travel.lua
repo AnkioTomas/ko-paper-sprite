@@ -83,26 +83,22 @@ end
 
 function T.place(id) for _, p in ipairs(Places) do if p.id == id then return p end end end
 
-T.EVENT_CHANCE = { careful = 0.15, free = 0.3, bold = 0.5 }
+T.EVENT_CHANCE = 0.3
 
---- 按遇事态度抽一个旅途事件：谨慎不遇延误和奇遇，随性不遇大胆专属，大胆什么都可能遇到
+--- 出发时按概率抽一个旅途事件（权重低的是奇遇；阿页 5 阶后更容易遇到）
 local function rollEvent(s)
-    local att = s.attitude or "free"
     local f
     s.seed, f = R.next(s.seed)
-    if f >= (T.EVENT_CHANCE[att] or 0.3) + (Quest.level(s) >= 5 and 0.1 or 0) then return nil end
-    local pool, total = {}, 0
-    for _, e in ipairs(Events) do
-        local ok = att == "bold" or (not e.bold and (att == "free" or not e.hours))
-        if ok then pool[#pool + 1] = e total = total + e.weight end
-    end
+    if f >= T.EVENT_CHANCE + (Quest.level(s) >= 5 and 0.1 or 0) then return nil end
+    local total = 0
+    for _, e in ipairs(Events) do total = total + e.weight end
     s.seed, f = R.next(s.seed)
     f = f * total
-    for _, e in ipairs(pool) do
+    for _, e in ipairs(Events) do
         f = f - e.weight
         if f < 0 then return e end
     end
-    return pool[#pool]
+    return Events[#Events]
 end
 
 local function depart(s, at, u)

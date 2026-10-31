@@ -320,9 +320,6 @@ function Game.souvenirTotal()
     return n
 end
 
-local ATTITUDE = { careful = T("谨慎"), free = T("随性"), bold = T("大胆") }
-local ATTITUDE_NEXT = { careful = "free", free = "bold", bold = "careful" }
-local ATTITUDE_NOTE = { careful = T("少遇事，不会被耽搁。"), free = T("偶尔遇到点小事。"), bold = T("常遇事，有机会撞上奇遇。") }
 
 function Game:_basket()
     local s = self.state
@@ -367,8 +364,6 @@ function Game:_basket()
         shelf = { cols = 3, icon = 48, compact = true, cells = cells },
         lines2 = { { text = T("放进「%s」", SLOT_NAME[slot]), label = true } },
         shelf2 = { cols = 2, cells = picks, per = per, fit = self:fitter("basket") },
-        buttons = { { text = T("遇事态度：%s（%s）", ATTITUDE[s.attitude or "free"], ATTITUDE_NOTE[s.attitude or "free"]), callback = function()
-            s.attitude = ATTITUDE_NEXT[s.attitude or "free"] self:save() self:render() end } },
         empty2 = #picks == 0 and { title = T("这一格没有可放的东西"), caption = T("去小铺看看") } or nil,
         pager = { page = page, pages = pages, go = function(n) self.basket_page = n self:render() end, prev = function() self.basket_page = page - 1 self:render() end,
             next = function() self.basket_page = page + 1 self:render() end } }

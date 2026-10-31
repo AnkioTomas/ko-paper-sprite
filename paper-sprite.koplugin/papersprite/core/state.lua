@@ -31,7 +31,6 @@ function State.fresh(now)
         quests = {},                      -- { day, week, list = { {id, kind, key, target, p, reward, weekly, claimed} } }
         achieved = {},                    -- 成就 id -> 达成时间
         bonds = {},                       -- 访客 id -> 交情
-        attitude = "free",                -- 遇事态度 careful | free | bold
         bookmarks = {},                   -- 读完的书 { title, at, tag }
         seen_souvenirs = {},              -- 收到过的特产 id（送人后仍算收集过）
         level = 1,
