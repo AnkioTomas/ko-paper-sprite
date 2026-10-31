@@ -33,15 +33,9 @@ local function tabIcon()
 end
 local PAGES = { { "attic", T("打开阁楼") }, { "basket", T("收拾行囊") }, { "shop", T("小铺") }, { "wall", T("明信片墙") }, { "cabinet", T("特产柜") } }
 
-local function hostFor()
-    -- 装了月读用月读宿主（和首页组件同一份存档 / 设置），否则 KOReader 宿主
-    local ok = pcall(require, "ui.themes") and pcall(require, "utils.settings")
-    if ok then return require("papersprite.host.moon").new() end
-    return require("papersprite.host.koreader").new()
-end
-
 function M.open(page)
-    local g = require("papersprite.game").new(hostFor()):show()
+    if not require("papersprite.need_moon")() then return end
+    local g = require("papersprite.game").new(require("papersprite.host.moon").new()):show()
     if page and page ~= "attic" then g:go(page) end
 end
 

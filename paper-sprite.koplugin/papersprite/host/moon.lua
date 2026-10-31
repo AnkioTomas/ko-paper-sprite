@@ -27,7 +27,7 @@ local function save() moonSettings().saveSource(ID) end
 
 function Host:_screenModule()
     local Screen = require("papersprite.ui.screen")
-    return { open = function(view, on_close) return Screen.open(view, on_close, self:getSetting("ui_skin", "auto")) end }
+    return { open = function(view, on_close) return Screen.open(view, on_close) end }
 end
 
 function Host:notify(text)

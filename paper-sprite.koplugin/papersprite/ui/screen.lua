@@ -1,8 +1,8 @@
 -- SPDX-License-Identifier: MIT
 --[[--
 全屏浮层界面。思路同 ko-adarkroom：covers_fullscreen + 整屏刷新，盖住月读首页。
-皮肤：月读在时（能 require ui.themes）用月读主题组件——标题栏、卡片框、文字、按钮、翻页条、主题色；
-每个组件单独 pcall，某个组件失败只有它退回 KOReader 原生控件。skin = "native" 强制原生。
+组件：月读主题——标题栏、卡片框、文字、按钮、翻页条、底栏、主题色；
+阿页依赖月读：入口（papersprite.moon）保证 ui.themes 可用，这里不再有原生兜底。
 view = {
   title, scene?（分层画面）, scene_wide?（画面宽贴满内容区，阁楼主页用）, icons?, lines = {string|{text,muted}},
   grid?  = { cols, cells = { {scene, new, caption, callback} } },        明信片墙：缩略图网格
@@ -15,6 +15,7 @@ view = {
   tabs?  = { {text, active, callback} },                                  分类页签（一行按钮，当前项加 ✓）
   shelf? = { cols, icon?, cells = { {icon|scene, title|name, meta|price+owned, desc|caption, check?, badge?, dim, callback} } } 卡片网格
   pager? = { page, pages, prev, next },                                   翻页条（n / m）
+  tabbar? = { tabs = { {id, text, icon} }, active, on_tab(id) },          底栏（月读 Tabbar，钉在屏幕最底；阁楼主页用）
   buttons = { btn | {btn,...} }, on_close?, back?（有则标题栏右上角按钮 / 返回键回上一级，否则关闭）
 }
 缩略图走 ui/compose 的合成缓存（墨水屏上不反复解码缩放）。
@@ -51,8 +52,8 @@ local Screen = Device.screen
 
 local S = InputContainer:extend{ covers_fullscreen = true, modal = true }
 
-function S.open(view, on_close, skin)
-    return S:new{ view = view, on_close = on_close, skin = skin }
+function S.open(view, on_close)
+    return S:new{ view = view, on_close = on_close }
 end
 
 local function try(fn, ...)
@@ -68,109 +69,42 @@ local function tap(child, w, h, cb)
     return box
 end
 
---- 组件工具箱：先原生，月读可用时逐个替换成主题组件（每个都有原生兜底）
-local function kit(skin)
-    local px = function(n) return Screen:scaleBySize(n) end
-    local k = { moon = false, px = px, bg = Blitbuffer.COLOR_WHITE, ink = Blitbuffer.COLOR_BLACK,
-        muted = Blitbuffer.Color8(0x77), face = Font:getFace("cfont", 19), small = Font:getFace("cfont", 15) }
-    local native = {}
-    function native.button(text, w, cb)
-        return require("ui/widget/button"):new{ text = text, width = w, callback = cb, bordersize = 0, radius = px(4), text_font_size = 17 }
+--- 组件工具箱：月读主题组件（阿页依赖月读，入口 papersprite.moon 已保证 ui.themes 可用）
+local function kit()
+    local Theme = require("ui.themes")
+    local t = Theme.current()
+    local c = t.color
+    local k = { px = Theme.px, bg = Blitbuffer.Color8(c.page), ink = Blitbuffer.Color8(c.ink), muted = Blitbuffer.Color8(c.muted),
+        small = Font:getFace("cfont", 15) }
+    local Text = require("ui.themes.widgets.text")
+    function k.button(text, w, cb) return require("ui.themes.widgets.button"):new{ text = text, width = w, callback = cb } end
+    -- transparent：不铺文字底色（Text.box 默认拿 bg 铺满自身，卡片底色关了这里再铺一层就露馅）
+    function k.text(text, w, muted, small)
+        return Text.box(small and "caption" or "body", text, w, { color = muted and c.muted or nil, transparent = true })
     end
-    function native.text(text, w, muted, small)
-        return TextBoxWidget:new{ text = text, face = small and k.small or k.face, width = w, fgcolor = muted and k.muted or k.ink }
+    function k.line(text, w, muted, small)
+        return Text.line(small and "caption" or "body", text, { width = w, color = muted and c.muted or nil })
     end
-    function native.line(text, w, muted, small)
-        return TextWidget:new{ text = text, face = small and k.small or k.face, max_width = w, fgcolor = muted and k.muted or k.ink }
-    end
-    --- 标题栏：左 = 返回（主页是关闭），中 = 标题，右 = 视图切换（没有就留空，保持标题居中）
-    --- left / right = { icon, text, callback }
-    function native.title(w, title, left, right)
-        local hh = px(48)
-        local function side(sd, sw)
-            if not sd then return HorizontalSpan:new{ width = sw } end
-            return tap(CenterContainer:new{ dimen = Geom:new{ w = sw, h = hh },
-                TextWidget:new{ text = sd.text, face = k.face, fgcolor = k.ink } }, sw, hh, sd.callback)
-        end
-        local sw = px(72)
-        return VerticalGroup:new{ align = "left",
-            HorizontalGroup:new{ align = "center", side(left, sw),
-                CenterContainer:new{ dimen = Geom:new{ w = w - sw * 2, h = hh }, TextWidget:new{ text = title or "", face = k.face, bold = true, max_width = w - sw * 2 } },
-                side(right, sw) },
-            require("ui/widget/linewidget"):new{ dimen = Geom:new{ w = w, h = px(1) }, background = k.muted } }
-    end
-    function native.head(text, w)
-        return TextWidget:new{ text = text, face = k.face, bold = true, max_width = w, fgcolor = k.ink }
-    end
-    function native.frame(child, border)
-        return FrameContainer:new{ padding = 0, bordersize = 0, color = k.ink, background = k.bg, child }
-    end
-    function native.badge(text)
-        return FrameContainer:new{ bordersize = 0, padding = px(2), margin = 0, background = Blitbuffer.COLOR_BLACK,
-            TextWidget:new{ text = text, face = k.small, fgcolor = Blitbuffer.COLOR_WHITE } }
-    end
-    --- 原生翻页条：同 KOReader Menu / KeyValuePage 的页脚（« ‹  n / m  › »，无边框图标按钮）
-    function native.pager(w, p)
-        local Button = require("ui/widget/button")
-        local isz = px(32)
-        local function chev(icon, enabled, cb)
-            return Button:new{ icon = icon, icon_width = isz, icon_height = isz, bordersize = 0, enabled = enabled,
-                callback = cb or function() end, show_parent = nil }
-        end
-        local first = p.first or function() for _ = p.page, 2, -1 do p.prev() end end
-        local mid_w = px(140)
-        local mid = CenterContainer:new{ dimen = Geom:new{ w = mid_w, h = px(44) }, TextWidget:new{ text = p.page .. " / " .. p.pages, face = k.face } }
-        local row = HorizontalGroup:new{ align = "center",
-            chev("chevron.first", p.page > 1, p.go and function() p.go(1) end or nil), HorizontalSpan:new{ width = px(16) },
-            chev("chevron.left", p.page > 1, p.prev), mid,
-            chev("chevron.right", p.page < p.pages, p.next), HorizontalSpan:new{ width = px(16) },
-            chev("chevron.last", p.page < p.pages, p.go and function() p.go(p.pages) end or nil) }
-        return CenterContainer:new{ dimen = Geom:new{ w = w, h = row:getSize().h }, row }
-    end
-    for name, fn in pairs(native) do k[name] = fn end
-    if skin == "native" then return k end
-    local ok, Theme = pcall(require, "ui.themes")
-    if not ok or not Theme then return k end
-    local t = try(function() return Theme.current() end)
-    if not t then return k end
-    k.moon = true
-    k.px = function(n) return try(Theme.px, n) or px(n) end
-    pcall(function()
-        local c = t.color
-        k.bg, k.ink, k.muted = Blitbuffer.Color8(c.page), Blitbuffer.Color8(c.ink), Blitbuffer.Color8(c.muted)
-    end)
-    local function guarded(name, fn)
-        k[name] = function(...)
-            local ok2, r = pcall(fn, ...)
-            if ok2 and r then return r end
-            return native[name](...)
-        end
-    end
-    guarded("button", function(text, w, cb) return require("ui.themes.widgets.button"):new{ text = text, width = w, callback = cb } end)
-    guarded("text", function(text, w, muted, small)
-        -- transparent：不铺文字底色（Text.box 默认拿 bg 铺满自身，卡片底色关了这里再铺一层就露馅）
-        return require("ui.themes.widgets.text").box(small and "caption" or "body", text, w, { color = muted and t.color.muted or nil, transparent = true })
-    end)
-    guarded("line", function(text, w, muted, small)
-        return require("ui.themes.widgets.text").line(small and "caption" or "body", text, { width = w, color = muted and t.color.muted or nil })
-    end)
-    guarded("title", function(w, title, left, right)
+    function k.title(w, title, left, right)
         return require("ui.themes.widgets.titlebar").widget{ width = w, title = title or "",
             left_icon = left and left.icon, left_callback = left and left.callback,
             right_icon = right and right.icon, right_callback = right and right.callback }
-    end)
-    guarded("head", function(text, w)
-        return require("ui.themes.widgets.text").line("title", text, { width = w })
-    end)
-    guarded("frame", function(child, border)
-        local Box = require("ui.themes.widgets.box")
+    end
+    function k.head(text, w) return Text.line("title", text, { width = w }) end
+    function k.frame(child, border)
         local sz = child:getSize()
-        local style = noBorder(border and t.card or t.image)
-        return Box:new{ style = style, width = sz.w, height = sz.h, child }
-    end)
-    guarded("pager", function(w, p)
+        return require("ui.themes.widgets.box"):new{ style = noBorder(border and t.card or t.image), width = sz.w, height = sz.h, child }
+    end
+    function k.badge(text)
+        return FrameContainer:new{ bordersize = 0, padding = Theme.px(2), margin = 0, background = Blitbuffer.COLOR_BLACK,
+            TextWidget:new{ text = text, face = k.small, fgcolor = Blitbuffer.COLOR_WHITE } }
+    end
+    function k.pager(w, p)
         return require("ui.themes.widgets.pager").widget{ width = w, page = p.page, pages = p.pages, on_prev = p.prev, on_next = p.next }
-    end)
+    end
+    function k.tabbar(w, tb)
+        return require("ui.themes.widgets.tabbar").widget{ width = w, tabs = tb.tabs, active = tb.active, on_tab = tb.on_tab }
+    end
     return k
 end
 S.kit = kit
@@ -194,8 +128,7 @@ end
 function S:init()
     local w, h = Screen:getWidth(), Screen:getHeight()
     self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
-    local k = kit(self.skin)
-    self.kit_moon = k.moon
+    local k = kit()
     local px, pad = k.px, k.px(20)
     local inner = w - pad * 2
     local v = self.view
@@ -205,7 +138,7 @@ function S:init()
     -- 标题栏
     -- 页脚（翻页条 + 按钮）先建好：量出高度，内容区按剩余高度排，页脚贴屏幕底部
     local footer = VerticalGroup:new{ align = "left" }
-    if v.pager and v.pager.pages > 1 then
+    if v.pager and v.pager.pages > 1 and not v.pager.hide then
         table.insert(footer, indent(k.pager(inner, v.pager)))
         table.insert(footer, VerticalSpan:new{ width = px(8) })
     end
@@ -221,6 +154,7 @@ function S:init()
         table.insert(footer, indent(g))
         table.insert(footer, VerticalSpan:new{ width = px(8) })
     end
+    if v.tabbar then table.insert(footer, k.tabbar(w, v.tabbar)) end
     local footer_h = footer:getSize().h
     -- VerticalGroup 会缓存尺寸，量高度前先 resetLayout
     local function bodyH() if body.resetLayout then body:resetLayout() end return body:getSize().h end
@@ -329,7 +263,7 @@ function S:init()
     local status_h = bodyH() - status_h0
     if v.empty then renderEmpty(v.empty) end
     renderLines(v.lines)
-    -- 文字卡列表（阁楼「最近」）：每条一张卡；按最高那张算一页能放几条
+    -- 文字卡列表（阁楼「动态」）：每条一张卡；按最高那张算一页能放几条
     if v.notes then
         local before = bodyH()
         local tallest = 0
@@ -343,12 +277,8 @@ function S:init()
             gap(8)
         end
         if v.notes.fit and tallest > 0 then
-            -- 报两个数：没有顶部状态卡时一页几条；状态卡占掉几条（阁楼第 2 页的来客卡）
-            local room = h - before - footer_h - px(6) + px(8)
-            local full = math.max(1, math.floor((room + status_h) / tallest))
-            local lead = full - math.max(1, math.floor(room / tallest))
-            if status_h == 0 then lead = v.notes.lead or 0 end  -- 没有状态卡的页量不出来，沿用
-            if full ~= v.notes.per or lead ~= (v.notes.lead or 0) then UIManager:nextTick(function() v.notes.fit(full, lead) end) end
+            local full = math.max(1, math.floor((h - before - footer_h - px(6) + px(8)) / tallest))
+            if full ~= v.notes.per then UIManager:nextTick(function() v.notes.fit(full) end) end
         end
     end
     -- 分类页签

@@ -59,12 +59,21 @@ function PaperSprite:onPageUpdate(pageno)
     if not last or not self._last_page then return end
     local step = math.abs(self._last_page - last)
     if step == 0 or step > 3 then return end
-    pcall(function() require("papersprite.core.reading").record(os.time()) end)
+    pcall(function() require("papersprite.core.reading").record(os.time(), self:_bookInfo(pageno)) end)
 end
 
+-- 当前书的书名 / 关键词，翻到最后几页算读完（不读正文）
+function PaperSprite:_bookInfo(pageno)
+    local props = self.ui.doc_props or {}
+    local total = self.ui.document:getPageCount()
+    return { title = props.display_title or props.title, keywords = (props.keywords or "") .. " " .. (props.description or ""),
+        finished = type(total) == "number" and total >= 20 and pageno >= total - 1 }
+end
+
+-- 阿页依赖月读：没装月读时只弹提示，不开游戏
 function PaperSprite:launch()
-    local host = require("papersprite.host.koreader").new()
-    require("papersprite.game").new(host):show()
+    if not require("papersprite.need_moon")() then return end
+    require("papersprite.game").new(require("papersprite.host.moon").new()):show()
 end
 
 return PaperSprite
