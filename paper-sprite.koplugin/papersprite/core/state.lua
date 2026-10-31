@@ -26,6 +26,15 @@ function State.fresh(now)
         seen_visitors = {},               -- 来客簿：id -> 初次来访时间
         place_trips = {},                 -- 剪贴簿：地点 id -> 回家次数
         wish_place = nil,                 -- 灵感惦记的下一趟目的地
+        -- 以下为成长系统（core/quest.lua），旧档缺字段时由 load 补默认
+        stats = {},                       -- trips / cards / visits / gifts / books / pages / events + weather / tag 分项
+        quests = {},                      -- { day, week, list = { {id, kind, key, target, p, reward, weekly, claimed} } }
+        achieved = {},                    -- 成就 id -> 达成时间
+        bonds = {},                       -- 访客 id -> 交情
+        attitude = "free",                -- 遇事态度 careful | free | bold
+        bookmarks = {},                   -- 读完的书 { title, at, tag }
+        seen_souvenirs = {},              -- 收到过的特产 id（送人后仍算收集过）
+        level = 1,
     }
 end
 

@@ -40,6 +40,10 @@ local function btns()
 end
 local function click(prefix)
     for _, b in ipairs(btns()) do if b.text:sub(1, #prefix) == prefix then b.callback() return end end
+    if H.view.tabbar and H.view.tabbar.active <= 2 then -- 阁楼的入口在首页，册子在收藏页
+        H.view.tabbar.on_tab(3 - H.view.tabbar.active)
+        for _, b in ipairs(btns()) do if b.text:sub(1, #prefix) == prefix then b.callback() return end end
+    end
     local t = {} for _, b in ipairs(btns()) do t[#t + 1] = b.text end
     error("no button " .. prefix .. " in " .. table.concat(t, " / "))
 end
@@ -53,23 +57,19 @@ local function text()
     for _, l in ipairs(H.view.lines or {}) do t[#t + 1] = type(l) == "table" and l.text or l end
     return table.concat(t, "\n")
 end
---- 阁楼第 2 页才是操作入口；第 1 页只有通栏画面 + 状态
-local function attic_ops()
-    assert(H.view.pager, "attic pager")
-    if H.view.pager.page ~= 2 then H.view.pager.go(2) end
-    assert(H.view.shelf and #H.view.shelf.cells == 6, "attic ops")
-end
+--- 阁楼首页：通栏画面 + 状态 + 三个操作入口（页签在底栏）
 local function attic_home()
-    assert(H.view.pager, "attic pager")
-    if H.view.pager.page ~= 1 then H.view.pager.go(1) end
-    assert(H.view.scene and H.view.scene_wide and not H.view.shelf, "attic home")
+    assert(H.view.tabbar, "attic tabbar")
+    if H.view.tabbar.active ~= 1 then H.view.tabbar.on_tab(1) end
+    assert(H.view.scene and H.view.scene_wide and H.view.shelf and #H.view.shelf.cells == 3, "attic home")
 end
+local attic_ops = attic_home
 
 -- 1. 打开，收拾行囊
 local Game = require("papersprite.game")
 local g = Game.new(H.host):show()
 assert(H.view.title == "阿页的阁楼")
-assert(H.view.scene and H.view.scene_wide and not H.view.shelf, "page1 is scene only")
+assert(H.view.scene and H.view.scene_wide and #H.view.shelf.cells == 3, "page1 has scene + 3 acts")
 attic_ops(); click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
 assert(H.saved.sprite.status == "packed", "should be packed")
 back(); attic_home(); assert(text():find("快要出门"))
@@ -405,12 +405,13 @@ for k = 1, 15 do sa.log[k] = "事" .. k end
 sa.visitor = { id = "inkbug", pose = "", until_at = 1e12 }
 H.saved = sa
 local g8 = Game.new(H.host):show()
-assert(H.view.scene and H.view.scene_wide and not H.view.shelf and H.view.pager.pages >= 3 and not H.view.notes)
-H.view.pager.next(); assert(H.view.shelf and #H.view.shelf.cells == 6 and H.view.status.title:find("做什么"))
-H.view.pager.next(); assert(H.view.status.title:find("墨点虫") and H.view.notes and H.view.notes.rows[1].text == "事15")
-H.view.notes.fit(5, 2); assert(H.view.pager.pages == 6 and #H.view.notes.rows == 3)
-H.view.pager.go(4); assert(H.view.notes.rows[1].text == "事12" and #H.view.notes.rows == 5 and not H.view.status)
-H.view.pager.go(6); assert(H.view.notes.rows[1].text == "事2" and #H.view.notes.rows == 2)
+assert(H.view.scene and H.view.scene_wide and #H.view.shelf.cells == 3 and not H.view.notes and not H.view.pager and #H.view.tabbar.tabs == 3)
+assert(H.view.status.title:find("墨点虫") and H.view.buttons[1].text == "招待客人")
+H.view.tabbar.on_tab(2); assert(H.view.status.title:find("收藏") and #H.view.shelf.cells == 6)
+H.view.tabbar.on_tab(1); assert(H.view.status.title:find("墨点虫") and H.view.buttons[1].text == "招待客人") -- 来客在首页替换阿页的状态卡
+H.view.tabbar.on_tab(3); assert(not H.view.status and H.view.notes.rows[1].text == "事15")
+H.view.notes.fit(5); assert(H.view.pager.pages == 3 and #H.view.notes.rows == 5 and H.view.tabbar.active == 3)
+H.view.pager.go(3); assert(H.view.notes.rows[1].text == "事5" and #H.view.notes.rows == 5)
 g8:close()
 
 -- 16. 日志时间：新日志记时间；旧存档无时间不显示；格式
@@ -425,7 +426,7 @@ do
     for k = 1, 30 do State.log(ls, "x" .. k, k) end
     assert(#ls.log == 20 and #ls.log_at == 20 and ls.log_at[20] == 30)
     H.saved = ls
-    local g9 = Game.new(H.host):show(); H.view.pager.go(3)
+    local g9 = Game.new(H.host):show(); H.view.tabbar.on_tab(3)
     local r1 = H.view.notes.rows[1]; assert(r1.text == "x30" and r1.meta)
     g9:close()
 end
@@ -480,8 +481,8 @@ do
     local ge = GameEn.new(H.host):show()
     clean("attic")
     for _, pg in ipairs({ "basket", "shop", "wall", "cabinet" }) do ge:go(pg) clean(pg) back() end
-    ge.attic_page = 2 ge:render() clean("attic ops")
-    ge.attic_page = 3 ge:render() clean("attic log")
+    ge.attic_page = 2 ge:render() clean("attic keeps")
+    ge.attic_page = 3 ge:render() clean("attic feed")
     ge:close()
     L10n.load("zh_CN")
     for k in pairs(package.loaded) do
@@ -619,4 +620,40 @@ do -- 访客：不出门也会来；节日更勤；出门时不来
         return n
     end
     assert(visits() > 100, "home sprite gets visitors without trips")
+end
+
+do -- 玩法扩展：委托 / 招待 / 成就 / 读书
+    local State = require("papersprite.core.state")
+    local Quest = require("papersprite.core.quest")
+    local stub = package.loaded["papersprite.core.reading"]
+    package.loaded["papersprite.core.reading"] = nil
+    local Reading = require("papersprite.core.reading")
+    package.loaded["papersprite.core.reading"] = stub
+    local Travel = require("papersprite.core.travel")
+    local s = State.fresh(1)
+    Quest.refresh(s, 1000)
+    local list = s.quests.list
+    assert(#list == 4 and list[1].p == 0)
+    for _, q in ipairs(list) do Quest.note(s, q.kind, q.key, q.target) end
+    for _ = 1, 3 do Quest.note(s, "trip", "water") Quest.note(s, "card", "sunny") Quest.note(s, "pages", nil, 50) end
+    local before = s.inspiration
+    assert(Quest.claimable(s) >= 1)
+    for i = 1, #list do Quest.claim(s, i) end
+    assert(s.inspiration > before and Quest.claimable(s) == 0 and not Quest.claim(s, 1), "claim once")
+
+    local g = State.fresh(1)
+    g.sprite.status = "home"
+    g.visitor = { id = "inkbug", pose = "", until_at = 1e9 }
+    g.souvenirs.ad_slip = 2
+    local ok = Quest.give(g, "ad_slip", 2000)
+    assert(ok and g.souvenirs.ad_slip == 1 and Quest.bond(g, "inkbug") >= 1 and g.visitor.fed)
+    assert(not Quest.give(g, "ad_slip", 2000), "one gift per visit")
+
+    assert(Reading.tagOf("a detective story") == "night" and Reading.tagOf("plain") == nil)
+    H.saved = State.fresh(0)
+    H.saved.souvenirs.ad_slip = 1
+    H.saved.visitor = { id = "inkbug", pose = "", until_at = 1e12 }
+    local gu = Game.new(H.host):show()
+    for _, pg in ipairs({ "quests", "achievements", "bookwall", "guest_here" }) do gu:go(pg) assert(H.view.title, pg) end
+    gu:close()
 end

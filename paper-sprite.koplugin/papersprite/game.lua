@@ -13,6 +13,8 @@ local Travel = require("papersprite.core.travel")
 local Album = require("papersprite.core.album")
 local Story = require("papersprite.core.story")
 local Festival = require("papersprite.core.festival")
+local Quest = require("papersprite.core.quest")
+local Achievements = require("papersprite.data.achievements")
 local Items = require("papersprite.data.items")
 local Postcards = require("papersprite.data.postcards")
 
@@ -268,54 +270,47 @@ function Game:_attic()
         { icon = "sprite/peek.png", title = T("来客簿"), meta = T("%d / %d 位", guests_have, guests_total),
           caption = T("来过的小客人"), callback = function() self.guest_page = 1 self:go("guestbook") end },
     }
-    -- 第 1 页：通栏画面 + 状态；第 2 页：六个入口；第 3 页起：来客 + 最近
-    local per = self:per("attic_log", 6)
-    local logs = {}
-    local log_at = s.log_at or {}
-    for i = #s.log, 1, -1 do logs[#logs + 1] = { text = s.log[i], at = log_at[i] } end
-    local lead = self:per("attic_lead", 2)
-    local c2 = math.max(1, per - lead)   -- 日志首页有来客卡，少放几条
-    local log_pages = 1 + math.ceil(math.max(0, #logs - c2) / per)
-    local pages = 2 + log_pages
-    local page = math.max(1, math.min(self.attic_page or 1, pages))
+    -- 三个页签：阁楼（画面 + 状态 + 行囊 / 小铺 / 委托）、收藏（六本册子）、动态（来客 + 最近，不分页）
+    local acts = { cells[1], cells[2], self:_questCell() }
+    local keeps = { cells[3], cells[4], cells[5], cells[6], self:_bookCell(), self:_achCell() }
+    local page = math.max(1, math.min(self.attic_page or 1, 3))
     self.attic_page = page
-    local pager = { page = page, pages = pages, go = function(n) self.attic_page = n self:render() end,
-        prev = function() self.attic_page = page - 1 self:render() end, next = function() self.attic_page = page + 1 self:render() end }
+    local tabbar = { active = page, on_tab = function(id) self.attic_page = id self:render() end, tabs = {
+        { id = 1, text = T("阁楼"), icon = "home" }, { id = 2, text = T("收藏"), icon = "bookmark" },
+        { id = 3, text = T("动态"), icon = "history" } } }
+    local v
     if page == 1 then
-        return { title = T("阿页的阁楼"), scene = scene, scene_wide = true, status = st, pager = pager }
-    end
-    if page == 2 then
-        return { title = T("阿页的阁楼"),
-            status = { icon = "sprite/carry.png", title = T("做什么"), caption = T("收拾行囊、小铺、明信片和收集都在这里。"),
-                meta = T("灵感 ✦ %d　·　明信片 %d", s.inspiration, #s.postcards) },
-            shelf = { cols = 3, icon = 56, compact = true, cells = cells }, pager = pager }
-    end
-    local log_page = page - 2
-    local v = { title = T("阿页的阁楼"), pager = pager, lines = {} }
-    if log_page == 1 then
+        v = { title = T("阿页的阁楼"), scene = scene, scene_wide = true, status = st,
+            shelf = { cols = 3, icon = 40, compact = true, cells = acts } }
         local vis = s.visitor and sp.status ~= "away" and Travel.visitor(s.visitor.id)
-        if vis then
+        if vis then -- 来客在家时，状态卡换成客人，招待就在首页
             v.status = { icon = "visitors/" .. vis.id .. (s.visitor.pose or "") .. ".png", icon_size = 72, title = T("来客 · %s", vis.name),
-                caption = s.visitor.line or vis.here, meta = T("还会待一会儿") }
-        else
-            v.status = { icon = "sprite/peek.png", title = T("今天没有客人"), caption = T("小客人会在阿页回家后来串门。") }
+                caption = s.visitor.line or vis.here, meta = s.visitor.fed and T("已招待，还会待一会儿") or T("交情 %d　·　还会待一会儿", Quest.bond(s, vis.id)) }
+            if not s.visitor.fed then v.buttons = { { text = T("招待客人"), callback = function() self.gh_page = 1 self:go("guest_here") end } } end
         end
+    elseif page == 2 then
+        v = { title = T("阿页的阁楼"),
+            status = { icon = "items/pocket_dict.png", title = T("收藏"), caption = T("明信片、特产、地点、客人、读过的书和成就。"),
+                meta = T("明信片 %d　·　读完 %d 本", #s.postcards, #(s.bookmarks or {})) },
+            shelf = { cols = 3, icon = 56, compact = true, cells = keeps } }
+    else
+        v = self:_feed(now, sp, s)
     end
-    local first = log_page == 1 and 1 or (c2 + (log_page - 2) * per + 1)
-    local cnt = log_page == 1 and c2 or per
-    v.lines[1] = { text = T("最近") .. (#logs > 0 and T("（%d–%d / %d）", math.min(#logs, first), math.min(#logs, first + cnt - 1), #logs) or ""), label = true }
+    v.tabbar = tabbar
+    return v
+end
+
+function Game:_feed(now, _sp, s)
+    local logs, log_at = {}, s.log_at or {}
+    for i = #s.log, 1, -1 do logs[#logs + 1] = { text = s.log[i], at = log_at[i] } end
+    local rows, pager, per = self:_slice("feed", logs, 6)
+    local first = (pager.page - 1) * per + 1
+    local v = { title = T("阿页的阁楼"), pager = pager, lines = {} }
+    v.lines[1] = { text = T("最近") .. (#logs > 0 and T("（%d–%d / %d）", first, first + #rows - 1, #logs) or ""), label = true }
     if #logs == 0 then v.empty = { title = T("还没有什么新鲜事"), caption = T("阿页出门、回家、来客都会记在这里。") } end
-    local rows = {}
-    for i = first, math.min(#logs, first + cnt - 1) do rows[#rows + 1] = { text = logs[i].text, meta = Game.when(logs[i].at, now) } end
-    v.notes = { rows = rows, per = per, lead = lead, fit = function(full, ld)
-        self.per_page = self.per_page or {}
-        -- 各页最高那张卡不一样，量出来的条数会来回跳（页数 3/5 ↔ 3/7 死循环）；只许往小收，不许回弹
-        local cur = self.per_page.attic_log
-        if cur and full > cur then full = cur end
-        if self.closed or (cur == full and self.per_page.attic_lead == ld) then return end
-        self.per_page.attic_log, self.per_page.attic_lead = full, ld
-        self:render()
-    end }
+    local out = {}
+    for _, l in ipairs(rows) do out[#out + 1] = { text = l.text, meta = Game.when(l.at, now) } end
+    v.notes = { rows = out, per = per, fit = self:fitter("feed") }
     return v
 end
 
@@ -324,6 +319,10 @@ function Game.souvenirTotal()
     for _ in pairs(Postcards.souvenirs) do n = n + 1 end
     return n
 end
+
+local ATTITUDE = { careful = T("谨慎"), free = T("随性"), bold = T("大胆") }
+local ATTITUDE_NEXT = { careful = "free", free = "bold", bold = "careful" }
+local ATTITUDE_NOTE = { careful = T("少遇事，不会被耽搁。"), free = T("偶尔遇到点小事。"), bold = T("常遇事，有机会撞上奇遇。") }
 
 function Game:_basket()
     local s = self.state
@@ -368,6 +367,8 @@ function Game:_basket()
         shelf = { cols = 3, icon = 48, compact = true, cells = cells },
         lines2 = { { text = T("放进「%s」", SLOT_NAME[slot]), label = true } },
         shelf2 = { cols = 2, cells = picks, per = per, fit = self:fitter("basket") },
+        buttons = { { text = T("遇事态度：%s（%s）", ATTITUDE[s.attitude or "free"], ATTITUDE_NOTE[s.attitude or "free"]), callback = function()
+            s.attitude = ATTITUDE_NEXT[s.attitude or "free"] self:save() self:render() end } },
         empty2 = #picks == 0 and { title = T("这一格没有可放的东西"), caption = T("去小铺看看") } or nil,
         pager = { page = page, pages = pages, go = function(n) self.basket_page = n self:render() end, prev = function() self.basket_page = page - 1 self:render() end,
             next = function() self.basket_page = page + 1 self:render() end } }
@@ -725,6 +726,128 @@ function Game:_guest()
         lines = lines }
 end
 
+--- 通用分页：按 key 记住每页条数与当前页；返回当前页的切片和 pager
+function Game:_slice(key, list, default)
+    local per = self:per(key, default)
+    local pages = math.max(1, math.ceil(#list / per))
+    local page = math.max(1, math.min(self[key .. "_page"] or 1, pages))
+    self[key .. "_page"] = page
+    local out = {}
+    for i = (page - 1) * per + 1, math.min(#list, page * per) do out[#out + 1] = list[i] end
+    return out, { page = page, pages = pages, go = function(n) self[key .. "_page"] = n self:render() end,
+        prev = function() self[key .. "_page"] = page - 1 self:render() end, next = function() self[key .. "_page"] = page + 1 self:render() end }, per
+end
+
+--- 阁楼第 2 页状态：阿页的阶与成长进度
+function Game:_growth()
+    local s = self.state
+    local lv, name, next_exp, exp = Quest.level(s)
+    return { icon = "sprite/carry.png", title = T("阿页 · %s（%d 阶）", name, lv),
+        caption = next_exp and T("成长 %d / %d：回家、收信、读书、待客都会长大。", exp, next_exp) or T("已经长到最大了。"),
+        meta = T("灵感 ✦ %d", s.inspiration) }
+end
+
+function Game:_questCell()
+    local claim = Quest.claimable(self.state)
+    return { icon = "items/travel_diary.png", title = T("委托"), meta = claim > 0 and T("可领取 %d", claim) or T("今日 / 本周"), badge = claim > 0 and T("新") or nil,
+        caption = T("每天三条，每周一条"), callback = function() self.quest_page = 1 self:go("quests") end }
+end
+
+function Game:_achCell()
+    local n = 0
+    for _ in pairs(self.state.achieved or {}) do n = n + 1 end
+    return { icon = "items/paper_clip.png", title = T("成就"), meta = T("%d / %d", n, #Achievements), caption = T("达成自动记入"),
+        callback = function() self.ach_page = 1 self:go("achievements") end }
+end
+
+function Game:_bookCell()
+    return { icon = "items/pocket_dict.png", title = T("读书墙"), meta = T("%d 本", #(self.state.bookmarks or {})), caption = T("读完的书会变成书签"),
+        callback = function() self.book_page = 1 self:go("bookwall") end }
+end
+
+function Game:_quests()
+    local s = self.state
+    local list = (s.quests or {}).list or {}
+    local idx = {}
+    for i = 1, #list do idx[i] = i end
+    local rows, pager, per = self:_slice("quest", idx, 6)
+    local cells = {}
+    for _, i in ipairs(rows) do
+        local q = list[i]
+        local done = q.p >= q.target
+        cells[#cells + 1] = { icon = "items/travel_diary.png", title = (q.weekly and T("【本周】") or T("【今日】")) .. Quest.describe(q), check = q.claimed, dim = q.claimed,
+            meta = q.claimed and T("已领取") or (done and T("点这里领取 ✦ %d", q.reward) or T("%d / %d　·　奖励 ✦ %d", q.p, q.target, q.reward)),
+            callback = function()
+                local ok, n = Quest.claim(s, i)
+                if ok then self:save() self.host:notify(T("灵感 +%d", n)) self:render() end
+            end }
+    end
+    return { title = T("委托"), status = { icon = "items/travel_diary.png", title = T("今日委托"), caption = T("每天零点换新，完成后点一下领取灵感。"),
+            meta = T("灵感 ✦ %d", s.inspiration) },
+        shelf = { cols = 1, cells = cells, per = per, fit = self:fitter("quest") }, pager = pager }
+end
+
+function Game:_achievements()
+    local s = self.state
+    local rows, pager, per = self:_slice("ach", Achievements, 6)
+    local cells, done = {}, 0
+    for _ in pairs(s.achieved or {}) do done = done + 1 end
+    for _, a in ipairs(rows) do
+        local at = (s.achieved or {})[a.id]
+        cells[#cells + 1] = { icon = "items/paper_clip.png", title = a.name, check = at ~= nil, dim = at == nil,
+            meta = at and T("已达成　✦ %d", a.reward) or T("奖励 ✦ %d", a.reward), caption = a.desc }
+    end
+    return { title = T("成就"), status = { icon = "items/paper_clip.png", title = T("达成 %d / %d", done, #Achievements), caption = T("达成后自动发灵感。") },
+        shelf = { cols = 2, cells = cells, per = per, fit = self:fitter("ach") }, pager = pager }
+end
+
+function Game:_bookwall()
+    local s = self.state
+    local books = {}
+    for i = #(s.bookmarks or {}), 1, -1 do books[#books + 1] = s.bookmarks[i] end
+    local rows, pager, per = self:_slice("book", books, 6)
+    local cells = {}
+    for _, b in ipairs(rows) do
+        cells[#cells + 1] = { icon = "items/pocket_dict.png", title = b.title, check = true, meta = os.date("%Y-%m-%d", b.at or 0),
+            caption = nil }
+    end
+    return { title = T("读书墙"), status = { icon = "items/pocket_dict.png", title = T("读完 %d 本书", #books),
+            caption = T("在阅读器里读到最后几页，这本书就会变成书签贴在这里，阿页也会惦记着书里的地方。") },
+        empty = #books == 0 and { title = T("墙上还空着"), caption = T("读完一本书试试。") } or nil,
+        shelf = { cols = 1, cells = cells, per = per, fit = self:fitter("book") }, pager = pager }
+end
+
+function Game:_guest_here()
+    local s = self.state
+    local v = s.visitor and Travel.visitor(s.visitor.id)
+    if not v or s.visitor.fed or s.sprite.status == "away" then self.page = "attic" return self:_attic() end
+    local ids = {}
+    for id in pairs(s.souvenirs) do if Postcards.souvenirs[id] then ids[#ids + 1] = id end end
+    table.sort(ids, function(a, b) return Postcards.souvenirs[a].name < Postcards.souvenirs[b].name end)
+    local rows, pager, per = self:_slice("gh", ids, 6)
+    local cells = {}
+    for _, id in ipairs(rows) do
+        local sv = Postcards.souvenirs[id]
+        local want = s.visitor.request == id
+        cells[#cells + 1] = { icon = "souvenirs/" .. id .. ".png", title = sv.name, check = want,
+            meta = Quest.rarity(id).name .. " ×" .. s.souvenirs[id] .. (want and T("　它想要这个") or ""), caption = sv.note,
+            callback = function()
+                local ok, msg = Quest.give(s, id, self.host:now())
+                Quest.check(s, self.host:now())
+                self:save()
+                self.host:notify(msg)
+                if ok then self:go("attic") else self:render() end
+            end }
+    end
+    local req = s.visitor.request and Postcards.souvenirs[s.visitor.request]
+    return { title = T("招待 %s", v.name),
+        status = { icon = "visitors/" .. v.id .. (s.visitor.pose or "") .. ".png", icon_size = 72, title = T("%s　·　交情 %d", v.name, Quest.bond(s, v.id)),
+            caption = req and T("想要：%s（送对加倍）", req.name) or T("送一件特产，交情 +1；交情到 3 / 5 / 8 有回礼。"),
+            meta = T("每位客人只能招待一次") },
+        empty = #ids == 0 and { title = T("柜子里没有特产"), caption = T("等阿页带回来一些。") } or nil,
+        shelf = { cols = 2, cells = cells, per = per, fit = self:fitter("gh") }, pager = pager }
+end
+
 --- 每页数量：默认值，界面按屏幕剩余高度回报实际能放的数量（fit）后记住
 function Game:per(key, default) self.per_page = self.per_page or {} return self.per_page[key] or default end
 --- 事件时间：1 分钟内「刚刚」，1 小时内「N 分钟前」，当天内「N 小时前」，更早用明信片同款「MM-DD HH:MM」；没时间返回 nil
@@ -753,6 +876,7 @@ Game.PARENT = {
     scrapbook = "attic", guestbook = "attic",
     shop_item = "shop", card = "wall", souvenir = "cabinet",
     place = "scrapbook", guest = "guestbook",
+    quests = "attic", achievements = "attic", bookwall = "attic", guest_here = "attic",
 }
 
 function Game:view()

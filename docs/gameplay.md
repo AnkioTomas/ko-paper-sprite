@@ -46,3 +46,11 @@
 - KOReader：`.moon/game/paper-sprite/save.lua` 里 `["setting_debug_fast"] = true`
 - 月读：`.moon/settings/ext.papersprite.lua` 的 `settings.debug_fast = true`
 - 代码：`host:setSetting("debug_fast", true)`
+
+## 扩展玩法
+
+- **阅读联动**：`core/reading.lua` 记翻页并按书名 / 关键词判类型（`GENRES`）；末页附近 = 读完，进 `bookmarks`（读书墙）并 +5 ✦。类型写入 `read_tag`，48 小时内选地点 +3 权重。
+- **成长**：`core/quest.lua` 的 `exp/level` 分 5 阶。
+- **旅途事件**：`data/events.lua`，出发时按态度（`attitude`）掷骰；效果在出发（时长 / 邮件）与归来（特产加倍 / 灵感 / 道具）结算。
+- **访客互动**：访客在家时「招待」送特产，一人一次；交情 3 / 5 / 8 阶段有回礼；访客可带 `request`。
+- **委托 / 成就**：`data/quests.lua`、`data/achievements.lua`；`Quest.note` 记数，`Quest.check` 在 `settle` 末尾自动发成就。

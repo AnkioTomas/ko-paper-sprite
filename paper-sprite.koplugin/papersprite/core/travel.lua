@@ -17,6 +17,9 @@ local Lines = require("papersprite.data.lines")
 local Notes = require("papersprite.data.notes")
 local Festival = require("papersprite.core.festival")
 local State = require("papersprite.core.state")
+local Quest = require("papersprite.core.quest")
+local Events = require("papersprite.data.events")
+local Reading = require("papersprite.core.reading")
 
 local T = {}
 
@@ -55,7 +58,7 @@ function T.put(s, id, now, debug_fast)
     return true
 end
 
-local function choosePlace(s)
+local function choosePlace(s, at)
     -- 灵感「惦记」：下一趟直达该地，用过即清
     if s.wish_place then
         local wish = T.place(s.wish_place)
@@ -67,6 +70,8 @@ local function choosePlace(s)
         local it = item(s.basket[slot])
         for _, tag in ipairs(it and it.tags or {}) do weight[tag] = (weight[tag] or 0) + 2 end
     end
+    -- 刚读的书把阿页往对应的地方引
+    if s.read_tag and s.read_tag_at and at - s.read_tag_at <= Reading.TAG_TTL then weight[s.read_tag] = (weight[s.read_tag] or 0) + 3 end
     local pool = {}
     for _, p in ipairs(Places) do
         for _ = 1, 1 + (weight[p.tag] or 0) do pool[#pool + 1] = p end
@@ -78,8 +83,30 @@ end
 
 function T.place(id) for _, p in ipairs(Places) do if p.id == id then return p end end end
 
+T.EVENT_CHANCE = { careful = 0.15, free = 0.3, bold = 0.5 }
+
+--- 按遇事态度抽一个旅途事件：谨慎不遇延误和奇遇，随性不遇大胆专属，大胆什么都可能遇到
+local function rollEvent(s)
+    local att = s.attitude or "free"
+    local f
+    s.seed, f = R.next(s.seed)
+    if f >= (T.EVENT_CHANCE[att] or 0.3) + (Quest.level(s) >= 5 and 0.1 or 0) then return nil end
+    local pool, total = {}, 0
+    for _, e in ipairs(Events) do
+        local ok = att == "bold" or (not e.bold and (att == "free" or not e.hours))
+        if ok then pool[#pool + 1] = e total = total + e.weight end
+    end
+    s.seed, f = R.next(s.seed)
+    f = f * total
+    for _, e in ipairs(pool) do
+        f = f - e.weight
+        if f < 0 then return e end
+    end
+    return pool[#pool]
+end
+
 local function depart(s, at, u)
-    local place = choosePlace(s)
+    local place = choosePlace(s, at)
     local hours = 3
     local basket = {}
     for _, slot in ipairs(T.SLOTS) do
@@ -90,10 +117,15 @@ local function depart(s, at, u)
     local f
     s.seed, f = R.next(s.seed)
     hours = math.max(3, math.min(30, hours + math.floor(f * 12)))
+    local ev = rollEvent(s)
+    if ev then hours = hours + (ev.hours or 0) end
     local ret = at + hours * u.hour
     local mail = {}
     s.seed, f = R.next(s.seed)
     local n = (f < 0.5) and 1 or (f < 0.85 and 2 or 3) -- 每趟 1–3 张
+    s.seed, f = R.next(s.seed)
+    if f < (Quest.level(s) >= 3 and 0.25 or 0) then n = n + 1 end
+    if ev then n = n + (ev.mail or 0) end
     s.collected = s.collected or {}
     local picked = {}
     for i = 1, n do
@@ -107,7 +139,7 @@ local function depart(s, at, u)
     s.seed, sv = R.pick(s.seed, place.souvenirs)
     s.trips = (s.trips or 0) + 1
     s.sprite = { status = "away", trip = s.trips, place = place.id, left_at = at, return_at = ret,
-        mail = mail, souvenir = sv, basket = basket, hours = hours }
+        mail = mail, souvenir = sv, basket = basket, hours = hours, event = ev and ev.id or nil }
     local pick
     s.seed, pick = R.pick(s.seed, Notes.away)
     s.note = pick
@@ -133,7 +165,8 @@ local function arriveVisitor(s, at, u)
         if f < 0 or v == Visitors[#Visitors] then
             local pose
             s.seed, pose = R.pick(s.seed, v.poses or { "" })
-            s.visitor = { id = v.id, pose = pose, until_at = at + v.stay * u.hour }
+            s.visitor = { id = v.id, pose = pose, until_at = at + v.stay * u.hour, request = Quest.request(s) }
+            Quest.note(s, "visit")
             s.seen_visitors = s.seen_visitors or {}
             if not s.seen_visitors[v.id] then s.seen_visitors[v.id] = at end
             State.log(s, v.arrive, at)
@@ -174,6 +207,7 @@ function T.settle(s, now, debug_fast)
     local events = {}
     local sp = s.sprite
     s.visit_check = s.visit_check or now
+    Quest.refresh(s, now)
     if sp.status == "packed" and now >= sp.depart_at then
         rollVisits(s, s.visit_check, sp.depart_at, u)
         s.visit_check = sp.depart_at
@@ -200,6 +234,7 @@ function T.settle(s, now, debug_fast)
                 card.at, card.trip = m.at, sp.trip
                 if card.key then s.collected[card.key] = m.at end
                 table.insert(s.postcards, card)
+                Quest.note(s, "card", card.weather)
                 local ml
                 s.seed, ml = R.pick(s.seed, Lines.mail)
                 State.log(s, ml, m.at)
@@ -209,7 +244,12 @@ function T.settle(s, now, debug_fast)
         if now >= sp.return_at then
             local p = T.place(sp.place)
             local sv = sp.souvenir
-            s.souvenirs[sv] = (s.souvenirs[sv] or 0) + 1
+            local ev
+            for _, e in ipairs(Events) do if e.id == sp.event then ev = e end end
+            s.souvenirs[sv] = (s.souvenirs[sv] or 0) + ((ev and ev.double) and 2 or 1)
+            s.seen_souvenirs = s.seen_souvenirs or {}
+            s.seen_souvenirs[sv] = true
+            Quest.note(s, "trip", p.tag)
             s.place_trips = s.place_trips or {}
             s.place_trips[sp.place] = (s.place_trips[sp.place] or 0) + 1
             local bl
@@ -221,6 +261,18 @@ function T.settle(s, now, debug_fast)
                 s.souvenir_notes[sv] = ai.souvenir_note
             end
             State.log(s, back, sp.return_at)
+            if ev then
+                Quest.note(s, "event")
+                s.inspiration = s.inspiration + (ev.ink or 0)
+                if ev.item then
+                    local it
+                    s.seed, it = R.pick(s.seed, Quest.shopItems())
+                    s.inventory[it.id] = (s.inventory[it.id] or 0) + 1
+                    State.log(s, ev.text .. L("（得到%s）", it.name), sp.return_at)
+                else
+                    State.log(s, ev.text, sp.return_at)
+                end
+            end
             s.basket, s.note = {}, nil
             if not ai and #sp.mail > 0 then -- 没赶上 AI：留个底，之后补写
                 s.recap = { trip = sp.trip, place = sp.place, souvenir = sv, hours = sp.hours, basket = sp.basket,
@@ -249,6 +301,7 @@ function T.settle(s, now, debug_fast)
     elseif s.visitor and now >= s.visitor.until_at then
         visitorLeaves(s)
     end
+    if #Quest.check(s, now) > 0 then events[#events + 1] = "achievement" end
     return events
 end
 
