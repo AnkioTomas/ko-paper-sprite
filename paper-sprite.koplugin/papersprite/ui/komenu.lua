@@ -59,9 +59,22 @@ local function newTab()
     return tab
 end
 
+--- 设置「在顶部菜单显示」，默认开
+function M.enabled()
+    return require("papersprite.host.moon").new():getSetting("komenu", true) ~= false
+end
+
+function M.setEnabled(on)
+    require("papersprite.host.moon").new():setSetting("komenu", on)
+end
+
 function M.inject(menu)
     local tabs = menu and menu.tab_item_table
     if type(tabs) ~= "table" then return end
+    if not M.enabled() then
+        for i = #tabs, 1, -1 do if tabs[i][MARKER] then table.remove(tabs, i) end end
+        return
+    end
     for _, t in ipairs(tabs) do if t[MARKER] then return end end
     local at = 1
     for i, t in ipairs(tabs) do if t._book_quick_panel or t._book_reader_panel then at = i + 1 end end

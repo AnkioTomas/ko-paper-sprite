@@ -38,6 +38,7 @@
 ## KOReader 顶部菜单里的「阿页」Tab
 从顶部下拉 / 点顶部打开的 KOReader 原生菜单（TouchMenu）里多一个「阿页」Tab（自绘图标 `assets/icons/papersprite.tab.svg`：折角书签 + 两个圆点眼睛，24 网格 1px 线，同 KOReader mdlight 风格；文件缺失时用自带 bookmark），**文件管理器和阅读中都有**。
 内容：阁楼卡（通栏阁楼画面 + 近况一行 + 灵感 / 新明信片小字）+ 一行快捷按钮「收拾行囊 / 小铺 / 明信片墙 / 特产柜」。
+开关：月读设置 → 游戏 → 阿页的阁楼 →「在顶部菜单显示」（`komenu` 设置，默认开）；关掉后下次打开菜单就不再出现该 Tab。
 点阁楼卡打开阁楼，点按钮打开对应页（先关菜单，下一帧全屏打开）。月读主题样式，拿不到主题时 KOReader 原生按钮 / 文字。
 
 ### 怎么做的（照月读快捷面板 `book.koplugin/features/panel/native.lua`，月读不改）

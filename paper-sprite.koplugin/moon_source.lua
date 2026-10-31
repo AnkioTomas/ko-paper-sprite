@@ -94,7 +94,22 @@ local function settingEntries(desktop)
         page = {
             title = title,
             sections = function()
-                return { { title = _("更新"), rows = {
+                return { { title = _("显示"), rows = {
+                    function(iw)
+                        local K = require("papersprite.ui.komenu")
+                        local on = K.enabled()
+                        return Row.widget({
+                            width = iw, chevron = false, kind = "toggle", icon = "bookmark",
+                            title = _("在顶部菜单显示"),
+                            subtitle = _("KOReader 顶部菜单里的「阿页」页签"),
+                            status = on and _("开") or _("关"), status_on = on,
+                            callback = function()
+                                K.setEnabled(not on)
+                                desktop:updateView()
+                            end,
+                        })
+                    end,
+                } }, { title = _("更新"), rows = {
                     function(iw)
                         local on = Update.autoEnabled()
                         return Row.widget({
