@@ -37,7 +37,7 @@ function Host:notify(text)
 end
 
 --- 可选 AI：月读已配置 AI（端点 / 密钥 / 模型齐全）时返回适配器，否则 nil。
---- 只用月读现有的 AI 设置与客户端（require("ai")），不引入新的密钥或配置。
+--- 只用月读现有的 AI 设置与客户端（require("ai")），不引入新的密钥或配置；localize 让月读按「AI 回答语言」设置改写提示词里的语言要求。
 function Host:ai()
     if self.opts.no_ai or self:getSetting("ai_story", true) == false then return nil end
     local ok, AI = pcall(require, "ai")
@@ -46,7 +46,7 @@ function Host:ai()
     if not ok2 or not configured then return nil end
     return {
         json = function(messages, cb)
-            return AI.jsonExtract(messages, { temperature = 0.8 }, cb)
+            return AI.jsonExtract(messages, { temperature = 0.8, localize = true }, cb)
         end,
     }
 end

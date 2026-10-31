@@ -152,7 +152,7 @@ local function trip(ai_impl)
 end
 local calls = 0
 local good = { json = function(msgs, cb)
-    if not msgs[2].content:find("明信片") then return cb(nil) end -- 每日纸条等其他请求不计
+    if not msgs[2].content:find("天气/时刻", 1, true) then return cb(nil) end -- 每日纸条等其他请求不计
     calls = calls + 1
     assert(msgs[1].role == "system")
     local n = select(2, msgs[2].content:gsub("%d%. 天气", ""))
@@ -180,7 +180,23 @@ assert(not Story.validate({ lines = {} }, 1))
 do
     local only_other = { json = function(msgs, cb)
         local c = msgs[2].content
-        if c:find("没有出门") then return cb({ note = "阿页在擦灯罩。" }) end
+        if c:find("预先写一批") then
+            local b = {}
+            for _, k in ipairs({ "dawn", "day", "dusk", "night" }) do b[k] = { "阿页在擦灯罩。", "阿页在数书页。", "阿页在发呆。" } end
+            return cb(b)
+        end
+        if c:find("预先写短句") then
+            local r = {}
+            for id in c:gmatch("\n([%w_]+)：") do r[id] = { "池里的" .. id .. "一。", "池里的" .. id .. "二。" } end
+            return cb(r)
+        end
+        if c:find("改写") then
+            local r = {}
+            for id in c:gmatch("\n([%w_]+)：") do r[id] = { "改写的" .. id .. "。" } end
+            return cb(r)
+        end
+        if c:find("小委托") then return cb({ flavors = { "便签一。", "便签二。", "便签三。", "便签四。", "便签五。", "便签六。" } }) end
+        if c:find("递给它一件特产") then return cb({ match = "它眼睛一亮。", plain = "它收下了。" }) end
         local n = select(2, c:gsub("%d%. 天气", ""))
         local lines = {} for i = 1, n do lines[i] = "迟到的第" .. i .. "句。" end
         cb({ lines = lines, souvenir_note = "迟到小注。" })
@@ -197,7 +213,27 @@ do
     assert(not cur.recap, "recap consumed")
     local late = 0 for _, c in ipairs(cur.postcards) do if c.line:find("迟到") then late = late + 1 end end
     assert(late >= 1, "late lines patched")
-    assert(cur.daily and cur.daily.text == "阿页在擦灯罩。", "daily note")
+    assert(next(cur.pool.lines) and next(cur.pool.events), "lines and events prefetched")
+    assert(cur.quests.list[1].flavor == "便签一。", "quest flavor")
+    local pl = next(cur.pool.lines)
+    local line = require("papersprite.core.pool").takeLine(cur, pl, function() return false end)
+    assert(line and line:find("池里的"), "take a pooled line")
+    local e1 = require("papersprite.data.events")[1]
+    assert(require("papersprite.core.pool").eventText(cur, e1) == "改写的" .. e1.id .. "。", "event text from pool")
+    assert(require("papersprite.core.pool").eventText(cur, e1) == e1.text, "falls back to local text when pool is empty")
+    assert(cur.pool.notes.dawn and #cur.pool.notes.dawn + #cur.pool.notes.day == 6, "notes prefetched into pool")
+    g3:tick()
+    cur = H.saved
+    assert(cur.daily and cur.daily.text == "阿页在擦灯罩。", "daily note taken from pool")
+    assert(#cur.pool.notes.day + #cur.pool.notes.dawn + #cur.pool.notes.dusk + #cur.pool.notes.night == 11, "one consumed")
+    cur.visitor = { id = "inkbug", until_at = H.clock + 99999, request = "shelf_plank" }
+    H.host:saveState(cur)
+    g3:tick()
+    cur = H.saved
+    assert(cur.visitor.react and cur.visitor.react.match == "它眼睛一亮。", "guest reaction prefetched")
+    cur.souvenirs.shelf_plank = 1
+    local ok, msg = require("papersprite.core.quest").give(cur, "shelf_plank", H.clock)
+    assert(ok and msg:find("它眼睛一亮。", 1, true), "reaction shown when hosting: " .. tostring(msg))
     g3:close()
 end
 

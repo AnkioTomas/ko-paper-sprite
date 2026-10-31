@@ -6,6 +6,7 @@
 ## 来源与开关
 - 只复用月读现有能力：`require("ai")`（月读 `book.koplugin/ai.lua`）的 `isConfigured()` 与 `jsonExtract(messages, opts, cb)`。
 - 端点、密钥、模型、超时都来自月读设置（`settings/ai.lua`），本插件**不新增任何密钥或网络配置**。
+- 回答语言跟随月读「AI 回答语言」设置：请求带 `localize = true`，月读把系统提示词里的「简体中文」换成所选语言并追加用语要求；英文回答的字数上限放宽 3 倍（`Story` 的 `slack`）。
 - 纯 KOReader 宿主没有 `host:ai()`，永远走本地库。
 - 关闭：月读扩展设置 `ext.papersprite.settings.ai_story = false`。
 
@@ -49,4 +50,10 @@
 
 - **旅行文案**：出门期间在 `Game:tick` 里请求；JSON 还可带 `note`（≤24 字出门纸条）。
 - **迟到补写**（`maybeRecap`）：整趟在界面关着时走完，`Travel` 回家时留下 `s.recap`；下次打开补请求，`Travel.applyRecap` 改写那几张明信片的句子（同样去重）和特产小注。
-- **今日小纸条**（`maybeDaily`）：阿页在家时，每个「日期 + 时段」一张（≤40 字），显示在阁楼状态栏；无 AI 时用 `data/notes.lua` 按日期、钟点稳定地挑。
+- **预取（提前要好，用时不等）**：
+  - 今日小纸条（`maybeDaily`）：池 `s.pool.notes` 按时段（清晨 / 白天 / 傍晚 / 夜里）存，每个时段 3 张；阿页在家时某个时段见底就后台一次补一批（≈每 2 天一次请求），每个「日期 + 时段」从池里取一张显示在阁楼状态栏；池空时用 `data/notes.lua` 本地池。
+  - 来客反应（`maybeGuest`）：访客一到就预取两句（送了想要的 / 送了别的）和一句「在家」描写，存在 `visitor.react` / `visitor.line`，首页招待时直接显示，不等请求。
+  - `core/pool.lua`（每次刷新见底才补，互不阻塞，各自最多重试 `MAX_TRIES` 次）：
+    - 明信片句：`pool.lines[地点]`，每次最多 4 个地点、每地点 4 句，按去过的次数从多到少补；寄达时没有本趟 AI 句就取池里一句（收到过的丢掉）。
+    - 旅途事件：`pool.events[事件]` 每个事件 2 种改写，写进日志时取一条，意思与效果不变；池空用原文。
+    - 委托托词：新委托一出现就批量要一句便签式托词，存进 `quests.list[i].flavor`，显示在委托页。

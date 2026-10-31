@@ -12,6 +12,7 @@ local State = require("papersprite.core.state")
 local Travel = require("papersprite.core.travel")
 local Album = require("papersprite.core.album")
 local Story = require("papersprite.core.story")
+local Pool = require("papersprite.core.pool")
 local Festival = require("papersprite.core.festival")
 local Quest = require("papersprite.core.quest")
 local Achievements = require("papersprite.data.achievements")
@@ -51,6 +52,8 @@ function Game:tick()
     Story.maybeRequest(self.host, self.state, function(cur) if not self.closed then self.state = cur end end)
     Story.maybeRecap(self.host, self.state, fresh)
     Story.maybeDaily(self.host, self.state, fresh)
+    Story.maybeGuest(self.host, self.state, fresh)
+    Pool.maybeFill(self.host, self.state, fresh)
     self:save()
     return ev
 end
@@ -770,7 +773,7 @@ function Game:_quests()
     for _, i in ipairs(rows) do
         local q = list[i]
         local done = q.p >= q.target
-        cells[#cells + 1] = { icon = "items/travel_diary.png", title = (q.weekly and T("【本周】") or T("【今日】")) .. Quest.describe(q), check = q.claimed, dim = q.claimed,
+        cells[#cells + 1] = { icon = "items/travel_diary.png", title = (q.weekly and T("【本周】") or T("【今日】")) .. Quest.describe(q), check = q.claimed, dim = q.claimed, caption = q.flavor,
             meta = q.claimed and T("已领取") or (done and T("点这里领取 ✦ %d", q.reward) or T("%d / %d　·　奖励 ✦ %d", q.p, q.target, q.reward)),
             callback = function()
                 local ok, n = Quest.claim(s, i)

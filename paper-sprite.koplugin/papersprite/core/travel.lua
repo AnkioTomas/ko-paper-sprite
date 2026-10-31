@@ -15,6 +15,7 @@ local Visitors = require("papersprite.data.visitors")
 local R = require("papersprite.core.rng")
 local Lines = require("papersprite.data.lines")
 local Notes = require("papersprite.data.notes")
+local Pool = require("papersprite.core.pool")
 local Festival = require("papersprite.core.festival")
 local State = require("papersprite.core.state")
 local Quest = require("papersprite.core.quest")
@@ -221,6 +222,7 @@ function T.settle(s, now, debug_fast)
                 m.sent = true
                 local card = m.card
                 local line = ai and ai.lines and ai.lines[i]
+                if not line then line = Pool.takeLine(s, sp.place, T.seenText) end
                 -- AI 句子去重：和收到过的任何一句（AI 或本地）几乎相同就不用，保留本地句
                 if line and not T.seenText(s, line) then
                     card.line, card.ai = line, true
@@ -264,9 +266,9 @@ function T.settle(s, now, debug_fast)
                     local it
                     s.seed, it = R.pick(s.seed, Quest.shopItems())
                     s.inventory[it.id] = (s.inventory[it.id] or 0) + 1
-                    State.log(s, ev.text .. L("（得到%s）", it.name), sp.return_at)
+                    State.log(s, Pool.eventText(s, ev) .. L("（得到%s）", it.name), sp.return_at)
                 else
-                    State.log(s, ev.text, sp.return_at)
+                    State.log(s, Pool.eventText(s, ev), sp.return_at)
                 end
             end
             s.basket, s.note = {}, nil

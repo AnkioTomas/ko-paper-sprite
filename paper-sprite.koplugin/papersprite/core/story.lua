@@ -55,8 +55,16 @@ function Story.messages(sp, ctx)
     return { { role = "system", content = SYSTEM }, { role = "user", content = user } }
 end
 
+--- 字数上限是按中文写的；回答语言是英文时同样意思要多出几倍字符，放宽上限（月读 AI 回答语言设置，离线测试里没有月读客户端）
+local function slack()
+    local ok, Client = pcall(require, "ai.client")
+    local lang = ok and Client.language and Client.language()
+    return lang and lang.name == "English" and 3 or 1
+end
+
 local function clean(s, max)
     if type(s) ~= "string" then return nil end
+    max = max * slack()
     s = s:gsub("[\r\n\t]+", " "):gsub("^%s+", ""):gsub("%s+$", ""):gsub('^["“「]', ""):gsub('["”」]$', "")
     if s == "" then return nil end
     local n = 0
@@ -65,6 +73,11 @@ local function clean(s, max)
     if s:find("[<>{}]") or s:lower():find("http") then return nil end
     return s
 end
+
+Story.clean = clean
+
+--- 只有用户提示的消息（系统提示固定）
+function Story.plain(user) return { { role = "system", content = SYSTEM }, { role = "user", content = user } } end
 
 --- 校验 AI 结果，返回规范化后的表或 nil
 function Story.validate(r, n_cards)
@@ -181,48 +194,117 @@ function Story.maybeRecap(host, s, on_done)
     end)
 end
 
-local function band(hour)
-    if hour >= 5 and hour < 9 then return "清晨" end
-    if hour >= 9 and hour < 17 then return "白天" end
-    if hour >= 17 and hour < 21 then return "傍晚" end
-    return "夜里"
-end
-Story.band = band
+local BANDS = { { "dawn", "清晨" }, { "day", "白天" }, { "dusk", "傍晚" }, { "night", "夜里" } }
+local PER_BAND = 3
 
---- 阁楼「今天的纸条」：阿页在家（或收拾好等出门）时，一天一张；每天最多试 MAX_TRIES 次
----@return boolean 是否发起
+local function bandKey(hour)
+    if hour >= 5 and hour < 9 then return "dawn", "清晨" end
+    if hour >= 9 and hour < 17 then return "day", "白天" end
+    if hour >= 17 and hour < 21 then return "dusk", "傍晚" end
+    return "night", "夜里"
+end
+function Story.band(hour) return select(2, bandKey(hour)) end
+
+--- 一批小纸条一次要回来：每个时段 PER_BAND 张，存进 s.pool.notes，之后每个时段取一张，不再临时等请求
+local function validateNotes(r)
+    if type(r) ~= "table" then return nil end
+    local out = {}
+    for _, b in ipairs(BANDS) do
+        out[b[1]] = {}
+        for i = 1, PER_BAND do
+            local t = type(r[b[1]]) == "table" and clean(r[b[1]][i], Story.MAX_NOTE) or nil
+            if t then out[b[1]][#out[b[1]] + 1] = t end
+        end
+    end
+    return out
+end
+
+--- 阁楼「今天的纸条」：每个「日期 + 时段」一张，先从预取池里取；池里某个时段见底时，后台一次补一批。返回是否发起请求
 function Story.maybeDaily(host, s, on_done)
     local sp = s.sprite
     if sp.status == "away" then return false end
     local now = host:now()
     local day = os.date("%Y-%m-%d", now)
     local hour = os.date("*t", now).hour
-    local key = day .. band(hour)
-    if s.daily and s.daily.key == key then return false end
+    local bk, bname = bandKey(hour)
+    local key = day .. bname
+    s.pool = s.pool or {}
+    s.pool.notes = s.pool.notes or {}
+    local pn = s.pool.notes
+    if not (s.daily and s.daily.key == key) and pn[bk] and #pn[bk] > 0 then
+        s.daily = { key = key, text = table.remove(pn[bk], 1) }
+    end
+    local low = false
+    for _, b in ipairs(BANDS) do if not pn[b[1]] or #pn[b[1]] < 1 then low = true end end
     local try = s.daily_try
-    if try and try.key == key and (try.n >= Story.MAX_TRIES or (try.busy and now - try.busy < Story.TIMEOUT)) then return false end
+    if not low or (try and (try.n >= Story.MAX_TRIES or (try.busy and now - try.busy < Story.TIMEOUT))) then return false end
     if type(host.ai) ~= "function" or not host:ai() then return false end
-    local n0 = try and try.key == key and try.n or 0
-    s.daily_try = { key = key, n = n0, busy = now }
+    local n0 = try and try.n or 0
     local fest = require("papersprite.core.festival").at(s, now)
     local log = s.log[#s.log]
     local user = table.concat({
-        "现在是" .. day .. "的" .. band(hour) .. "，阿页在阁楼里（没有出门）。",
-        fest and ("今天是「" .. fest.name .. "」。") or "今天不是什么特别的日子。",
+        "为阿页在阁楼里（没有出门）的日子，预先写一批书桌上的小纸条，说它此刻在做什么 / 想什么。",
+        "分四个时段：dawn 清晨、day 白天、dusk 傍晚、night 夜里，每个时段 " .. PER_BAND .. " 张，每张≤" .. Story.MAX_NOTE .. "字，第三人称或自言自语均可，同一批里别重复。",
+        fest and ("近期有「" .. fest.name .. "」，可以带一点气氛。") or "",
         log and ("阁楼里最近的一件事：" .. log) or "阁楼里最近很安静。",
-        "写一张阿页留在书桌上的小纸条，说它此刻在做什么 / 想什么，≤" .. Story.MAX_NOTE .. "字，第三人称或自言自语均可，别和上面的事一字不差。",
-        '只输出 JSON：{"note":"……"}',
+        '只输出 JSON：{"dawn":["…"],"day":["…"],"dusk":["…"],"night":["…"]}',
     }, "\n")
-    local messages = { { role = "system", content = SYSTEM }, { role = "user", content = user } }
-    local started = ask(host, messages, function(r) return type(r) == "table" and clean(r.note, Story.MAX_NOTE) or nil end, function(result)
+    s.daily_try = { n = n0, busy = now }
+    local started = ask(host, { { role = "system", content = SYSTEM }, { role = "user", content = user } }, validateNotes, function(result)
         local cur = reload(host)
-        cur.daily_try = { key = key, n = n0 + 1 }
-        if result then cur.daily = { key = key, text = result } end
+        cur.daily_try = { n = n0 + 1 }
+        if result then
+            cur.pool = cur.pool or {}
+            cur.pool.notes = cur.pool.notes or {}
+            for _, b in ipairs(BANDS) do
+                local dst = cur.pool.notes[b[1]] or {}
+                for _, t in ipairs(result[b[1]]) do dst[#dst + 1] = t end
+                cur.pool.notes[b[1]] = dst
+            end
+            cur.daily_try = nil
+        end
         host:saveState(cur)
         if result and on_done then pcall(on_done, cur) end
     end)
     if not started then s.daily_try = try end
     return started
+end
+
+--- 来客时预取它被招待时的反应（送了想要的 / 随便一件），存在 visitor.react，招待时直接用，不用等
+function Story.maybeGuest(host, s, on_done)
+    local v = s.visitor
+    if not v or v.fed or v.react or s.sprite.status == "away" then return false end
+    local now = host:now()
+    if (v.react_fails or 0) >= Story.MAX_TRIES or (v.react_req and now - v.react_req < Story.TIMEOUT) then return false end
+    if type(host.ai) ~= "function" or not host:ai() then return false end
+    local def
+    for _, x in ipairs(require("papersprite.data.visitors")) do if x.id == v.id then def = x end end
+    local want = v.request and Postcards.souvenirs[v.request]
+    v.react_req = now
+    local user = table.concat({
+        "阿页阁楼里来了小客人「" .. (def and def.name or v.id) .. "」。阿页递给它一件特产，写客人收下时的反应。",
+        want and ("它其实想要「" .. want.name .. "」。") or "它没有特别想要的东西。",
+        "写两句，各≤" .. Story.MAX_LINE .. "字，客人口吻或第三人称描写均可：",
+        'match = 递的正是它想要的；plain = 递的是别的特产（依然高兴）。',
+        "另写 here：它在阁楼里待着时的一句描写（≤" .. Story.MAX_LINE .. "字）。",
+        '只输出 JSON：{"match":"…","plain":"…","here":"…"}',
+    }, "\n")
+    local id = v.id
+    return ask(host, { { role = "system", content = SYSTEM }, { role = "user", content = user } }, function(r)
+        if type(r) ~= "table" then return nil end
+        local m, p = clean(r.match, Story.MAX_LINE), clean(r.plain, Story.MAX_LINE)
+        return m and p and { match = m, plain = p, here = clean(r.here, Story.MAX_LINE) } or nil
+    end, function(result)
+        local cur = reload(host)
+        local cv = cur.visitor
+        if not cv or cv.id ~= id or cv.fed then return end
+        if result then
+            cv.react = { match = result.match, plain = result.plain }
+            cv.line = cv.line or result.here
+        else cv.react_req, cv.react_fails = nil, (cv.react_fails or 0) + 1 end
+        host:saveState(cur)
+        if result and on_done then pcall(on_done, cur) end
+    end)
 end
 
 return Story

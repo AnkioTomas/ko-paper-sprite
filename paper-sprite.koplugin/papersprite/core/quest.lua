@@ -171,6 +171,7 @@ function Q.give(s, sv, now)
     local gain = (def and def.gift or 2) + (match and 3 or 0)
     s.inspiration = s.inspiration + gain
     local msgs = { match and T("正是想要的！灵感 +%d", gain) or T("客人很高兴，灵感 +%d", gain) }
+    if v.react then table.insert(msgs, 1, match and v.react.match or v.react.plain) end
     for _, stage in ipairs({ 3, 5, 8 }) do
         if prev < stage and b >= stage then
             local name = def and def.name or ""

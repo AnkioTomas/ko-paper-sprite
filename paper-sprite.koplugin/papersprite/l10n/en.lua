@@ -1,4 +1,7 @@
 return {
+    ["在顶部菜单显示"] = "Show in top menu",
+    ["KOReader 顶部菜单里的「阿页」页签"] = "The Aye tab in KOReader's top menu",
+    ["显示"] = "Display",
     [" · 旅程%d时"] = " · trip %dh",
     [" · 旅程+%d时"] = " · trip +%dh",
     ["%d / %d"] = "%d / %d",
