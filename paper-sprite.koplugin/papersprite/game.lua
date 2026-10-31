@@ -310,7 +310,7 @@ function Game:_feed(now, _sp, s)
     if #logs == 0 then v.empty = { title = T("还没有什么新鲜事"), caption = T("阿页出门、回家、来客都会记在这里。") } end
     local out = {}
     for _, l in ipairs(rows) do out[#out + 1] = { text = l.text, meta = Game.when(l.at, now) } end
-    v.notes = { rows = out, per = per, fit = self:fitter("feed") }
+    v.notes = { rows = out, per = per, fit = self:fitter("feed", true) }
     return v
 end
 
@@ -784,7 +784,7 @@ function Game:_quests()
     end
     return { title = T("委托"), status = { icon = "items/travel_diary.png", title = T("今日委托"), caption = T("每天零点换新，完成后点一下领取灵感。"),
             meta = T("灵感 ✦ %d", s.inspiration) },
-        shelf = { cols = 1, cells = cells, per = per, fit = self:fitter("quest") }, pager = pager }
+        shelf = { cols = 1, cells = cells, per = per, fit = self:fitter("quest", true) }, pager = pager }
 end
 
 function Game:_achievements()
@@ -798,7 +798,7 @@ function Game:_achievements()
             meta = at and T("已达成　✦ %d", a.reward) or T("奖励 ✦ %d", a.reward), caption = a.desc }
     end
     return { title = T("成就"), status = { icon = "items/paper_clip.png", title = T("达成 %d / %d", done, #Achievements), caption = T("达成后自动发灵感。") },
-        shelf = { cols = 2, cells = cells, per = per, fit = self:fitter("ach") }, pager = pager }
+        shelf = { cols = 2, cells = cells, per = per, fit = self:fitter("ach", true) }, pager = pager }
 end
 
 function Game:_bookwall()
@@ -814,7 +814,7 @@ function Game:_bookwall()
     return { title = T("读书墙"), status = { icon = "items/pocket_dict.png", title = T("读完 %d 本书", #books),
             caption = T("在阅读器里读到最后几页，这本书就会变成书签贴在这里，阿页也会惦记着书里的地方。") },
         empty = #books == 0 and { title = T("墙上还空着"), caption = T("读完一本书试试。") } or nil,
-        shelf = { cols = 1, cells = cells, per = per, fit = self:fitter("book") }, pager = pager }
+        shelf = { cols = 1, cells = cells, per = per, fit = self:fitter("book", true) }, pager = pager }
 end
 
 function Game:_guest_here()
@@ -845,7 +845,7 @@ function Game:_guest_here()
             caption = req and T("想要：%s（送对加倍）", req.name) or T("送一件特产，交情 +1；交情到 3 / 5 / 8 有回礼。"),
             meta = T("每位客人只能招待一次") },
         empty = #ids == 0 and { title = T("柜子里没有特产"), caption = T("等阿页带回来一些。") } or nil,
-        shelf = { cols = 2, cells = cells, per = per, fit = self:fitter("gh") }, pager = pager }
+        shelf = { cols = 2, cells = cells, per = per, fit = self:fitter("gh", true) }, pager = pager }
 end
 
 --- 每页数量：默认值，界面按屏幕剩余高度回报实际能放的数量（fit）后记住
@@ -862,10 +862,13 @@ function Game.when(at, now)
     return os.date("%m-%d %H:%M", at)
 end
 
-function Game:fitter(key, cur)
+--- 各页卡片高矮不一，量出的条数会随翻页来回跳（页数 4/5 ↔ 4/5 死循环）；shrink 为真时只许往小收，不回弹
+function Game:fitter(key, shrink)
     return function(n)
         self.per_page = self.per_page or {}
-        if self.per_page[key] == n or self.closed then return end
+        local cur = self.per_page[key]
+        if shrink and cur and n > cur then return end
+        if cur == n or self.closed then return end
         self.per_page[key] = n
         self:render()
     end

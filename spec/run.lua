@@ -412,6 +412,7 @@ H.view.tabbar.on_tab(1); assert(H.view.status.title:find("墨点虫") and H.view
 H.view.tabbar.on_tab(3); assert(not H.view.status and H.view.notes.rows[1].text == "事15")
 H.view.notes.fit(5); assert(H.view.pager.pages == 3 and #H.view.notes.rows == 5 and H.view.tabbar.active == 3)
 H.view.pager.go(3); assert(H.view.notes.rows[1].text == "事5" and #H.view.notes.rows == 5)
+H.view.notes.fit(6); assert(H.view.pager.pages == 3 and #H.view.notes.rows == 5, "feed per only shrinks, no 4/5 flapping")
 g8:close()
 
 -- 16. 日志时间：新日志记时间；旧存档无时间不显示；格式
