@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 --[[--
-全屏浮层界面。思路同 ko-adarkroom：covers_fullscreen + 整屏刷新，盖住月读首页。
+全屏浮层界面。继承月读 Modal：下滑关闭跟随 ui.swipe_dismiss，返回键关掉整间阁楼。
 组件：月读主题——标题栏、卡片框、文字、按钮、翻页条、底栏、主题色；
 阿页依赖月读：入口（papersprite.moon）保证 ui.themes 可用，这里不再有原生兜底。
 view = {
@@ -16,7 +16,7 @@ view = {
   shelf? = { cols, icon?, cells = { {icon|scene, title|name, meta|price+owned, desc|caption, check?, badge?, dim, callback} } } 卡片网格
   pager? = { page, pages, prev, next },                                   翻页条（n / m）
   tabbar? = { tabs = { {id, text, icon} }, active, on_tab(id) },          底栏（月读 Tabbar，钉在屏幕最底；阁楼主页用）
-  buttons = { btn | {btn,...} }, on_close?, back?（有则标题栏右上角按钮 / 返回键回上一级，否则关闭）
+  buttons = { btn | {btn,...} }, on_close?, back?（有则标题栏左侧回上一级，否则关闭。下滑和返回键关掉整间阁楼）
 }
 缩略图走 ui/compose 的合成缓存（墨水屏上不反复解码缩放）。
 --]]
@@ -30,7 +30,6 @@ end
 
 local T = require("papersprite.l10n")
 local Blitbuffer = require("ffi/blitbuffer")
-local Device = require("device")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local CenterContainer = require("ui/widget/container/centercontainer")
@@ -48,9 +47,9 @@ local logger = require("logger")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local Interface = require("papersprite.host.interface")
-local Screen = Device.screen
+local Modal = require("ui.themes.widgets.modal")
 
-local S = InputContainer:extend{ covers_fullscreen = true, modal = true }
+local S = Modal:extend{ name = "papersprite_screen", covers_fullscreen = true, modal = true }
 
 function S.open(view, on_close)
     return S:new{ view = view, on_close = on_close }
@@ -126,8 +125,8 @@ local function thumb(k, scene, w, h, new)
 end
 
 function S:init()
-    local w, h = Screen:getWidth(), Screen:getHeight()
-    self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
+    Modal.init(self)
+    local w, h = self.dimen.w, self.dimen.h
     local k = kit()
     local px, pad = k.px, k.px(20)
     local inner = w - pad * 2
@@ -419,7 +418,7 @@ function S:init()
     if filler > 0 then table.insert(body, VerticalSpan:new{ width = filler }) end
     if footer_h > 0 then table.insert(body, footer) end
     body:resetLayout()
-    self[1] = FrameContainer:new{ width = w, height = h, padding = 0, bordersize = 0, background = k.bg, body }
+    self:setPanel(FrameContainer:new{ width = w, height = h, padding = 0, bordersize = 0, background = k.bg, body })
     -- 左右滑翻页（同 KOReader 列表）
     if v.pager and v.pager.pages > 1 then
         self.ges_events = self.ges_events or {}
@@ -436,10 +435,12 @@ function S:onSwipePage(_, ges)
     return dir == "west" or dir == "east"
 end
 
-function S:onClose()
-    UIManager:close(self, "ui")
-    if self.on_close then self.on_close() end
-    return true
+--- 换页是先盖上新界面再关掉旧的。那种关闭不是用户离开，不能走 on_close。
+function S:onCloseWidget()
+    if self._replaced then return end
+    local cb = self.on_close
+    self.on_close = nil
+    if cb then cb() end
 end
 
 return S

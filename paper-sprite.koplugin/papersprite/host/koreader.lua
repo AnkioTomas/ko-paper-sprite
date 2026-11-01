@@ -37,7 +37,10 @@ function Host:showScreen(view)
     end)
     -- 先盖上新界面再关旧的，整屏刷新（不留下层残影，见 ko-adarkroom e38498d）
     UIManager:show(self.widget, "ui")
-    if old then UIManager:close(old, "ui") end
+    if old then
+        old._replaced = true
+        UIManager:close(old, "ui")
+    end
 end
 
 function Host:closeScreen()

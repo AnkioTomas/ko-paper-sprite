@@ -25,7 +25,7 @@ paper-sprite.koplugin/
 - `papersprite/update.lua`：复用月读的 GitHub Release 管线自更新（只在月读里可用，月读模块惰性 require）；资产名必须是 `paper-sprite.koplugin-<版本>.zip`（版本不带 v）。月读首页组件出现 5 秒后自动检查（24h 一次，只提示不静默安装）。
 
 ## 界面
-`ui/screen.lua` 是 `covers_fullscreen + modal` 的全屏浮层，在月读里盖住首页和底部导航；新界面先 show 再 close 旧的，并整屏刷新（`"ui"`），避免墨水屏残影。只用月读 `ui.themes` 组件（入口 `need_moon.lua` 保证月读已装，没装只弹提示）；见 [widgets.md](widgets.md)。
+`ui/screen.lua` 继承月读 `Modal`（`covers_fullscreen`，不盖遮罩），下滑关闭跟随 `ui.swipe_dismiss`。盖住首页和底部导航；新界面先 show 再 close 旧的，并整屏刷新（`"ui"`），避免墨水屏残影。换页关掉旧界面不算离开，不触发 `on_close`。只用月读 `ui.themes` 组件（入口 `need_moon.lua` 保证月读已装，没装只弹提示）；见 [widgets.md](widgets.md)。
 `ui/moon_card.lua`：首页卡片，每次绘制时在存档**副本**上结算出近况摘要（不写盘），摘要变了才重建。
 
 ## 单实例
@@ -41,7 +41,7 @@ paper-sprite.koplugin/
 - 随机数用存档里的种子（`core/rng.lua`，Park–Miller 乘同余，乘积在 double 内精确），同一存档同一时刻结果确定，便于测试复现。
 
 ## 阅读账本
-`core/reading.lua`：`main.lua` 的 `onPageUpdate` 在离开这一页时记次数（停满 10 秒、页码差 1–3，不读正文），写 `.moon/game/paper-sprite/reading.lua`；打开阁楼时按差值折算灵感。读完的书进读书墙，有划线则带上那句。两种宿主共用这本账。锁屏主体读最近一张明信片（`core/postcard_lock.lua`，画面在 `ui/lock_card.lua`）。
+`core/reading.lua`：`main.lua` 的 `onPageUpdate` 在离开这一页时记次数（停满 10 秒、页码差 1–3，不读正文），写 `.moon/game/paper-sprite/reading.lua`；打开阁楼时按差值折算灵感。读完的书进读书墙，有划线则带上那句。两种宿主共用这本账。锁屏背景铺最近一张明信片（`core/postcard_lock.lua`，画面在 `ui/lock_card.lua`）。
 
 ## 节日
 `core/festival.lua` + `data/festivals.lua`：公历节日离线，农历 / 节气来自节日接口，详见 [festival.md](festival.md)。
