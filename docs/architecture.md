@@ -41,7 +41,7 @@ paper-sprite.koplugin/
 - 随机数用存档里的种子（`core/rng.lua`，Park–Miller 乘同余，乘积在 double 内精确），同一存档同一时刻结果确定，便于测试复现。
 
 ## 阅读账本
-`core/reading.lua`：`main.lua` 的 `onPageUpdate` 只记次数（不读书的内容），写 `.moon/game/paper-sprite/reading.lua`；打开阁楼时按差值折算灵感。两种宿主共用这本账。
+`core/reading.lua`：`main.lua` 的 `onPageUpdate` 在离开这一页时记次数（停满 10 秒、页码差 1–3，不读正文），写 `.moon/game/paper-sprite/reading.lua`；打开阁楼时按差值折算灵感。读完的书进读书墙，有划线则带上那句。两种宿主共用这本账。锁屏主体读最近一张明信片（`core/postcard_lock.lua`，画面在 `ui/lock_card.lua`）。
 
 ## 节日
 `core/festival.lua` + `data/festivals.lua`：公历节日离线，农历 / 节气来自节日接口，详见 [festival.md](festival.md)。

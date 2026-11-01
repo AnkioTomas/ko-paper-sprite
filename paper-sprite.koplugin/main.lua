@@ -50,24 +50,40 @@ function PaperSprite:addToMainMenu(menu_items)
     }
 end
 
--- 阅读中每次翻页记一笔（只记次数和时间，不读书的内容）。
--- 只认相邻翻页：改字号 / 旋转 / 重排（页码没变）和进度条跳转（一次跨好几页）都不算。
+-- 离开这一页时才结算：停满 MIN_DWELL 秒，且只认相邻翻页。不读正文。
+-- 改字号 / 旋转 / 重排（页码没变）和进度条跳转（一次跨好几页）都不算。
 function PaperSprite:onPageUpdate(pageno)
     if not self.ui or not self.ui.document then return end
-    local last = self._last_page
+    local now = os.time()
+    local last, since = self._last_page, self._last_at
     self._last_page = type(pageno) == "number" and pageno or nil
-    if not last or not self._last_page then return end
+    self._last_at = self._last_page and now or nil
+    if not last or not since or not self._last_page then return end
     local step = math.abs(self._last_page - last)
-    if step == 0 or step > 3 then return end
-    pcall(function() require("papersprite.core.reading").record(os.time(), self:_bookInfo(pageno)) end)
+    pcall(function()
+        require("papersprite.core.reading").record(now, self:_bookInfo(self._last_page), step, now - since)
+    end)
 end
 
--- 当前书的书名 / 关键词，翻到最后几页算读完（不读正文）
+--- 这本书里用户自己划的第一句。没有划线就是 nil。
+function PaperSprite:_quote()
+    local items = self.ui.annotation and self.ui.annotation.annotations
+    if type(items) ~= "table" then return end
+    for _idx, item in ipairs(items) do
+        if type(item) == "table" and type(item.drawer) == "string" and item.drawer ~= ""
+            and type(item.text) == "string" and item.text:find("%S") then
+            return item.text
+        end
+    end
+end
+
+-- 当前书的书名 / 关键词。翻到最后几页算读完；读完时带上划线。
 function PaperSprite:_bookInfo(pageno)
     local props = self.ui.doc_props or {}
     local total = self.ui.document:getPageCount()
+    local finished = type(total) == "number" and total >= 20 and pageno >= total - 1
     return { title = props.display_title or props.title, keywords = (props.keywords or "") .. " " .. (props.description or ""),
-        finished = type(total) == "number" and total >= 20 and pageno >= total - 1 }
+        finished = finished, quote = finished and self:_quote() or nil }
 end
 
 -- 阿页依赖月读：没装月读时只弹提示，不开游戏

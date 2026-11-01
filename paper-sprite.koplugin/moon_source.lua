@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 --[[--
-月读扩展描述：不是书源，只提供首页组件——「阿页」近况卡片、阁楼画面、明信片（最近列表 / 迷你墙）、纪念物柜。
+月读扩展描述：不是书源。首页组件（近况、阁楼、明信片、纪念物柜），外加锁屏主体「阿页的明信片」。
 组件都是只读视图，点按全屏打开阁楼对应的页面。尺寸 / 模式在首页编辑态的组件设置里选。
 契约见月读 examples/moonsource-demo.koplugin/moon_source.lua（api = 1，id = ext.<name>）。
 --]]
@@ -143,7 +143,7 @@ return {
     provides = { source = false,
     -- 顶部下拉快捷面板：月读只开放「动作开关」挂点（title / icon / run），不能放自定义画面，
     -- 所以这里放一个「阿页」开关，点一下全屏打开阁楼（画面在首页「阁楼」组件里看）。
-    features = { setting = { entries = settingEntries }, panel = { actions = function()
+    features = { setting = { entries = settingEntries }, lockscreen = "papersprite.ui.lock_card", panel = { actions = function()
         return { {
             id = "attic", scope = "desktop", title = _("阿页"), icon = "home",
             run = function() pcall(function() require("papersprite.ui.moon_widgets").open("attic") end) end,

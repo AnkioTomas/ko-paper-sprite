@@ -687,6 +687,41 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     assert(not Quest.give(g, "ad_slip", 2000), "one gift per visit")
 
     assert(Reading.tagOf("a detective story") == "night" and Reading.tagOf("plain") == nil)
+    assert(not Reading.qualify(1, 9) and Reading.qualify(1, 10) and not Reading.qualify(4, 30) and not Reading.qualify(0, 30))
+    local data = {}
+    Reading._inject({
+        readSetting = function(_, k) return data[k] end,
+        saveSetting = function(_, k, v) data[k] = v end,
+        flush = function() end,
+    })
+    Reading.record(1000, { title = "雾", keywords = "推理", finished = true, quote = "  灯还亮着  " }, 1, 9)
+    assert(data.pages == nil, "short dwell does not count")
+    local long = string.rep("字", 50)
+    Reading.record(1000, { title = "雾", keywords = "推理", finished = true, quote = long }, 1, 10)
+    assert(data.pages == 1 and data.finished[1].quote == Reading.clip(long) and data.finished[1].tag == "night")
+    local shelf = State.fresh(1000)
+    assert(Reading.collect(shelf) == 5)
+    assert(shelf.bookmarks[1].line:find("雾", 1, true) and shelf.log[#shelf.log]:find("灯"))
+    assert(Reading.collect(shelf) == 0 and #shelf.bookmarks == 1)
+    local Lock = require("papersprite.core.postcard_lock")
+    assert(Lock.latest(nil) == nil)
+    local card = Lock.latest({ postcards = {
+        { place = "ink_lake", weather = "mist", line = "旧的", at = 1 },
+        { place = "ink_lake", weather = "clear", line = "湖面很静", at = 50 },
+    } })
+    assert(card and card.place == "墨水湖" and card.weather == "晴" and card.line == "湖面很静")
+    local function units(sample)
+        local n, i = 0, 1
+        while i <= #sample do
+            local b = sample:byte(i)
+            local len = 1
+            if b >= 240 then len = 4 elseif b >= 224 then len = 3 elseif b >= 192 then len = 2 end
+            i, n = i + len, n + 1
+        end
+        return n
+    end
+    assert(Lock.clampLines("一二三", units, 3) == "一二三")
+    assert(Lock.clampLines("一二三四", units, 3) == "一二…")
     H.saved = State.fresh(0)
     H.saved.souvenirs.ad_slip = 1
     H.saved.visitor = { id = "inkbug", pose = "", until_at = 1e12 }

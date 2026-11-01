@@ -807,7 +807,7 @@ function Game:_bookwall()
     local cells = {}
     for _, b in ipairs(rows) do
         cells[#cells + 1] = { icon = "items/pocket_dict.png", title = b.title, check = true, meta = os.date("%Y-%m-%d", b.at or 0),
-            caption = nil }
+            caption = b.quote or b.line }
     end
     return { title = T("读书墙"), status = { icon = "items/pocket_dict.png", title = T("读完 %d 本书", #books),
             caption = T("在阅读器里读到最后几页，这本书就会变成书签贴在这里，阿页也会惦记着书里的地方。") },
