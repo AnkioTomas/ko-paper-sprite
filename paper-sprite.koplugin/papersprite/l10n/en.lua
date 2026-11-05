@@ -1018,6 +1018,7 @@ return {
     ["阿页的影子在墙上翻了个身，也睡了。"] = "Aye's shadow rolled over on the wall and went to sleep too.",
     ["阿页的手腕上多了一根彩线，是邮差给的。"] = "A coloured thread appeared on Aye's wrist, a gift from the postman.",
     ["阿页的明信片"] = "Aye's Postcards",
+    ["阿页的明信片·信笺"] = "Aye's Postcards · Letter",
     ["阿页的阁楼"] = "Aye's attic",
     ["阿页盖着一张薄薄的信纸，睡得很安稳。"] = "Aye sleeps soundly under a thin sheet of letter paper.",
     ["阿页看着窗外的云被染成了旧信封的颜色。"] = "Aye watched the clouds outside turn the colour of an old envelope.",

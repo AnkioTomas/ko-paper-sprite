@@ -790,6 +790,42 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     gu:close()
 end
 
+do -- 锁屏复用新版明信片，两面完整落在屏内，不写存档。
+    local names = { "papersprite.host.moon", "papersprite.ui.postcard", "papersprite.ui.lock_card" }
+    local saved = {}
+    for _, name in ipairs(names) do saved[name] = package.loaded[name] end
+    local data = require("papersprite.core.state").fresh(1)
+    package.loaded["papersprite.host.moon"] = { new = function() return {
+        loadState = function() return data end, now = function() return 10 end,
+        saveState = function() error("lockscreen must not write state") end,
+    } end }
+    package.loaded["papersprite.ui.postcard"] = { widget = function(pc) return pc end }
+    package.loaded["papersprite.ui.lock_card"] = nil
+    local backgrounds = require("papersprite.ui.lock_card").backgrounds()
+    assert(#backgrounds == 2 and backgrounds[1].id == "postcard", "original lockscreen style remains available")
+    local background = backgrounds[2]
+    assert(background.id == "postcard_pair", "new style is independently selectable")
+    local empty_key = background.cache_key()
+    assert(background.blocks({ w = 1080, h = 1440 })[1].text == "等阿页寄第一张回来。")
+    data.postcards[1] = { place = "ink_lake", pose = "sit", prop = "none", weather = "clear",
+        variant = "a", line = "湖面很静", at = 5 }
+    assert(background.cache_key() ~= empty_key)
+    for _, rect in ipairs({ { w = 1080, h = 1440 }, { w = 1440, h = 1080 }, { w = 600, h = 800 } }) do
+        local blocks = background.blocks(rect)
+        assert(#blocks == 2 and blocks[1].widget.side == "front" and blocks[2].widget.side == "back")
+        assert(blocks[2].widget.line == "湖面很静" and blocks[2].widget.zip ~= "")
+        for _, b in ipairs(blocks) do
+            assert(b.x >= 0 and b.y >= 0 and b.x + b.width <= rect.w and b.y + b.height <= rect.h)
+        end
+        if rect.w > rect.h then
+            assert(blocks[2].x >= blocks[1].x + blocks[1].width and blocks[1].y == blocks[2].y)
+        else
+            assert(blocks[2].y >= blocks[1].y + blocks[1].height and blocks[1].x == blocks[2].x)
+        end
+    end
+    for _, name in ipairs(names) do package.loaded[name] = saved[name] end
+end
+
 do -- 提醒使用月读弹窗：插画、翻面、关闭确认都走同一套窗口生命周期。
     local names = {
         "papersprite.ui.reader_overlay", "papersprite.ui.read_prefs", "ui/uimanager",
