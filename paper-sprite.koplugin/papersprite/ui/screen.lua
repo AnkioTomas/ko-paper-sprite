@@ -107,11 +107,15 @@ local function kit()
 end
 S.kit = kit
 
-local function img(rel, w, h, alpha)
+local function image(path, w, h, alpha)
     return try(function()
-        return require("ui/widget/imagewidget"):new{ file = Interface.pluginDir() .. "/assets/" .. rel,
+        return require("ui/widget/imagewidget"):new{ file = path,
             width = w, height = h, scale_factor = 0, alpha = alpha, file_do_cache = false }
     end)
+end
+
+local function img(rel, w, h, alpha)
+    return image(Interface.pluginDir() .. "/assets/" .. rel, w, h, alpha)
 end
 
 --- 缩略图（缓存）+ 可选「新」角标
@@ -348,7 +352,8 @@ function S:init()
                 table.insert(row, HorizontalSpan:new{ width = g })
             end
             local textw = cw - cpad * 2 - iw - px(8) - px(4)
-            local icon = (c.scene and thumb(k, c.scene, iw, iw, c.new)) or iconW(c.icon, iw)
+            local icon = (c.scene and thumb(k, c.scene, iw, iw, c.new)) or (c.file and image(c.file, iw, iw))
+                or iconW(c.icon, iw)
                 or require("ui/widget/container/widgetcontainer"):new{ dimen = Geom:new{ w = iw, h = iw } }
             if c.badge then icon = OverlapGroup:new{ dimen = Geom:new{ w = iw, h = iw }, icon, k.badge(c.badge) } end
             local meta = c.meta or ((c.price or "") .. "　" .. (c.owned or ""))

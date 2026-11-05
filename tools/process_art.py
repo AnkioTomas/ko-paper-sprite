@@ -6,7 +6,7 @@
 用法：python3 tools/process_art.py [源目录...，默认 art-samples/v3 art-samples/v4]"""
 import math
 import os, sys, random
-from PIL import Image, ImageOps, ImageEnhance
+from PIL import Image, ImageOps, ImageEnhance, ImageDraw, ImageChops
 
 ROOT = os.path.dirname(os.path.abspath(__file__)) + "/.."
 SRCS = sys.argv[1:] or [os.path.join(ROOT, "art-samples/v3"), os.path.join(ROOT, "art-samples/v4")]
@@ -43,8 +43,17 @@ def scene(src, dst, size=(1200, 600)):
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     dither(prep(im)).save(dst, optimize=True)
 
-def cutout(src, dst, size):
+def cutout(src, dst, size, white_bg=False):
     im = Image.open(src).convert("RGBA")
+    if white_bg:
+        rgb = im.convert("RGB")
+        corner = rgb.getpixel((0, 0))
+        if min(corner) >= 240:
+            ImageDraw.floodfill(rgb, (0, 0), (255, 0, 255), thresh=24)
+            marker = Image.new("RGB", rgb.size, (255, 0, 255))
+            alpha = ImageChops.difference(rgb, marker).convert("L").point(lambda v: 0 if v == 0 else 255)
+            im = rgb.convert("RGBA")
+            im.putalpha(alpha)
     a = im.getchannel("A")
     bbox = a.point(lambda v: 255 if v > 24 else 0).getbbox() or (0, 0, *im.size)
     im = im.crop(bbox)
@@ -156,7 +165,8 @@ def weather(dst_dir, W=1200, H=600):
     im.save(f"{dst_dir}/petals.png", optimize=True)
 
 SPEC = {"places": ("scene", None), "attic": ("scene", None), "sprite": ("cut", 320),
-        "visitors": ("cut", 200), "items": ("cut", 128), "props": ("cut", 200), "souvenirs": ("cut", 128)}
+        "visitors": ("cut", 200), "items": ("cut", 128), "achievements": ("cut_white", 128),
+        "props": ("cut", 200), "souvenirs": ("cut", 128)}
 
 if __name__ == "__main__":
     n = 0
@@ -167,6 +177,8 @@ if __name__ == "__main__":
         for f in sorted(os.listdir(d)):
             if not f.endswith(".png"): continue
             out = os.path.join(DST, sub, f)
-            (scene(os.path.join(d, f), out) if kind == "scene" else cutout(os.path.join(d, f), out, size)); n += 1
+            if kind == "scene": scene(os.path.join(d, f), out)
+            else: cutout(os.path.join(d, f), out, size, white_bg=kind == "cut_white")
+            n += 1
     weather(os.path.join(DST, "weather"))
     print("processed", n)

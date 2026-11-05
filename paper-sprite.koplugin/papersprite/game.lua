@@ -779,6 +779,7 @@ end
 
 function Game:_achievements()
     local s = self.state
+    local counts = Quest.counts(s)
     local ordered, done = {}, 0
     for _, a in ipairs(Achievements) do if (s.achieved or {})[a.id] then ordered[#ordered + 1] = a done = done + 1 end end
     for _, a in ipairs(Achievements) do if not (s.achieved or {})[a.id] then ordered[#ordered + 1] = a end end
@@ -786,9 +787,12 @@ function Game:_achievements()
     local cells = {}
     for _, a in ipairs(rows) do
         local at = (s.achieved or {})[a.id]
-        cells[#cells + 1] = { icon = "items/paper_clip.png", title = at and (a.voice or a.desc) or a.name, check = at ~= nil, dim = at == nil,
-            meta = at and T("盖章于 %s", os.date("%Y-%m-%d", at)) or T("还没盖章"),
-            caption = at and a.name or a.desc }
+        local progress, target = a.progress(counts)
+        cells[#cells + 1] = { icon = "achievements/" .. a.id .. ".png", title = at and (a.voice or a.name) or a.name,
+            check = at ~= nil, dim = at == nil,
+            meta = at and T("盖章于 %s · 灵感 +%d", os.date("%Y-%m-%d", at), a.reward)
+                or T("%d / %d · 达成得灵感 +%d", progress, target, a.reward),
+            caption = a.desc }
     end
     return { title = T("成就"), status = { icon = "items/paper_clip.png", title = T("达成 %d / %d", done, #Achievements), caption = T("达成后自动发灵感。") },
         shelf = { cols = 1, cells = cells, per = per, fit = self:fitter("ach", true) }, pager = pager }
@@ -804,7 +808,7 @@ function Game:_bookwall()
     for _, b in ipairs(rows) do
         local tag = b.tag and Quests.TAG_NAME[b.tag]
         local quote = (b.quote and b.quote ~= "") and b.quote or b.line
-        cells[#cells + 1] = { icon = "items/pocket_dict.png", title = b.title, check = true,
+        cells[#cells + 1] = { icon = "items/pocket_dict.png", file = b.cover, title = b.title, check = true,
             meta = os.date("%Y-%m-%d", b.at or 0) .. "　·　" .. (tag and T("这本书把阿页往「%s」带", tag) or T("折成书签")),
             caption = quote }
     end

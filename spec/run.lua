@@ -760,6 +760,21 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     local long = string.rep("字", 50)
     Reading.record(1000, { title = "雾", keywords = "推理", finished = true, quote = long }, 1, 10)
     assert(data.pages == 1 and data.finished[1].quote == Reading.clip(long) and data.finished[1].tag == "night")
+    local editions = {}
+    Reading._inject({
+        readSetting = function(_, k) return editions[k] end,
+        saveSetting = function(_, k, v) editions[k] = v end,
+        flush = function() end,
+    })
+    Reading.record(1001, { title = "同名书", finished = true, id = "edition-a", cover = "/covers/a.png" }, 1, 10)
+    Reading.record(1002, { title = "同名书", finished = true, id = "edition-a" }, 1, 10)
+    Reading.record(1003, { title = "同名书", finished = true, id = "edition-b" }, 1, 10)
+    assert(#editions.finished == 2 and editions.finished[1].cover == "/covers/a.png",
+        "same-title editions are distinct and duplicate reads retain their cover")
+    local edition_wall = State.fresh(1000)
+    assert(Reading.collect(edition_wall) == 10 and #edition_wall.bookmarks == 2
+        and edition_wall.bookmarks[1].cover == "/covers/a.png", "bookmarks retain cover paths and same-title editions")
+    Reading._inject(reading_store)
     local shelf = State.fresh(1000)
     assert(Reading.collect(shelf) == 5)
     assert(shelf.bookmarks[1].line:find("雾", 1, true) and shelf.log[#shelf.log]:find("灯"))
@@ -795,6 +810,42 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     assert(plugin._last_page == 10 and #errors == 1, "failed record is logged and page baseline is retained")
     Plugin.onPageUpdate(plugin, 12)
     assert(plugin._last_page == 12 and attempts == 2, "page recording resumes after storage recovers")
+    local old_sha2, old_storage, old_open = package.loaded["ffi/sha2"],
+        package.loaded["papersprite.core.storage"], io.open
+    package.loaded["ffi/sha2"] = { md5 = function(path) return path == "/book.epub" and "book-id" or "other-id" end }
+    package.loaded["papersprite.core.storage"] = {
+        dir = function() return "/fake/paper-sprite" end,
+        deps = { mkdirp = function(path) assert(path == "/fake/paper-sprite/covers") end },
+    }
+    local Main = Plugin
+    local cover_calls, written, freed = 0, nil, 0
+    io.open = function(path)
+        if path:find("/fake/paper-sprite/covers/", 1, true) then return nil end
+        return old_open(path)
+    end
+    local book = setmetatable({
+        ui = {
+            document = { file = "/book.epub", getPageCount = function() return 20 end },
+            doc_props = { title = "封面书" },
+            bookinfo = { getCoverImage = function()
+                cover_calls = cover_calls + 1
+                return {
+                    writeToFile = function(_, path, format)
+                        written = path .. ":" .. format
+                        return true
+                    end,
+                    free = function() freed = freed + 1 end,
+                }
+            end },
+        },
+    }, { __index = Main })
+    local info = Main._bookInfo(book, 19)
+    assert(info.id == "book-id" and info.cover == "/fake/paper-sprite/covers/book-id.png"
+        and written == info.cover .. ":png" and cover_calls == 1 and freed == 1)
+    Main._bookInfo(book, 20)
+    assert(cover_calls == 1, "cover is captured once per book")
+    io.open = old_open
+    package.loaded["ffi/sha2"], package.loaded["papersprite.core.storage"] = old_sha2, old_storage
     for _, name in ipairs(names) do package.loaded[name] = saved[name] end
     local Lock = require("papersprite.core.postcard_lock")
     assert(Lock.latest(nil) == nil)
@@ -818,7 +869,15 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     H.saved = State.fresh(0)
     H.saved.souvenirs.ad_slip = 1
     H.saved.visitor = { id = "inkbug", pose = "", until_at = 1e12 }
+    H.saved.bookmarks = { { title = "封面书", at = 1, cover = "/covers/book-id.png" } }
     local gu = Game.new(H.host):show()
+    gu:go("achievements")
+    local first_achievement = H.view.shelf.cells[1]
+    assert(first_achievement.icon == "achievements/trips1.png"
+        and first_achievement.meta:find("0 / 1", 1, true)
+        and first_achievement.meta:find("灵感 +3", 1, true), "locked achievements show their own art, progress, and reward")
+    gu:go("bookwall")
+    assert(H.view.shelf.cells[1].file == "/covers/book-id.png", "book wall forwards saved cover paths")
     for _, pg in ipairs({ "quests", "achievements", "bookwall", "guest_here" }) do gu:go(pg) assert(H.view.title, pg) end
     gu:close()
 end
@@ -931,6 +990,10 @@ do -- 提醒使用月读弹窗：插画、翻面、关闭确认都走同一套�
     state.visitor = { id = "clip_snail", pose = "", until_at = 200, fed = true }
     M.poke()
     assert(#shown.dialog.buttons == 1, "an already hosted visitor only offers dismissal")
+    shown:dismiss()
+    state.achieved.trips1 = 20
+    M.poke()
+    assert(image:find("achievements/trips1.png", 1, true), "achievement notice uses its matching artwork")
     shown:dismiss()
     for _, name in ipairs(names) do package.loaded[name] = saved[name] end
 end

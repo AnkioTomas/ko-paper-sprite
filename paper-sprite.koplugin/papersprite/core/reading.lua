@@ -87,7 +87,7 @@ function M.qualify(step, dwell)
         and type(dwell) == "number" and dwell >= M.MIN_DWELL
 end
 
---- book = { title, keywords?, finished?, quote? }。step / dwell 不合格就什么都不写。
+--- book = { title, keywords?, finished?, quote?, id?, cover? }。step / dwell 不合格就什么都不写。
 function M.record(now, book, step, dwell)
     if not M.qualify(step, dwell) then return end
     local s = open()
@@ -100,9 +100,12 @@ function M.record(now, book, step, dwell)
         if book.finished and book.title and book.title ~= "" then
             local done = s:readSetting("finished") or {}
             local seen = false
-            for _, b in ipairs(done) do if b.title == book.title then seen = true end end
+            for _, b in ipairs(done) do
+                if (book.id and b.id == book.id) or (not book.id and b.title == book.title) then seen = true end
+            end
             if not seen then
-                done[#done + 1] = { title = book.title, at = now, tag = tag, quote = M.clip(book.quote) }
+                done[#done + 1] = { id = book.id, title = book.title, at = now, tag = tag,
+                    quote = M.clip(book.quote), cover = book.cover }
                 s:saveSetting("finished", done)
             end
         end
@@ -126,11 +129,14 @@ function M.collect(state)
     state.bookmarks = state.bookmarks or {}
     for _, b in ipairs(s:readSetting("finished") or {}) do
         local have = false
-        for _, x in ipairs(state.bookmarks) do if x.title == b.title then have = true end end
+        for _, x in ipairs(state.bookmarks) do
+            if (b.id and x.id == b.id) or (not x.id and x.title == b.title)
+                or (not b.id and x.title == b.title) then have = true end
+        end
         if not have then
             local line = M.farewell(b.title, b.tag)
             state.bookmarks[#state.bookmarks + 1] = {
-                title = b.title, at = b.at, tag = b.tag, line = line, quote = b.quote,
+                id = b.id, title = b.title, at = b.at, tag = b.tag, line = line, quote = b.quote, cover = b.cover,
             }
             require("papersprite.core.state").log(state, line, b.at)
             state.inspiration = state.inspiration + M.FINISH_REWARD

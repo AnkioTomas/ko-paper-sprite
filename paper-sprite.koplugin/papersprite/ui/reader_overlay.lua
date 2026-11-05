@@ -198,7 +198,8 @@ local function noteBody(s, note)
         local Achievements = require("papersprite.data.achievements")
         for _, a in ipairs(Achievements) do
             if a.id == note.id then
-                return { title = T("成就达成"), caption = a.voice or a.desc or a.name, image = "sprite/jump.png" }
+                return { title = T("成就达成"), caption = a.voice or a.desc or a.name,
+                    image = "achievements/" .. a.id .. ".png" }
             end
         end
     end

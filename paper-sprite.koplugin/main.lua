@@ -94,8 +94,39 @@ function PaperSprite:_bookInfo(pageno)
     local props = self.ui.doc_props or {}
     local total = self.ui.document:getPageCount()
     local finished = type(total) == "number" and total >= 20 and pageno >= total - 1
+    local file = self.ui.document.file
+    local id, cover
+    if type(file) == "string" and file ~= "" then
+        id = require("ffi/sha2").md5(file)
+        if finished then
+            if self._cover_file ~= file then
+                self._cover_file, self._cover_path = file, nil
+                local path = require("papersprite.core.storage").dir() .. "/covers/" .. id .. ".png"
+                local f = io.open(path, "rb")
+                if f then
+                    f:close()
+                    self._cover_path = path
+                else
+                    local ok, err = pcall(function()
+                        local Storage = require("papersprite.core.storage")
+                        Storage.deps.mkdirp(Storage.dir() .. "/covers")
+                        local image = self.ui.bookinfo:getCoverImage(self.ui.document)
+                        if image then
+                            local wrote_ok, wrote, write_err = pcall(image.writeToFile, image, path, "png")
+                            image:free()
+                            if not wrote_ok then error(wrote) end
+                            if not wrote then error(write_err or "cover write failed") end
+                            self._cover_path = path
+                        end
+                    end)
+                    if not ok then logger.err("papersprite cover save:", err) end
+                end
+            end
+            cover = self._cover_path
+        end
+    end
     return { title = props.display_title or props.title, keywords = (props.keywords or "") .. " " .. (props.description or ""),
-        finished = finished, quote = finished and self:_quote() or nil }
+        id = id, cover = cover, finished = finished, quote = finished and self:_quote() or nil }
 end
 
 -- 阿页依赖月读：没装月读时只弹提示，不开游戏
