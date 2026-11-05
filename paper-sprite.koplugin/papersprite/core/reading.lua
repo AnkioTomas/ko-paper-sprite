@@ -113,8 +113,7 @@ end
 
 --- 把账本里新增的内容折算进存档 state；返回新增灵感。
 function M.collect(state)
-    local ok, s = pcall(open)
-    if not ok then return 0 end
+    local s = open()
     local Quest = require("papersprite.core.quest")
     local pages = s:readSetting("pages") or 0
     local seen = state.reading_seen or 0

@@ -36,15 +36,18 @@ function Game.new(host)
     return self
 end
 
-function Game:save() self.host:saveState(self.state) end
-
 function Game:tick()
     -- 以落盘的为准（首页卡片 / AI 回调 / 其他入口可能改过）
     self.state = State.load(self.host:loadState() or self.state, self.host:now())
     local ok, Reading = pcall(require, "papersprite.core.reading")
-    if ok then pcall(Reading.collect, self.state) end
+    if ok then
+        local collected, err = pcall(Reading.collect, self.state)
+        if not collected then require("logger").err("papersprite reading collect:", err) end
+    else
+        require("logger").err("papersprite reading module:", Reading)
+    end
     local ev = Travel.settle(self.state, self.host:now(), self.debug)
-    self:save()
+    self.host:saveState(self.state)
     local function fresh(cur)
         if self.closed then return end
         self.state = cur
@@ -55,7 +58,7 @@ function Game:tick()
     Story.maybeDaily(self.host, self.state, fresh)
     Story.maybeGuest(self.host, self.state, fresh)
     Pool.maybeFill(self.host, self.state, fresh)
-    self:save()
+    self.host:saveState(self.state)
     return ev
 end
 
@@ -359,7 +362,7 @@ function Game:_basket()
                 Travel.put(s, it.id, self.host:now(), self.debug)
                 -- 放好后自动跳到下一个空格
                 for _, sl in ipairs(Travel.SLOTS) do if not s.basket[sl] then self.basket_slot, self.basket_page = sl, 1 break end end
-                self:save()
+                self.host:saveState(self.state)
                 self:render()
             end }
     end
@@ -413,7 +416,7 @@ function Game:_buy(it)
     if s.inspiration < it.price then self.host:notify(T("灵感不够")) return end
     s.inspiration = s.inspiration - it.price
     s.inventory[it.id] = (s.inventory[it.id] or 0) + 1
-    self:save()
+    self.host:saveState(self.state)
     self.host:notify(T("买下了%s", it.name))
     self:render()
 end
@@ -485,7 +488,7 @@ end
 function Game:_wall()
     local s = self.state
     local seen_before = self._wall_seen0 or s.wall_seen or 0
-    if s.wall_seen ~= #s.postcards then s.wall_seen = #s.postcards self:save() end
+    if s.wall_seen ~= #s.postcards then s.wall_seen = #s.postcards self.host:saveState(self.state) end
     if #s.postcards == 0 then
         return { title = T("明信片墙"), empty = { title = T("墙上还空着"), caption = T("等阿页寄第一张回来。") } }
     end
@@ -532,7 +535,7 @@ function Game:_toggleDecor(id)
     if i then table.remove(s.decor, i)
     elseif #s.decor >= Game.DECOR_MAX then self.host:notify(T("阁楼摆满了，先收起一样")) return
     else s.decor[#s.decor + 1] = id end
-    self:save()
+    self.host:saveState(self.state)
     self:render()
 end
 
@@ -628,7 +631,7 @@ function Game:_place()
     local buttons = {}
     if row.wished then
         buttons[#buttons + 1] = { text = T("取消惦记"), callback = function()
-            s.wish_place = nil self:save() self.host:notify(T("不惦记了")) self:render()
+            s.wish_place = nil self.host:saveState(self.state) self.host:notify(T("不惦记了")) self:render()
         end }
     else
         buttons[#buttons + 1] = { text = T("惦记这里（✦ %d）", cost), callback = function() self:_wish(p.id) end }
@@ -648,7 +651,7 @@ function Game:_wish(place_id)
     if s.inspiration < cost then self.host:notify(T("灵感不够")) return end
     s.inspiration = s.inspiration - cost
     s.wish_place = place_id
-    self:save()
+    self.host:saveState(self.state)
     local p = Travel.place(place_id)
     self.host:notify(T("阿页会惦记着去%s", p and p.name or place_id))
     self:render()
@@ -764,7 +767,7 @@ function Game:_quests()
             check = Errand.done(s, e), dim = not here and not Errand.done(s, e),
             callback = function()
                 local ok, n = Errand.claim(s, i, self.host:now())
-                if ok then self:save() self.host:notify(T("灵感 +%d", n)) self:render()
+                if ok then self.host:saveState(self.state) self.host:notify(T("灵感 +%d", n)) self:render()
                 elseif n == "away" then self.host:notify(T("做到了，等%s再来", vis and vis.name or "")) end
             end }
     end
@@ -829,7 +832,7 @@ function Game:_guest_here()
             callback = function()
                 local ok, msg = Quest.give(s, id, self.host:now())
                 Quest.check(s, self.host:now())
-                self:save()
+                self.host:saveState(self.state)
                 self.host:notify(msg)
                 if ok then self:go("attic") else self:render() end
             end }

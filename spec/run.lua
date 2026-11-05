@@ -749,11 +749,12 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     assert(Reading.tagOf("a detective story") == "night" and Reading.tagOf("plain") == nil)
     assert(not Reading.qualify(1, 9) and Reading.qualify(1, 10) and not Reading.qualify(4, 30) and not Reading.qualify(0, 30))
     local data = {}
-    Reading._inject({
+    local reading_store = {
         readSetting = function(_, k) return data[k] end,
         saveSetting = function(_, k, v) data[k] = v end,
         flush = function() end,
-    })
+    }
+    Reading._inject(reading_store)
     Reading.record(1000, { title = "雾", keywords = "推理", finished = true, quote = "  灯还亮着  " }, 1, 9)
     assert(data.pages == nil, "short dwell does not count")
     local long = string.rep("字", 50)
@@ -763,6 +764,38 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     assert(Reading.collect(shelf) == 5)
     assert(shelf.bookmarks[1].line:find("雾", 1, true) and shelf.log[#shelf.log]:find("灯"))
     assert(Reading.collect(shelf) == 0 and #shelf.bookmarks == 1)
+    Reading._inject({ readSetting = function() error("reading store unavailable") end })
+    local collected = pcall(Reading.collect, State.fresh(1000))
+    assert(not collected, "reading storage failures must reach the caller")
+    Reading._inject(reading_store)
+    local names = {
+        "main", "logger", "ui/widget/container/widgetcontainer",
+        "papersprite.ui.reader_overlay", "papersprite.core.reading",
+    }
+    local saved = {}
+    for _, name in ipairs(names) do saved[name] = package.loaded[name] end
+    local errors, attempts = {}, 0
+    package.loaded["logger"] = { err = function(...) errors[#errors + 1] = table.concat({...}, " ") end }
+    package.loaded["ui/widget/container/widgetcontainer"] = {
+        extend = function(_, class) return class end,
+    }
+    package.loaded["papersprite.ui.reader_overlay"] = { onPage = function() end }
+    package.loaded["papersprite.core.reading"] = {
+        record = function(_, _book, step)
+            attempts = attempts + 1
+            if attempts == 1 then error("reading disk unavailable") end
+            assert(step == 2, "failed page transition remains the recording baseline")
+        end,
+    }
+    package.loaded["main"] = nil
+    local Plugin = require("main")
+    local plugin = { ui = { document = {} }, _last_page = 10, _last_at = os.time() - 20,
+        _bookInfo = function() return {} end }
+    Plugin.onPageUpdate(plugin, 11)
+    assert(plugin._last_page == 10 and #errors == 1, "failed record is logged and page baseline is retained")
+    Plugin.onPageUpdate(plugin, 12)
+    assert(plugin._last_page == 12 and attempts == 2, "page recording resumes after storage recovers")
+    for _, name in ipairs(names) do package.loaded[name] = saved[name] end
     local Lock = require("papersprite.core.postcard_lock")
     assert(Lock.latest(nil) == nil)
     local card = Lock.latest({ postcards = {

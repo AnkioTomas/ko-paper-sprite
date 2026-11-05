@@ -6,6 +6,7 @@
 宿主差异由 papersprite.host.* 适配；游戏逻辑在 papersprite/core 与 papersprite/game.lua。
 --]]
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
+local logger = require("logger")
 
 local PLUGIN_DIR = debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$") or "."
 if not package.path:find(PLUGIN_DIR .. "/?.lua", 1, true) then
@@ -60,13 +61,20 @@ function PaperSprite:onPageUpdate(pageno)
     pcall(function() require("papersprite.ui.reader_overlay").onPage(self) end)
     local now = os.time()
     local last, since = self._last_page, self._last_at
-    self._last_page = type(pageno) == "number" and pageno or nil
-    self._last_at = self._last_page and now or nil
-    if not last or not since or not self._last_page then return end
-    local step = math.abs(self._last_page - last)
-    pcall(function()
-        require("papersprite.core.reading").record(now, self:_bookInfo(self._last_page), step, now - since)
-    end)
+    if type(pageno) ~= "number" then
+        self._last_page, self._last_at = nil, nil
+        return
+    end
+    if last and since then
+        local ok, err = pcall(function()
+            require("papersprite.core.reading").record(now, self:_bookInfo(pageno), math.abs(pageno - last), now - since)
+        end)
+        if not ok then
+            logger.err("papersprite reading record:", err)
+            return
+        end
+    end
+    self._last_page, self._last_at = pageno, now
 end
 
 --- 这本书里用户自己划的第一句。没有划线就是 nil。
