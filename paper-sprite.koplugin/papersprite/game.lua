@@ -15,6 +15,7 @@ local Story = require("papersprite.core.story")
 local Pool = require("papersprite.core.pool")
 local Festival = require("papersprite.core.festival")
 local Quest = require("papersprite.core.quest")
+local Errand = require("papersprite.core.errand")
 local Achievements = require("papersprite.data.achievements")
 local Items = require("papersprite.data.items")
 local Postcards = require("papersprite.data.postcards")
@@ -454,60 +455,48 @@ function Game:_shop_item()
         buttons = { { text = T("买一个（✦ %d）", it.price), callback = function() self:_buy(it) end } } }
 end
 
-Game.WALL_GRID = { cols = 3, rows = 4 }
-Game.WALL_LIST = 4
+--- 明信片墙：一页一张，正反都在这一页上。page 从 1 起。
+function Game.cardIndex(s, page)
+    local n = #s.postcards
+    if n == 0 then return nil, 1, 1 end
+    page = math.max(1, math.min(page or 1, n))
+    return n - page + 1, page, n
+end
 
---- 纯函数：明信片墙的一页。mode = grid（缩略图网格）| list（缩略图 + 文字），新的在前
-function Game.wallPage(s, mode, page, per)
-    per = per or (mode == "list" and Game.WALL_LIST or Game.WALL_GRID.cols * Game.WALL_GRID.rows)
-    local total = #s.postcards
-    local pages = math.max(1, math.ceil(total / per))
-    page = math.max(1, math.min(page or 1, pages))
-    local first = total - (page - 1) * per
-    local out = {}
-    for i = first, math.max(1, first - per + 1), -1 do out[#out + 1] = i end
-    return out, page, pages
+function Game:_postcardView(i, seen_before, pager)
+    local s = self.state
+    local c = s.postcards[i]
+    if not c then return { title = T("明信片墙"), empty = { title = T("墙上还空着"), caption = T("等阿页寄第一张回来。") } } end
+    local face = require("papersprite.ui.cardface").of(c)
+    face.new = i > (seen_before or 0)
+    face.index = i
+    face.line = c.line or ""
+    face.sign = T("——阿页")
+    return {
+        title = face.place ~= "" and face.place or T("明信片墙"),
+        postcard = face,
+        pager = pager.pages > 1 and pager or nil,
+        switch = { icon = "share", text = T("分享"), callback = function()
+            require("papersprite.ui.postcard").share(face, self.host)
+        end },
+    }
 end
 
 function Game:_wall()
     local s = self.state
     local seen_before = self._wall_seen0 or s.wall_seen or 0
     if s.wall_seen ~= #s.postcards then s.wall_seen = #s.postcards self:save() end
-    local mode = self.host:getSetting("wall_mode", "grid") == "list" and "list" or "grid"
-    local wkey = "wall_" .. mode
-    local wper = self:per(wkey, mode == "list" and Game.WALL_LIST or Game.WALL_GRID.cols * Game.WALL_GRID.rows)
-    local idx, page, pages = Game.wallPage(s, mode, self.wall_page, wper)
+    if #s.postcards == 0 then
+        return { title = T("明信片墙"), empty = { title = T("墙上还空着"), caption = T("等阿页寄第一张回来。") } }
+    end
+    local i, page, pages = Game.cardIndex(s, self.wall_page)
     self.wall_page = page
-    local v = { title = T("明信片墙"), lines = {} }
-    if #s.postcards == 0 then v.empty = { title = T("墙上还空着"), caption = T("等阿页寄第一张回来。") } 
-    else v.lines[1] = { text = T("%d 张 · 新的在前", #s.postcards) .. ((#s.postcards - seen_before) > 0 and T("　·　新 %d", #s.postcards - seen_before) or ""), label = true } end
-    local function cardInfo(i)
-        local c = s.postcards[i]
-        local p = Travel.place(c.place)
-        return c, (p and p.name or c.place), (Postcards.weather_names[c.weather] or "")
-    end
-    if mode == "grid" then
-        v.grid = { cols = Game.WALL_GRID.cols, cells = {}, per = wper, fit = self:fitter(wkey) }
-        for _, i in ipairs(idx) do
-            local c, name = cardInfo(i)
-            v.grid.cells[#v.grid.cells + 1] = { scene = Game.cardScene(c), new = i > seen_before, caption = name,
-                callback = function() self:go("card", i) end }
-        end
-    else
-        v.list = { rows = {}, per = wper, fit = self:fitter(wkey) }
-        for _, i in ipairs(idx) do
-            local c, name, wn = cardInfo(i)
-            v.list.rows[#v.list.rows + 1] = { scene = Game.cardScene(c), new = i > seen_before, title = name .. " · " .. wn,
-                line = c.line or "", date = os.date("%m-%d %H:%M", c.at or 0), callback = function() self:go("card", i) end }
-        end
-    end
-    v.pager = { page = page, pages = pages,
+    return self:_postcardView(i, seen_before, {
+        page = page, pages = pages,
         prev = function() self.wall_page = page - 1 self:render() end,
         next = function() self.wall_page = page + 1 self:render() end,
-        go = function(n) self.wall_page = n self:render() end }
-    v.switch = { icon = mode == "grid" and "view_list" or "grid_view", text = mode == "grid" and T("列表") or T("网格"), callback = function()
-        self.host:setSetting("wall_mode", mode == "grid" and "list" or "grid") self.wall_page = 1 self:render() end }
-    return v
+        go = function(n) self.wall_page = n self:render() end,
+    })
 end
 
 --- 明信片的分层画面
@@ -522,19 +511,15 @@ end
 function Game:_card()
     local s = self.state
     local i = self.arg
-    local c = s.postcards[i]
-    if not c then self.page = "wall" return self:_wall() end
-    local p = Travel.place(c.place)
     local n = #s.postcards
-    -- 墙上新的在前：「上一张」= 更新的那张
-    return {
-        title = (p and p.name or c.place),
-        scene = Game.cardScene(c),
-        status = { title = (p and p.name or c.place) .. " · " .. (Postcards.weather_names[c.weather] or ""), caption = (c.line or "") .. T("　——阿页"),
-            meta = os.date("%Y-%m-%d %H:%M", c.at or 0) .. T("　·　第 %d / %d 张", i, n) },
-        pager = { page = n - i + 1, pages = n, prev = function() self.arg = i + 1 self:render() end, next = function() self.arg = i - 1 self:render() end,
-            go = function(pg) self.arg = n - pg + 1 self:render() end },
-    }
+    if not s.postcards[i] then self.page = "wall" return self:_wall() end
+    local page = n - i + 1
+    return self:_postcardView(i, s.wall_seen or 0, {
+        page = page, pages = n,
+        prev = function() self.arg = i + 1 self:render() end,
+        next = function() self.arg = i - 1 self:render() end,
+        go = function(pg) self.arg = n - pg + 1 self:render() end,
+    })
 end
 
 local function indexOf(t, x) for i, y in ipairs(t) do if y == x then return i end end end
@@ -746,9 +731,10 @@ function Game:_growth()
 end
 
 function Game:_questCell()
-    local claim = Quest.claimable(self.state)
-    return { icon = "items/travel_diary.png", title = T("委托"), meta = claim > 0 and T("可领取 %d", claim) or T("今日 / 本周"), badge = claim > 0 and T("新") or nil,
-        caption = T("每天三条，每周一条"), callback = function() self.quest_page = 1 self:go("quests") end }
+    local claim = Errand.claimable(self.state)
+    local open = #Errand.open(self.state)
+    return { icon = "items/travel_diary.png", title = T("委托"), meta = claim > 0 and T("可领取 %d", claim) or T("%d 张纸条", open), badge = claim > 0 and T("新") or nil,
+        caption = T("客人留下的纸条"), callback = function() self.quest_page = 1 self:go("quests") end }
 end
 
 function Game:_achCell()
@@ -765,52 +751,63 @@ end
 
 function Game:_quests()
     local s = self.state
-    local list = (s.quests or {}).list or {}
     local idx = {}
-    for i = 1, #list do idx[i] = i end
+    for i = #(s.errands or {}), 1, -1 do if not s.errands[i].claimed then idx[#idx + 1] = i end end
     local rows, pager, per = self:_slice("quest", idx, 6)
     local cells = {}
     for _, i in ipairs(rows) do
-        local q = list[i]
-        local done = q.p >= q.target
-        cells[#cells + 1] = { icon = "items/travel_diary.png", title = (q.weekly and T("【本周】") or T("【今日】")) .. Quest.describe(q), check = q.claimed, dim = q.claimed, caption = q.flavor,
-            meta = q.claimed and T("已领取") or (done and T("点这里领取 ✦ %d", q.reward) or T("%d / %d　·　奖励 ✦ %d", q.p, q.target, q.reward)),
+        local e = s.errands[i]
+        local vis = Travel.visitor(e.visitor)
+        local here = Errand.here(s, e)
+        cells[#cells + 1] = { icon = vis and ("visitors/" .. vis.id .. ".png") or "items/travel_diary.png",
+            title = vis and vis.name or e.visitor, caption = e.aside or e.say, meta = Errand.hint(s, e),
+            check = Errand.done(s, e), dim = not here and not Errand.done(s, e),
             callback = function()
-                local ok, n = Quest.claim(s, i)
-                if ok then self:save() self.host:notify(T("灵感 +%d", n)) self:render() end
+                local ok, n = Errand.claim(s, i, self.host:now())
+                if ok then self:save() self.host:notify(T("灵感 +%d", n)) self:render()
+                elseif n == "away" then self.host:notify(T("做到了，等%s再来", vis and vis.name or "")) end
             end }
     end
-    return { title = T("委托"), status = { icon = "items/travel_diary.png", title = T("今日委托"), caption = T("每天零点换新，完成后点一下领取灵感。"),
-            meta = T("灵感 ✦ %d", s.inspiration) },
+    return { title = T("委托"), status = { icon = "items/travel_diary.png", title = T("访客的纸条"),
+            caption = T("做到了才能领。人在才能给。"), meta = T("灵感 ✦ %d", s.inspiration) },
+        empty = #idx == 0 and { title = T("还没有客人留下委托。等一位小客人来串门。") } or nil,
         shelf = { cols = 1, cells = cells, per = per, fit = self:fitter("quest", true) }, pager = pager }
 end
 
 function Game:_achievements()
     local s = self.state
-    local rows, pager, per = self:_slice("ach", Achievements, 6)
-    local cells, done = {}, 0
-    for _ in pairs(s.achieved or {}) do done = done + 1 end
+    local ordered, done = {}, 0
+    for _, a in ipairs(Achievements) do if (s.achieved or {})[a.id] then ordered[#ordered + 1] = a done = done + 1 end end
+    for _, a in ipairs(Achievements) do if not (s.achieved or {})[a.id] then ordered[#ordered + 1] = a end end
+    local rows, pager, per = self:_slice("ach", ordered, 6)
+    local cells = {}
     for _, a in ipairs(rows) do
         local at = (s.achieved or {})[a.id]
-        cells[#cells + 1] = { icon = "items/paper_clip.png", title = a.name, check = at ~= nil, dim = at == nil,
-            meta = at and T("已达成　✦ %d", a.reward) or T("奖励 ✦ %d", a.reward), caption = a.desc }
+        cells[#cells + 1] = { icon = "items/paper_clip.png", title = at and (a.voice or a.desc) or a.name, check = at ~= nil, dim = at == nil,
+            meta = at and T("盖章于 %s", os.date("%Y-%m-%d", at)) or T("还没盖章"),
+            caption = at and a.name or a.desc }
     end
     return { title = T("成就"), status = { icon = "items/paper_clip.png", title = T("达成 %d / %d", done, #Achievements), caption = T("达成后自动发灵感。") },
-        shelf = { cols = 2, cells = cells, per = per, fit = self:fitter("ach", true) }, pager = pager }
+        shelf = { cols = 1, cells = cells, per = per, fit = self:fitter("ach", true) }, pager = pager }
 end
 
 function Game:_bookwall()
     local s = self.state
+    local Quests = require("papersprite.data.quests")
     local books = {}
     for i = #(s.bookmarks or {}), 1, -1 do books[#books + 1] = s.bookmarks[i] end
     local rows, pager, per = self:_slice("book", books, 6)
     local cells = {}
     for _, b in ipairs(rows) do
-        cells[#cells + 1] = { icon = "items/pocket_dict.png", title = b.title, check = true, meta = os.date("%Y-%m-%d", b.at or 0),
-            caption = b.quote or b.line }
+        local tag = b.tag and Quests.TAG_NAME[b.tag]
+        local quote = (b.quote and b.quote ~= "") and b.quote or b.line
+        cells[#cells + 1] = { icon = "items/pocket_dict.png", title = b.title, check = true,
+            meta = os.date("%Y-%m-%d", b.at or 0) .. "　·　" .. (tag and T("这本书把阿页往「%s」带", tag) or T("折成书签")),
+            caption = quote }
     end
+    local now_tag = s.read_tag and Quests.TAG_NAME[s.read_tag]
     return { title = T("读书墙"), status = { icon = "items/pocket_dict.png", title = T("读完 %d 本书", #books),
-            caption = T("在阅读器里读到最后几页，这本书就会变成书签贴在这里，阿页也会惦记着书里的地方。") },
+            caption = now_tag and T("最近读的书把阿页往「%s」带。", now_tag) or T("读完的书会留下一句，也会把阿页往书里的地方带。") },
         empty = #books == 0 and { title = T("墙上还空着"), caption = T("读完一本书试试。") } or nil,
         shelf = { cols = 1, cells = cells, per = per, fit = self:fitter("book", true) }, pager = pager }
 end

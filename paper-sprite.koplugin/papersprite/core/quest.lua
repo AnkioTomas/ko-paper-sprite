@@ -1,12 +1,12 @@
 -- SPDX-License-Identifier: MIT
 --[[--
-成长系统：统计、委托（每日 3 条 + 每周 1 条）、成就、阿页的阶、访客交情与招待、特产稀有度。
-全部是存档里的纯数据；统计只由 Quest.note 一处累加，委托进度跟着同一个入口走。
+成长系统：统计、成就、阿页的阶、访客交情与招待、特产稀有度。
+委托是访客的纸条，在 core/errand.lua，不在这里生成。
+统计只由 Quest.note 一处累加。
 --]]
 local T = require("papersprite.l10n")
 local R = require("papersprite.core.rng")
 local State = require("papersprite.core.state")
-local Quests = require("papersprite.data.quests")
 local Achievements = require("papersprite.data.achievements")
 local Places = require("papersprite.data.places")
 local Visitors = require("papersprite.data.visitors")
@@ -25,56 +25,7 @@ local function stats(s)
     return st
 end
 
-local function ymd(now) return tonumber(os.date("%Y%m%d", now)) end
-local function weekOf(now) return math.floor((now + (tonumber(os.date("%z", now)) or 0) * 36) / 604800) end
-
-local function describe(q)
-    local def
-    for _, d in ipairs(Quests.defs) do if d.id == q.id then def = d end end
-    if not def then return "" end
-    if q.key then
-        local name = Quests.TAG_NAME[q.key] or Postcards.weather_names[q.key] or q.key
-        return def.text:format(q.target, name)
-    end
-    return def.text:format(q.target)
-end
-Q.describe = describe
-
---- 新的一天 / 一周换委托；同一天内保持不变（未领取的昨日委托作废）
-function Q.refresh(s, now)
-    local qs = s.quests or {}
-    s.quests = qs
-    local day, week = ymd(now), weekOf(now)
-    if qs.day ~= day then
-        qs.day = day
-        local keep = {}
-        for _, q in ipairs(qs.list or {}) do if q.weekly and qs.week == week then keep[#keep + 1] = q end end
-        qs.list = keep
-        local seed = day * 31 + 7
-        local pool = {}
-        for _, d in ipairs(Quests.defs) do if d.daily then pool[#pool + 1] = d end end
-        for _ = 1, Quests.DAILY_COUNT do
-            local d
-            seed, d = R.pick(seed, pool)
-            for i, x in ipairs(pool) do if x == d then table.remove(pool, i) break end end
-            local key
-            if d.keys then seed, key = R.pick(seed, d.keys) end
-            qs.list[#qs.list + 1] = { id = d.id, kind = d.kind, key = key, target = d.daily, p = 0, reward = Quests.DAILY_REWARD }
-        end
-        if qs.week ~= week then
-            local wp = {}
-            for _, d in ipairs(Quests.defs) do if d.weekly then wp[#wp + 1] = d end end
-            local d
-            seed, d = R.pick(seed + week, wp)
-            local key
-            if d.keys then seed, key = R.pick(seed, d.keys) end
-            qs.week = week
-            qs.list[#qs.list + 1] = { id = d.id, kind = d.kind, key = key, target = d.weekly, p = 0, reward = Quests.WEEKLY_REWARD, weekly = true }
-        end
-    end
-end
-
---- 记一笔：累加统计，并推进同类委托（key 对不上的不算）
+--- 记一笔：累加统计。访客纸条的进度不走这里，对照离开时的计数。
 function Q.note(s, kind, key, n)
     n = n or 1
     local st = stats(s)
@@ -83,24 +34,6 @@ function Q.note(s, kind, key, n)
         local m = kind == "card" and st.weather or st.tag
         m[key] = (m[key] or 0) + n
     end
-    for _, q in ipairs((s.quests or {}).list or {}) do
-        if not q.claimed and q.kind == kind and (not q.key or q.key == key) then q.p = math.min(q.target, q.p + n) end
-    end
-end
-
-function Q.claim(s, i)
-    local q = ((s.quests or {}).list or {})[i]
-    if not q or q.claimed or q.p < q.target then return false end
-    q.claimed = true
-    s.inspiration = s.inspiration + q.reward
-    return true, q.reward
-end
-
---- 可领取委托数（首页红点用）
-function Q.claimable(s)
-    local n = 0
-    for _, q in ipairs((s.quests or {}).list or {}) do if not q.claimed and q.p >= q.target then n = n + 1 end end
-    return n
 end
 
 ----- 稀有度 / 特产归属 -----
@@ -191,6 +124,10 @@ function Q.give(s, sv, now)
         end
     end
     Q.note(s, "gift")
+    if match then
+        local st = stats(s)
+        st.matches = (st.matches or 0) + 1
+    end
     return true, table.concat(msgs, "\n")
 end
 
@@ -211,7 +148,8 @@ end
 function Q.counts(s)
     local st = stats(s)
     local c = { trips = st.trips, cards = #s.postcards, books = st.books, pages = st.pages, gifts = st.gifts, events = st.events,
-        weather = st.weather, souvenirs = 0, rare = 0, places = 0, guests = 0, max_bond = 0 }
+        weather = st.weather, souvenirs = 0, rare = 0, places = 0, guests = 0, max_bond = 0,
+        errands = st.errands or 0, matches = st.matches or 0 }
     for id in pairs(s.souvenirs or {}) do
         if Postcards.souvenirs[id] then
             c.souvenirs = c.souvenirs + 1

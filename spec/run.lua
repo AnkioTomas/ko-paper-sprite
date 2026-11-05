@@ -89,10 +89,11 @@ local sv = 0 for _, c in pairs(H.saved.souvenirs) do sv = sv + c end
 assert(sv == 1, "souvenir")
 local place_id = H.saved.postcards[1].place
 assert((H.saved.place_trips or {})[place_id] == 1, "place_trips on return")
--- 4. 明信片墙 → 单张（分层画面）
-attic_ops(); click("明信片墙"); click(""); assert(H.view.scene and H.view.scene.bg and H.view.status.caption:find("阿页"), "card view")
-assert(H.view.scene.overlays[1].img:find("^sprite/"), "pose layer")
-back(); back(); attic_ops(); click("特产柜"); assert(text():find("×1"), "cabinet")
+-- 4. 明信片墙：一页同时是正面和背面，不再翻面
+attic_ops(); click("明信片墙")
+assert(H.view.postcard and H.view.postcard.scene and H.view.postcard.scene.bg and H.view.postcard.scene.overlays[1].img:find("^sprite/"), "card view")
+assert(H.view.postcard.side == nil and not H.view.buttons and H.view.switch and H.view.switch.icon == "share", "both sides, corner share, no flip")
+back(); attic_ops(); click("特产柜"); assert(text():find("×1"), "cabinet")
 click(H.view.shelf.cells[1].title); assert(H.view.status and H.view.buttons[1].text == "摆到阁楼里", "souvenir detail")
 click("摆到阁楼里"); assert(#g.state.decor == 1); back()
 back(); attic_ops(); click("小铺"); back()
@@ -214,7 +215,13 @@ do
     local late = 0 for _, c in ipairs(cur.postcards) do if c.line:find("迟到") then late = late + 1 end end
     assert(late >= 1, "late lines patched")
     assert(next(cur.pool.lines) and next(cur.pool.events), "lines and events prefetched")
-    assert(cur.quests.list[1].flavor == "便签一。", "quest flavor")
+    if not (cur.errands and cur.errands[1] and cur.errands[1].aside) then
+        require("papersprite.core.errand").leave(cur, "inkbug", 1)
+        H.host:saveState(cur)
+        g3:tick()
+        cur = H.saved
+    end
+    assert(cur.errands and cur.errands[1] and cur.errands[1].aside == "便签一。", "errand aside")
     local pl = next(cur.pool.lines)
     local line = require("papersprite.core.pool").takeLine(cur, pl, function() return false end)
     assert(line and line:find("池里的"), "take a pooled line")
@@ -294,7 +301,7 @@ local wk = {} for _, c in ipairs(sv.postcards) do assert(not wk[c.key], "dup in 
 local m3 = State.load({ version = 2, postcards = { { place = "ink_lake", pose = "sit", prop = "none", weather = "clear", text_id = "p:1", key = "ink_lake|sit|none|clear|p:1", trip = 1 } },
     collected = { ["ink_lake|sit|none|clear|p:1"] = 1 }, visitor = { id = "inkbug", until_at = 9 },
     souvenirs = { lake_pebble = 1 } }, 0)
-assert(m3.version == 4 and m3.postcards[1].variant == "a" and type(m3.decor) == "table" and m3.visitor.pose == "")
+assert(m3.version == State.VERSION and m3.postcards[1].variant == "a" and type(m3.decor) == "table" and m3.visitor.pose == "" and type(m3.errands) == "table")
 assert(m3.place_trips.ink_lake == 1 and m3.seen_visitors.inkbug == 9, "v4 album migrate")
 assert(P.key(m3.postcards[1]) == "ink_lake|sit|none|clear|p:1", "old key stays valid")
 local cb = { place = "ink_lake", variant = "b", pose = "fish", prop = "none", weather = "clear", text_id = "p:1" }
@@ -336,7 +343,15 @@ local A = "paper-sprite.koplugin/assets/"
 local function has(f) local h = io.open(A .. f, "rb") if h then h:close() return true end end
 local miss = {}
 local function need(f) if not has(f) then miss[#miss + 1] = f end end
-for _, pl in ipairs(require("papersprite.data.places")) do need("places/" .. pl.id .. ".png") need("places/" .. pl.id .. "_b.png") end
+do
+    local seen_zip = {}
+    for _, pl in ipairs(require("papersprite.data.places")) do
+        need("places/" .. pl.id .. ".png") need("places/" .. pl.id .. "_b.png")
+        assert(type(pl.zip) == "string" and pl.zip:match("^%d%d%d%d%d%d$"), "place zip " .. tostring(pl.id))
+        assert(not seen_zip[pl.zip], "duplicate zip " .. pl.zip)
+        seen_zip[pl.zip] = pl.id
+    end
+end
 for _, x in ipairs(P.poses) do need("sprite/" .. x .. ".png") end
 for _, x in ipairs(P.props) do if x ~= "none" then need("props/" .. x .. ".png") end end
 for _, x in ipairs(P.weathers) do if x ~= "clear" then need("weather/" .. x .. ".png") end end
@@ -374,27 +389,23 @@ assert(WD.sig({ a = 1, b = { 2 } }) == WD.sig({ b = { 2 }, a = 1 }))
 local empty = WD.view(nil, 0, false)
 assert(#WD.postcards(empty, 5).cards == 0 and WD.cabinet(empty).have == 0 and WD.attic(empty, 0, false).scene)
 
--- 12. 明信片墙分页：网格 12 张 / 列表 5 张一页，新的在前；切换视图
+-- 12. 明信片墙：一页一张，新的在前
 local sw = State.fresh(0)
 for k = 1, 30 do sw.postcards[k] = { place = "ink_lake", pose = "sit", prop = "none", weather = "clear", line = "l" .. k, at = k } end
-local ids, pg, pgs = Game.wallPage(sw, "grid", 1)
-assert(#ids == 12 and ids[1] == 30 and pg == 1 and pgs == 3)
-ids, pg, pgs = Game.wallPage(sw, "grid", 9)
-assert(pg == 3 and #ids == 6 and ids[#ids] == 1, "clamped last page")
-ids, pg, pgs = Game.wallPage(sw, "list", 2)
-assert(pgs == 8 and #ids == 4 and ids[1] == 26)
-assert(select(3, Game.wallPage(State.fresh(0), "grid", 1)) == 1)
+local i, pg, pgs = Game.cardIndex(sw, 1)
+assert(i == 30 and pg == 1 and pgs == 30)
+i, pg, pgs = Game.cardIndex(sw, 99)
+assert(pg == 30 and i == 1, "clamped last page")
+assert(select(3, Game.cardIndex(State.fresh(0), 1)) == 1)
 H.saved = sw
 local g5 = Game.new(H.host):show()
 attic_ops(); click("明信片墙")
-assert(H.view.grid and #H.view.grid.cells == 12 and H.view.pager.pages == 3 and H.view.grid.cells[1].new)
-H.view.pager.next(); assert(H.view.pager.page == 2)
-click("switch:列表"); assert(H.view.list and #H.view.list.rows == 4 and H.view.list.rows[1].date and H.view.pager.pages == 8)
-assert(H.view.list.rows[1].new, "new badge survives re-render in the same wall visit")
-click("switch:网格")
--- 界面按剩余高度回报每页数量：记住并重排；翻页条带 go（首页 / 末页）
-H.view.grid.fit(9); assert(#H.view.grid.cells == 9 and H.view.pager.pages == 4 and H.view.grid.per == 9)
-H.view.pager.go(4); assert(H.view.pager.page == 4 and #H.view.grid.cells == 3); assert(H.view.grid)
+-- 进墙前 wall_seen 是 0：这一趟 30 张都是新的，翻到最旧那张角标还在
+assert(H.view.postcard and H.view.postcard.new and H.view.postcard.index == 30 and H.view.pager.pages == 30 and H.view.pager.page == 1)
+H.view.pager.next(); assert(H.view.pager.page == 2 and H.view.postcard.side == nil and H.view.postcard.new, "new badge survives")
+H.view.pager.go(30); assert(H.view.pager.page == 30 and H.view.postcard.index == 1 and H.view.postcard.new, "unseen wall: oldest is new too")
+back(); click("明信片墙")
+assert(H.view.postcard.index == 30 and not H.view.postcard.new, "re-enter clears the badge")
 g5:close()
 
 -- 13. 小铺：货架分页 / 分类 / 详情 / 购买；每件可买物品都有介绍，效果行与数据一致
@@ -517,7 +528,7 @@ do
     H.saved.inspiration = 50
     local ge = GameEn.new(H.host):show()
     clean("attic")
-    for _, pg in ipairs({ "basket", "shop", "wall", "cabinet" }) do ge:go(pg) clean(pg) back() end
+    for _, pg in ipairs({ "basket", "shop", "wall", "cabinet", "quests", "achievements", "bookwall" }) do ge:go(pg) clean(pg) back() end
     ge.attic_page = 2 ge:render() clean("attic keeps")
     ge.attic_page = 3 ge:render() clean("attic feed")
     ge:close()
@@ -667,16 +678,65 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     local Reading = require("papersprite.core.reading")
     package.loaded["papersprite.core.reading"] = stub
     local Travel = require("papersprite.core.travel")
+    local Errand = require("papersprite.core.errand")
+    local Disturb = require("papersprite.core.disturb")
     local s = State.fresh(1)
-    Quest.refresh(s, 1000)
-    local list = s.quests.list
-    assert(#list == 4 and list[1].p == 0)
-    for _, q in ipairs(list) do Quest.note(s, q.kind, q.key, q.target) end
-    for _ = 1, 3 do Quest.note(s, "trip", "water") Quest.note(s, "card", "sunny") Quest.note(s, "pages", nil, 50) end
+    s.sprite.status = "home"
+    s.visitor = { id = "inkbug", until_at = 1e9 }
+    Errand.leave(s, "inkbug", 1000)
+    assert(#s.errands == 1 and not Errand.done(s, s.errands[1]) and not Errand.claim(s, 1, 1000))
+    Errand.leave(s, "inkbug", 1001)
+    assert(#s.errands == 1, "one open errand per visitor")
+    local function bump(st, err)
+        if err.kind == "place" then st.place_trips[err.key] = (err.base or 0) + 1
+        elseif err.kind == "tag" then st.stats.tag = st.stats.tag or {} st.stats.tag[err.key] = (err.base or 0) + 1
+        elseif err.kind == "weather" then st.stats.weather = st.stats.weather or {} st.stats.weather[err.key] = (err.base or 0) + 1
+        elseif err.kind == "book" then st.stats.books = (err.base or 0) + 1
+        elseif err.kind == "host" then st.bonds[err.visitor] = (err.base or 0) + 1
+        else error("unknown errand kind " .. tostring(err.kind)) end
+    end
+    bump(s, s.errands[1])
     local before = s.inspiration
-    assert(Quest.claimable(s) >= 1)
-    for i = 1, #list do Quest.claim(s, i) end
-    assert(s.inspiration > before and Quest.claimable(s) == 0 and not Quest.claim(s, 1), "claim once")
+    assert(Errand.done(s, s.errands[1]) and Errand.claim(s, 1, 2000))
+    -- 领取会顺手判定成就（第一张纸条 +6），灵感增量不只有委托本身
+    assert(s.inspiration >= before + Errand.REWARD and s.achieved.errand1 and (s.bonds.inkbug or 0) >= 1
+        and not Errand.claim(s, 1, 2000), "claim once")
+    s.sprite.status = "away"
+    Errand.leave(s, "inkbug", 3000)
+    bump(s, s.errands[#s.errands])
+    assert(Errand.done(s, s.errands[#s.errands]) and not Errand.claim(s, #s.errands, 4000), "away cannot claim")
+    local d = State.fresh(1)
+    d.postcards[1] = { place = "ink_lake", at = 1 }
+    assert(not Disturb.next(d), "unarmed")
+    Disturb.arm(d)
+    d.postcards[2] = { place = "ink_lake", at = 2 }
+    local note = Disturb.next(d)
+    assert(note and note.kind == "card" and note.index == 2)
+    Disturb.ack(d, note)
+    assert(not Disturb.next(d))
+    d.sprite = { status = "away", left_at = 5 }
+    note = Disturb.next(d)
+    assert(note and note.kind == "away" and note.at == 5, "departure gets an illustrated notice")
+    Disturb.ack(d, note)
+    assert(not Disturb.next(d), "acknowledged departure is not repeated")
+    Disturb.arm(d)
+    assert(not Disturb.next(d), "enabling disturbances does not replay an old departure")
+    d.sprite = { status = "home" }
+    d.sprite.back_at = 9
+    note = Disturb.next(d)
+    assert(note and note.kind == "home")
+    Disturb.ack(d, note)
+    d.visitor = { id = "inkbug", until_at = 50 }
+    note = Disturb.next(d)
+    assert(note and note.kind == "visitor")
+    Disturb.ack(d, note)
+    d.achieved = { errand1 = 3 }
+    note = Disturb.next(d)
+    assert(note and note.kind == "ach" and note.id == "errand1")
+    local returned = State.fresh(1)
+    Disturb.arm(returned)
+    returned.sprite = { status = "home", left_at = 5, back_at = 9 }
+    assert(Disturb.next(returned).kind == "home", "a completed trip does not replay departure")
 
     local g = State.fresh(1)
     g.sprite.status = "home"
@@ -728,4 +788,158 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     local gu = Game.new(H.host):show()
     for _, pg in ipairs({ "quests", "achievements", "bookwall", "guest_here" }) do gu:go(pg) assert(H.view.title, pg) end
     gu:close()
+end
+
+do -- 提醒使用月读弹窗：插画、翻面、关闭确认都走同一套窗口生命周期。
+    local names = {
+        "papersprite.ui.reader_overlay", "papersprite.ui.read_prefs", "ui/uimanager",
+        "apps/reader/readerui", "ui.themes.widgets.modal", "ui.themes", "ui.themes.widgets.text",
+        "ui/widget/verticalgroup", "ui/widget/verticalspan", "ui/widget/container/centercontainer",
+        "ui/geometry", "ui/widget/imagewidget", "papersprite.ui.postcard", "papersprite.ui.moon_widgets",
+    }
+    local saved = {}
+    for _, name in ipairs(names) do saved[name] = package.loaded[name] end
+    local state = require("papersprite.core.state").fresh(1)
+    state.postcards = { { place = "ink_lake", at = 1 } }
+    local writes, shown, image, opened = 0
+    package.loaded["papersprite.ui.read_prefs"] = {
+        disturb = function() return true end,
+        host = function() return {
+            loadState = function() return state end, now = function() return 10 end,
+            saveState = function() writes = writes + 1 end,
+        } end,
+    }
+    package.loaded["ui/uimanager"] = { setDirty = function() end, scheduleIn = function() end }
+    package.loaded["apps/reader/readerui"] = { instance = { document = {} } }
+    local Modal = {}
+    function Modal:new(args)
+        args.theme = { space = { md = 8 }, dialog = { bg = "white" } }
+        return setmetatable(args, { __index = self })
+    end
+    function Modal:innerWidth() return 400 end
+    function Modal:setDialog(dialog) self.dialog = dialog end
+    function Modal:show() shown = self end
+    function Modal:dismiss() self.close_callback() end
+    package.loaded["ui.themes.widgets.modal"] = Modal
+    package.loaded["ui.themes"] = { px = function(n) return n end }
+    package.loaded["ui.themes.widgets.text"] = { box = function(_role, text) return { text = text } end }
+    local widget = { new = function(_self, args) return args end }
+    for _, name in ipairs({ "ui/widget/verticalgroup", "ui/widget/verticalspan",
+        "ui/widget/container/centercontainer", "ui/geometry" }) do package.loaded[name] = widget end
+    package.loaded["ui/widget/imagewidget"] = { new = function(_self, args) image = args.file return args end }
+    package.loaded["papersprite.ui.postcard"] = { widget = function(body) return { side = body.side } end }
+    package.loaded["papersprite.ui.moon_widgets"] = { open = function(page)
+        assert(writes == 3, "visitor notice is closed before opening the hosting page")
+        opened = page
+    end }
+    package.loaded["papersprite.ui.reader_overlay"] = nil
+    local M = require("papersprite.ui.reader_overlay")
+    M.syncFlags = function() return state end
+    local Disturb = require("papersprite.core.disturb")
+    Disturb.arm(state)
+    state.sprite = { status = "away", left_at = 2 }
+    M.poke()
+    assert(shown.modal and shown.dialog.title == "阿页出门了" and image:find("sprite/walk.png", 1, true))
+    shown:dismiss()
+    assert(writes == 1 and not Disturb.next(state), "modal dismissal acknowledges departure")
+    state.sprite = { status = "home", back_at = 3 }
+    M.poke()
+    assert(image:find("sprite/wave.png", 1, true))
+    shown:dismiss()
+    state.visitor = { id = "clip_snail", pose = "_2", until_at = 100 }
+    M.poke()
+    assert(image:find("visitors/clip_snail_2.png", 1, true), "visitor uses its own illustration")
+    assert(#shown.dialog.buttons == 2 and shown.dialog.buttons[2].text == "招待客人")
+    shown.dialog.buttons[2].callback()
+    assert(opened == "guest_here", "hosting reuses the existing souvenir selection page")
+    state.postcards[2] = { place = "ink_lake", pose = "sit", prop = "none", weather = "clear", variant = "a", at = 4 }
+    M.poke()
+    assert(shown.dialog.body.side == "back" and #shown.dialog.buttons == 2)
+    shown.dialog.buttons[1].callback()
+    assert(shown.dialog.body.side == "front" and writes == 3, "turning a postcard does not close or acknowledge it")
+    shown.dialog.buttons[2].callback()
+    assert(writes == 4 and not Disturb.next(state), "close button acknowledges postcard once")
+    state.visitor = { id = "clip_snail", pose = "", until_at = 200, fed = true }
+    M.poke()
+    assert(#shown.dialog.buttons == 1, "an already hosted visitor only offers dismissal")
+    shown:dismiss()
+    for _, name in ipairs(names) do package.loaded[name] = saved[name] end
+end
+
+do -- 伴读：设置立即重绘，翻页按真实经过时间结束，并重画原来的看书姿势。
+    local names = {
+        "papersprite.ui.read_prefs", "papersprite.ui.reader_overlay", "ui/uimanager",
+        "ui/time", "ui/widget/imagewidget", "ffi/blitbuffer", "ffi",
+    }
+    local saved = {}
+    for _, name in ipairs(names) do saved[name] = package.loaded[name] end
+    package.loaded["papersprite.ui.read_prefs"] = nil
+    package.loaded["papersprite.ui.reader_overlay"] = nil
+    local P = require("papersprite.ui.read_prefs")
+    local settings = { companion = true }
+    P.host = function() return H.host end
+    P.get = function(key, default)
+        if settings[key] == nil then return default end
+        return settings[key]
+    end
+    P.set = function(key, value) settings[key] = value end
+    local clock, pending, dirty = 100, {}, {}
+    package.loaded["ui/time"] = { now = function() return clock end, to_s = function(t) return t end }
+    package.loaded["ui/uimanager"] = {
+        setDirty = function(_self, widget) dirty[#dirty + 1] = widget end,
+        scheduleIn = function(_self, _delay, fn) pending[#pending + 1] = fn end,
+    }
+    local loaded, painted = {}, {}
+    local pixel = { a = 0, getAlpha = function() return 255 end }
+    pixel.getColor8A = function() return pixel end
+    package.loaded["ui/widget/imagewidget"] = { new = function(_self, args)
+        loaded[#loaded + 1] = args.file
+        return { _bb = { getPixel = function() return pixel end },
+            getSize = function() return { w = 1, h = 1 } end }
+    end }
+    package.loaded["ffi"] = { fill = function() end }
+    package.loaded["ffi/blitbuffer"] = {
+        TYPE_BB8A = 2,
+        Color8A = function(gray, alpha) return { a = gray, alpha = alpha } end,
+        new = function()
+            return { data = {}, stride = 2, h = 1,
+                getWidth = function() return 1 end, getHeight = function() return 1 end,
+                setPixel = function(self, _x, _y, c) self.pixel = c end }
+        end,
+    }
+    local M = require("papersprite.ui.reader_overlay")
+    M.poke = function() end
+    local ui = { document = {}, view = { dimen = { w = 540, h = 720 } } }
+    ui.view.registerViewModule = function(self, name, widget) self[name] = widget widget.view = self end
+    M.attach(ui)
+    local bb = { pmulalphablitFrom = function(_self, src) painted[#painted + 1] = src.pixel end }
+    assert(P.fade() == 20, "default transparency is 20%")
+    ui.view.papersprite_companion:paintTo(bb, 0, 0)
+    assert(painted[#painted].alpha == 204, "20% transparency leaves 80% opacity")
+    P.cycleFade()
+    assert(P.fade() == 0 and dirty[#dirty] == "all", "setting changes invalidate the top-level page")
+    ui.view.papersprite_companion:paintTo(bb, 0, 0)
+    assert(painted[#painted].alpha == 255, "new transparency applies without settling game state")
+    M.onPage({ ui = ui })
+    assert(dirty[#dirty] == ui, "animation redraws ReaderUI, not its child view")
+    clock = 100.4
+    table.remove(pending, 1)()
+    ui.view.papersprite_companion:paintTo(bb, 0, 0)
+    assert(loaded[#loaded]:find("chair_turn.png", 1, true), "middle frame uses the AI page-turn image")
+    clock = 100.65
+    table.remove(pending, 1)()
+    ui.view.papersprite_companion:paintTo(bb, 0, 0)
+    assert(loaded[#loaded]:find("chair_turn_left.png", 1, true), "page crosses the spine and lands on the left")
+    clock = 101
+    table.remove(pending, 1)()
+    assert(M.flags.turn_from == nil and not M.flags.turn_ticking and #pending == 0,
+        "animation ends even when CPU time does not advance")
+    assert(dirty[#dirty] == ui, "ending animation redraws the resting image")
+    ui.view.papersprite_companion:paintTo(bb, 0, 0)
+    assert(painted[#painted].alpha == 255)
+    settings.companion_fade = 100
+    local count = #painted
+    ui.view.papersprite_companion:paintTo(bb, 0, 0)
+    assert(#painted == count, "fully transparent companion draws nothing")
+    for _, name in ipairs(names) do package.loaded[name] = saved[name] end
 end

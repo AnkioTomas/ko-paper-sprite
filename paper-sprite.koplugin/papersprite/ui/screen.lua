@@ -5,8 +5,7 @@
 阿页依赖月读：入口（papersprite.moon）保证 ui.themes 可用，这里不再有原生兜底。
 view = {
   title, scene?（分层画面）, scene_wide?（画面宽贴满内容区，阁楼主页用）, icons?, lines = {string|{text,muted}},
-  grid?  = { cols, cells = { {scene, new, caption, callback} } },        明信片墙：缩略图网格
-  list?  = { rows = { {scene, new, title, line, date, callback} } },      明信片列表：缩略图 + 文字
+  postcard? = cardface，一页同时画正面和背面
   status? = { icon?, title, caption?, meta?, callback? }                  状态卡（图标 + 标题 / 说明 / 小字）
   empty?  = { title, caption? }                                           空状态卡
   switch? = { icon, text, callback }                                      标题栏右侧视图切换；左侧固定是返回（无 back 时关闭）
@@ -191,6 +190,31 @@ function S:init()
         table.insert(body, CenterContainer:new{ dimen = Geom:new{ w = w, h = SH + px(6) }, k.frame(pic, scene.frame) })
         gap(12)
     end
+    if v.postcard then
+        local before = bodyH()
+        local gap_h = px(10)
+        local avail = math.max(1, h - before - footer_h - px(4))
+        local pw = inner
+        local each = math.floor((avail - gap_h) / 2)
+        local ph = math.min(each, math.max(px(110), math.floor(pw * 0.64)))
+        local front_h, back_h = ph, ph
+        local function sided(side)
+            local o = {}
+            for k, val in pairs(v.postcard) do o[k] = val end
+            o.side = side
+            return o
+        end
+        local Post = require("papersprite.ui.postcard")
+        local front = try(function() return Post.widget(sided("front"), pw, front_h) end)
+        local back = try(function() return Post.widget(sided("back"), pw, back_h) end)
+        if front then
+            table.insert(body, CenterContainer:new{ dimen = Geom:new{ w = w, h = front_h }, front })
+        end
+        if back then
+            gap(8)
+            table.insert(body, CenterContainer:new{ dimen = Geom:new{ w = w, h = back_h }, back })
+        end
+    end
     if v.icons and #v.icons > 0 then
         local isz = px(56)
         local row = HorizontalGroup:new{ align = "center" }
@@ -358,56 +382,6 @@ function S:init()
     if v.lines2 then renderLines(v.lines2) end
     if v.shelf2 then renderShelf(v.shelf2) end
     if v.empty2 then renderEmpty(v.empty2) end
-    -- 明信片墙：缩略图网格
-    if v.grid then
-        local cols, g = v.grid.cols or 3, px(12)
-        local cw = math.floor((inner - g * (cols - 1)) / cols)
-        local ch = math.floor(cw / 2)
-        local caph = k.line("阿", cw, true, true):getSize().h
-        fit(v.grid, cols, bodyH(), ch + caph + px(4) + px(12), px(12))
-        local row
-        for i, c in ipairs(v.grid.cells) do
-            if (i - 1) % cols == 0 then
-                if row then table.insert(body, indent(row)) gap(12) end
-                row = HorizontalGroup:new{ align = "top" }
-            else
-                table.insert(row, HorizontalSpan:new{ width = g })
-            end
-            local cell = VerticalGroup:new{ align = "left", k.frame(thumb(k, c.scene, cw, ch, c.new), false), VerticalSpan:new{ width = px(4) },
-                k.line(c.caption or "", cw, true, true) }
-            table.insert(row, tap(cell, cw, ch + caph + px(4), c.callback))
-        end
-        if row then table.insert(body, indent(row)) gap(12) end
-    end
-    -- 明信片列表：左缩略图 + 地点 / 短句 / 日期
-    if v.list then
-        -- 行高按屏幕剩余高度定：先按默认缩略图算能放几行；剩下的空白超过半行就多放一行、把缩略图略缩小
-        local g12 = px(12)
-        local before = bodyH()
-        local avail = h - before - footer_h - px(6)
-        local colh = k.line("阿", 100):getSize().h + k.line("阿", 100, true, true):getSize().h * 2 + px(4)
-        local bd = px(2)
-        local th = px(84)
-        local rows = math.max(1, math.floor((avail + g12) / (math.max(th + bd, colh) + g12)))
-        local left = avail + g12 - rows * (math.max(th + bd, colh) + g12)
-        if left > (math.max(th + bd, colh) + g12) * 0.5 then
-            local th2 = math.floor((avail + g12) / (rows + 1) - g12 - bd)
-            if th2 >= colh - bd and th2 >= px(60) then th, rows = th2, rows + 1 end
-        end
-        local tw = th * 2
-        local textw = inner - tw - px(14)
-        for _, r in ipairs(v.list.rows) do
-            local col = VerticalGroup:new{ align = "left",
-                k.line(r.title or "", textw), VerticalSpan:new{ width = px(2) },
-                k.line(r.line or "", textw, true, true), VerticalSpan:new{ width = px(2) },
-                k.line(r.date or "", textw, true, true) }
-            local rw = HorizontalGroup:new{ align = "center", k.frame(thumb(k, r.scene, tw, th, r.new), false), HorizontalSpan:new{ width = px(14) }, col }
-            local rowh = math.max(th + bd, col:getSize().h, rw:getSize().h)
-            table.insert(body, indent(tap(rw, inner, rowh, r.callback)))
-            gap(12)
-        end
-        if v.list.fit and rows ~= v.list.per then UIManager:nextTick(function() v.list.fit(rows) end) end
-    end
     -- 还是放不下：缩小顶部画面再排一次（只缩一次）；宽屏模式只缩高度，宽度仍贴满
     local over = bodyH() + footer_h - h
     if over > 0 and scene and not self._scene_h then

@@ -27,6 +27,9 @@ function PaperSprite:init()
         K.inject(self.ui.menu)
     end)
     self:onDispatcherRegisterActions()
+    if self.ui and self.ui.document then
+        pcall(function() require("papersprite.ui.reader_overlay").install(self) end)
+    end
 end
 
 -- KOReader 手势动作「阿页的阁楼」：可在「手势」设置里绑到任意手势
@@ -54,6 +57,7 @@ end
 -- 改字号 / 旋转 / 重排（页码没变）和进度条跳转（一次跨好几页）都不算。
 function PaperSprite:onPageUpdate(pageno)
     if not self.ui or not self.ui.document then return end
+    pcall(function() require("papersprite.ui.reader_overlay").onPage(self) end)
     local now = os.time()
     local last, since = self._last_page, self._last_at
     self._last_page = type(pageno) == "number" and pageno or nil

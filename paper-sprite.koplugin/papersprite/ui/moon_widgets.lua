@@ -2,7 +2,7 @@
 --[[--
 月读首页组件（只读视图，不在组件里玩）：
   attic     阁楼：当前阁楼画面（季节/夜晚、在家/出门、装饰、访客）+ 一行近况；点按打开阁楼
-  postcards 明信片：「最近列表」或「迷你墙」两种模式（组件设置里切换）；点某张打开那张，点空白打开明信片墙
+  postcards 明信片：一页同时画正反。标题行翻页，点卡片打开墙。不吃左右滑。
   cabinet   纪念物柜：已收集特产图标 + 数量（n/总数）；点按打开特产柜
 尺寸档位 小 / 中 / 大 在组件设置里选，决定默认高度与行数。
 图片走 ui/compose 的合成缓存；每次绘制前比对数据签名，变了才重建。月读主题不可用时回落朴素样式。
@@ -32,7 +32,6 @@ end
 local function setSetting(key, v) pcall(function() host():setSetting(key, v) end) end
 
 function M.size(kind) local v = setting("w_" .. kind .. "_size", "medium") return Data.LIST_ROWS[v] and v or "medium" end
-function M.mode() local v = setting("w_postcards_mode", "list") return (v == "grid") and "grid" or "list" end
 
 --- 打开阁楼并跳到某页
 function M.open(page, arg)
@@ -216,17 +215,17 @@ function M.atticBuild(w, h)
 end
 
 ------------------------------------------------------------------ 明信片
-local GRID_COLS = 4
 M.cards_page = 1
 
---- 列表一行：地点 · 天气 / 短句 / 日期 三行，缩略图同高（2:1）
-local function listRowH(T) return lineH(T, "body") + lineH(T, "caption") * 2 end
+-- 一页同时放正反，每面按宽算高（不再翻面）
+local CARD_EACH = { small = 0.34, medium = 0.42, large = 0.50 }
 
---- 标题行右侧的翻页条（月读 Pager，失败退回文字）
 local function pagerWidget(T, width, page, pages, prev, next)
     if T then
         local ok, p = pcall(function()
-            return require("ui.themes.widgets.pager").widget{ width = width, page = page, pages = pages, on_prev = prev, on_next = next }
+            return require("ui.themes.widgets.pager").widget{
+                width = width, page = page, pages = pages, on_prev = prev, on_next = next,
+            }
         end)
         if ok and p then return p, true end
     end
@@ -234,127 +233,95 @@ local function pagerWidget(T, width, page, pages, prev, next)
 end
 
 local function headH(T)
-    local ok, h = pcall(function() return pagerWidget(T, 300, 1, 2, function() end, function() end):getSize().h end)
-    return math.max(lineH(T, "title"), ok and h or 0)
+    return lineH(T, "title")
 end
 
 local function cardsHeights(T, w)
     local inner = w - padOf(T) * 2 - borderOf(T) * 2
-    local size = M.size("postcards")
-    local head = headH(T) + gapOf(T)
-    if M.mode() == "grid" then
-        local cw = math.floor((inner - gapOf(T) * (GRID_COLS - 1)) / GRID_COLS)
-        local rows = Data.GRID_ROWS[size]
-        return head + rows * math.floor(cw / 2) + (rows - 1) * gapOf(T) + padOf(T) * 2 + borderOf(T) * 2
-    end
-    local rows = Data.LIST_ROWS[size]
-    local rh = listRowH(T)
-    return head + rows * rh + (rows - 1) * gapOf(T) + padOf(T) * 2 + borderOf(T) * 2
+    local each = math.floor(inner * (CARD_EACH[M.size("postcards")] or CARD_EACH.medium))
+    return headH(T) + gapOf(T) * 2 + each * 2 + padOf(T) * 2 + borderOf(T) * 2
 end
 
 function M.postcardsBuild(w, h)
     local T = theme()
     local Geom = require("ui/geometry")
-    local HorizontalGroup = require("ui/widget/horizontalgroup")
-    local HorizontalSpan = require("ui/widget/horizontalspan")
     local VerticalGroup = require("ui/widget/verticalgroup")
     local VerticalSpan = require("ui/widget/verticalspan")
-    local WidgetContainer = require("ui/widget/container/widgetcontainer")
     local function build()
         local s = read()
-        local size, mode = M.size("postcards"), M.mode()
         local pad, gap, bd = padOf(T), gapOf(T), borderOf(T)
-        local inner = w - pad * 2 - bd * 2
+        local inner = math.max(1, w - pad * 2 - bd * 2)
         local hh = headH(T)
-        local avail = h - pad * 2 - bd * 2 - hh - gap
-        local rh = listRowH(T)
-        local cw = math.floor((inner - gap * (GRID_COLS - 1)) / GRID_COLS)
-        local ch = math.floor(cw / 2)
-        local unit = mode == "grid" and ch or rh
-        local rows = math.max(1, math.min(mode == "grid" and Data.GRID_ROWS[size] or Data.LIST_ROWS[size],
-            math.floor((avail + gap + math.floor(pad * 0.6)) / (unit + gap))))
-        local n = mode == "grid" and GRID_COLS * rows or rows
-        local d = Data.postcards(s, n, M.cards_page)
+        local avail = math.max(px(T, 80), h - pad * 2 - bd * 2 - hh - gap)
+        local d = Data.postcards(s, 1, M.cards_page)
         M.cards_page = d.page
-        local sig = Data.sig({ d.total, d.new, d.page, size, mode, w, h, (function()
-            local ks = {} for _, c in ipairs(d.cards) do ks[#ks + 1] = c.index .. (c.new and "n" or "") end return ks end)() })
-        local head = tr("明信片")
+        local pc = d.cards[1]
+        local sig = Data.sig({ d.total, d.new, d.page, M.size("postcards"), w, h, pc and pc.index or 0 })
         local meta = (d.total == 0) and tr("还没有") or (d.new > 0 and tr("%d 张 · 新 %d", d.total, d.new) or tr("%d 张", d.total))
         local rects = {}
-        local headRow
-        if d.pages > 1 then
-            local UIManager = require("ui/uimanager")
-            local pw = math.floor(inner * 0.45)
-            local function turn(dp) return function()
+        local UIManager = require("ui/uimanager")
+        local function turn(dp)
+            return function()
                 M.cards_page = math.max(1, math.min(d.pages, d.page + dp))
                 UIManager:setDirty("all", "ui")
-            end end
+            end
+        end
+        local headRow
+        if d.pages > 1 then
+            local pw = math.floor(inner * 0.45)
             local pager, own = pagerWidget(T, pw, d.page, d.pages, turn(-1), turn(1))
-            headRow = require("ui/widget/horizontalgroup"):new{ align = "center", line(T, "title", head, math.floor(inner * 0.25)),
-                require("ui/widget/horizontalspan"):new{ width = gapOf(T) },
-                line(T, "caption", meta, inner - pw - math.floor(inner * 0.25) - gapOf(T), "muted"), pager }
-            if not own then -- 文字兜底：自己按左右半边分翻页（月读 Pager 的按钮自带回调，不能再算一次）
+            headRow = require("ui/widget/horizontalgroup"):new{ align = "center",
+                line(T, "title", tr("明信片"), math.floor(inner * 0.25)),
+                require("ui/widget/horizontalspan"):new{ width = gap },
+                line(T, "caption", meta, inner - pw - math.floor(inner * 0.25) - gap, "muted"), pager }
+            rects[#rects + 1] = { pad + bd, pad + bd, inner - pw, hh, function() M.open("wall") end }
+            if not own then
                 rects[#rects + 1] = { pad + bd + inner - pw, pad + bd, math.floor(pw / 2), hh, turn(-1) }
                 rects[#rects + 1] = { pad + bd + inner - math.floor(pw / 2), pad + bd, math.floor(pw / 2), hh, turn(1) }
-            else -- 标题行其余位置点了不跳页
+            else
                 rects[#rects + 1] = { pad + bd + inner - pw, pad + bd, pw, hh, function() end }
             end
         else
-            headRow = (header(T, head, meta, inner))
+            headRow = (header(T, tr("明信片"), meta, inner))
+            rects[#rects + 1] = { pad + bd, pad + bd, inner, hh, function() M.open("wall") end }
         end
-        local col = VerticalGroup:new{ align = "left", require("ui/widget/container/leftcontainer"):new{ dimen = Geom:new{ w = inner, h = hh }, headRow }, VerticalSpan:new{ width = gap } }
         local y0 = pad + bd + hh + gap
-        local function open(i) return function() M.open("card", i) end end
-        if d.total == 0 then
+        local body
+        if not pc then
             local CenterContainer = require("ui/widget/container/centercontainer")
-            col[#col + 1] = CenterContainer:new{ dimen = Geom:new{ w = inner, h = math.max(lineH(T, "body") * 2, avail - gap) },
-                VerticalGroup:new{ align = "center", line(T, "body", tr("墙上还空着"), inner), line(T, "caption", tr("阿页旅行时会寄明信片回来"), inner, "faint") } }
-            return card(T, w, h, col), rects, sig
-        end
-        if mode == "grid" then
-            for r = 1, rows do
-                local row = HorizontalGroup:new{ align = "top" }
-                for c = 1, GRID_COLS do
-                    local k = (r - 1) * GRID_COLS + c
-                    local pc = d.cards[k]
-                    if c > 1 then row[#row + 1] = HorizontalSpan:new{ width = gap } end
-                    if pc then
-                        local cell = Compose.widget(pc.scene, cw, ch)
-                        if pc.new then
-                            local OverlapGroup = require("ui/widget/overlapgroup")
-                            local FrameContainer = require("ui/widget/container/framecontainer")
-                            local Blitbuffer = require("ffi/blitbuffer")
-                            cell = OverlapGroup:new{ dimen = Geom:new{ w = cw, h = ch }, cell,
-                                FrameContainer:new{ bordersize = 0, padding = 2, margin = 0, background = Blitbuffer.COLOR_WHITE,
-                                    line(T, "caption", tr("新"), cw) } }
-                        end
-                        row[#row + 1] = cell
-                        rects[#rects + 1] = { pad + bd + (c - 1) * (cw + gap), y0 + (r - 1) * (ch + gap), cw, ch, open(pc.index) }
-                    else
-                        row[#row + 1] = WidgetContainer:new{ dimen = Geom:new{ w = cw, h = ch } }
-                    end
-                end
-                if r > 1 then col[#col + 1] = VerticalSpan:new{ width = gap } end
-                col[#col + 1] = row
-            end
+            body = CenterContainer:new{ dimen = Geom:new{ w = inner, h = avail },
+                VerticalGroup:new{ align = "center",
+                    line(T, "body", tr("墙上还空着"), inner),
+                    line(T, "caption", tr("阿页旅行时会寄明信片回来"), inner, "faint") } }
         else
-            local tw2 = rh * 2
-            local tw = math.max(1, inner - tw2 - gap)
-            for k = 1, rows do
-                local pc = d.cards[k]
-                if k > 1 then col[#col + 1] = VerticalSpan:new{ width = gap } end
-                if pc then
-                    col[#col + 1] = HorizontalGroup:new{ align = "center", Compose.widget(pc.scene, tw2, rh), HorizontalSpan:new{ width = gap },
-                        VerticalGroup:new{ align = "left",
-                            line(T, "body", (pc.new and tr("新 · ") or "") .. pc.place .. " · " .. pc.weather, tw),
-                            line(T, "caption", pc.line, tw, "muted"),
-                            line(T, "caption", pc.date, tw, "faint") } }
-                    rects[#rects + 1] = { pad + bd, y0 + (k - 1) * (rh + gap), inner, rh, open(pc.index) }
-                else
-                    col[#col + 1] = WidgetContainer:new{ dimen = Geom:new{ w = inner, h = rh } }
-                end
+            local face = require("papersprite.ui.cardface").of(s.postcards[pc.index])
+            local function sided(side)
+                local o = {}
+                for k, val in pairs(face) do o[k] = val end
+                o.side = side
+                return o
+            end
+            local gapc = math.max(4, gap)
+            local each = math.max(1, math.floor((avail - gapc) / 2))
+            local Post = require("papersprite.ui.postcard")
+            -- 组件被压矮时两面都看不清，只留背面；够高才正反叠在一起
+            if each < 96 then
+                body = Post.widget(sided("back"), inner, avail)
+            else
+                body = VerticalGroup:new{ align = "left",
+                    Post.widget(sided("front"), inner, each),
+                    VerticalSpan:new{ width = gapc },
+                    Post.widget(sided("back"), inner, each) }
+            end
+            if d.pages > 1 then
+                local ew = math.max(px(T, 28), math.floor(inner * 0.16))
+                rects[#rects + 1] = { pad + bd, y0, ew, avail, turn(-1) }
+                rects[#rects + 1] = { pad + bd + inner - ew, y0, ew, avail, turn(1) }
             end
         end
+        local col = VerticalGroup:new{ align = "left",
+            require("ui/widget/container/leftcontainer"):new{ dimen = Geom:new{ w = inner, h = hh }, headRow },
+            VerticalSpan:new{ width = gap }, body }
         return card(T, w, h, col), rects, sig
     end
     local content, rects, sig = build()
@@ -432,7 +399,7 @@ function M.cabinetBuild(w, h)
 end
 
 ------------------------------------------------------------------ 设置
---- 编辑态设置：尺寸档位（明信片另有显示模式）
+--- 编辑态设置：尺寸档位
 function M.settings(kind, desktop)
     local function refresh() pcall(function() desktop:onEvent("home_refresh") end) end
     local cur = M.size(kind)
@@ -440,13 +407,6 @@ function M.settings(kind, desktop)
     for _, sz in ipairs(Data.SIZES) do
         table.insert(items[1].buttons, { text = (cur == sz and "✓ " or "") .. Data.SIZE_NAMES[sz],
             callback = function() setSetting("w_" .. kind .. "_size", sz) refresh() end })
-    end
-    if kind == "postcards" then
-        local m = M.mode()
-        items[2] = { buttons = {
-            { text = (m == "list" and "✓ " or "") .. tr("最近列表"), callback = function() setSetting("w_postcards_mode", "list") refresh() end },
-            { text = (m == "grid" and "✓ " or "") .. tr("迷你墙"), callback = function() setSetting("w_postcards_mode", "grid") refresh() end },
-        } }
     end
     local title = ({ attic = tr("阁楼"), postcards = tr("明信片"), cabinet = tr("纪念物柜") })[kind]
     require("ui.themes.widgets.sheet"):new{ title = title, items = items }:show()

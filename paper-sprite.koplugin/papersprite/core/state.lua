@@ -2,7 +2,7 @@
 --[[-- 存档结构与版本迁移。存档只含纯数据表（LuaSettings 可序列化）。 --]]
 local State = {}
 
-State.VERSION = 4
+State.VERSION = 5
 
 function State.fresh(now)
     return {
@@ -32,6 +32,7 @@ function State.fresh(now)
         achieved = {},                    -- 成就 id -> 达成时间
         bonds = {},                       -- 访客 id -> 交情
         bookmarks = {},                   -- 读完的书 { title, at, tag, line, quote? }
+        errands = {},                     -- 访客留下的纸条 { visitor, kind, key, say, base, at, claimed? }
         seen_souvenirs = {},              -- 收到过的特产 id（送人后仍算收集过）
         level = 1,
     }
@@ -89,6 +90,12 @@ local MIGRATIONS = {
         end
         s.place_trips = s.place_trips or {}
         require("papersprite.core.album").rebuildTrips(s)
+    end,
+    -- v4 → v5：每日委托作废，换成访客纸条。旧清单不迁移。
+    [4] = function(s)
+        s.errands = s.errands or {}
+        s.quests = s.quests or {}
+        s.quests.list = {}
     end,
 }
 

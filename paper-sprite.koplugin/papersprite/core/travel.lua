@@ -167,6 +167,7 @@ local function arriveVisitor(s, at, u)
             s.seen_visitors = s.seen_visitors or {}
             if not s.seen_visitors[v.id] then s.seen_visitors[v.id] = at end
             State.log(s, v.arrive, at)
+            require("papersprite.core.errand").leave(s, v.id, at)
             return v
         end
     end
@@ -204,7 +205,6 @@ function T.settle(s, now, debug_fast)
     local events = {}
     local sp = s.sprite
     s.visit_check = s.visit_check or now
-    Quest.refresh(s, now)
     if sp.status == "packed" and now >= sp.depart_at then
         rollVisits(s, s.visit_check, sp.depart_at, u)
         s.visit_check = sp.depart_at

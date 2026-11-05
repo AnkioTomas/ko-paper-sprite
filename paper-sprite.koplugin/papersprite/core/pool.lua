@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 --[[--
 AI 预取池：在后台提前要好一批文案存进存档（s.pool），用到时直接取，不等请求；池空 / 没 AI 就用本地文案。
-四类：地点明信片句（pool.lines[地点]）、旅途事件改写（pool.events[事件]）、委托托词（挂在 quests.list[i].flavor）、
+四类：地点明信片句（pool.lines[地点]）、旅途事件改写（pool.events[事件]）、访客纸条的旁白（挂在 errands[i].aside）、
 来客的「在家」描写（visitor.line，随招待反应一起要）。请求外壳、超时、重试都复用 Story.ask。
 详见 docs/ai.md。
 --]]
@@ -140,14 +140,14 @@ end
 
 local function fillQuests(host, s, on_done)
     local todo = {}
-    for i, q in ipairs((s.quests or {}).list or {}) do
-        if not q.flavor then todo[#todo + 1] = { i = i, id = q.id, text = require("papersprite.core.quest").describe(q) } end
+    for i, e in ipairs(s.errands or {}) do
+        if not e.aside and not e.claimed then todo[#todo + 1] = { i = i, id = e.id, text = e.say or "" } end
     end
     if #todo == 0 then return false end
     local parts = {}
     for n, q in ipairs(todo) do parts[#parts + 1] = n .. ". " .. q.text end
     local user = table.concat({
-        "阿页的阁楼里贴着一些小委托（给玩家的小目标）。为下面每条写一句像「书桌上的便签」一样的托词，说明阿页为什么想要这个，口吻温柔有画面，≤" .. Pool.MAX_LINE .. "字，不要重复委托原文里的数字：",
+        "访客在阿页的阁楼留下一些小委托（不是系统任务，是客人自己的请求）。为下面每条写一句像「纸条背面」一样的旁白，口吻温柔有画面，≤" .. Pool.MAX_LINE .. "字，不要重复委托原文：",
         table.concat(parts, "\n"),
         '只输出 JSON，按顺序：{"flavors":["…"]}',
     }, "\n")
@@ -155,9 +155,9 @@ local function fillQuests(host, s, on_done)
         local list = lines5(r, "flavors", Pool.MAX_LINE)
         return #list > 0 and list or nil
     end, function(cur, list)
-        local ql = (cur.quests or {}).list or {}
+        local ql = cur.errands or {}
         for n, q in ipairs(todo) do
-            if list[n] and ql[q.i] and ql[q.i].id == q.id and not ql[q.i].flavor then ql[q.i].flavor = list[n] end
+            if list[n] and ql[q.i] and ql[q.i].id == q.id and not ql[q.i].aside then ql[q.i].aside = list[n] end
         end
         return true
     end, on_done)

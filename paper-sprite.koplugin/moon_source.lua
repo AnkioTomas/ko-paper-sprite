@@ -109,6 +109,61 @@ local function settingEntries(desktop)
                             end,
                         })
                     end,
+                } }, { title = _("阅读"), rows = {
+                    function(iw)
+                        local P = require("papersprite.ui.read_prefs")
+                        local on = P.disturb()
+                        return Row.widget({
+                            width = iw, chevron = false, kind = "toggle", icon = "mail",
+                            title = _("允许打扰"),
+                            subtitle = _("出门、回家、来客和明信片会叠在这一页上"),
+                            status = on and _("开") or _("关"), status_on = on,
+                            callback = function()
+                                P.toggleDisturb()
+                                desktop:updateView()
+                            end,
+                        })
+                    end,
+                    function(iw)
+                        local P = require("papersprite.ui.read_prefs")
+                        local on = P.companion()
+                        return Row.widget({
+                            width = iw, chevron = false, kind = "toggle", icon = "menu_book",
+                            title = _("伴读"),
+                            subtitle = _("阿页坐在角落里一起翻页"),
+                            status = on and _("开") or _("关"), status_on = on,
+                            callback = function()
+                                P.toggleCompanion()
+                                desktop:updateView()
+                            end,
+                        })
+                    end,
+                    function(iw)
+                        local P = require("papersprite.ui.read_prefs")
+                        return Row.widget({
+                            width = iw, chevron = false, kind = "action", icon = "menu_book",
+                            title = _("伴读位置"),
+                            subtitle = _("点一下换一个角"),
+                            status = P.cornerName(), status_on = true,
+                            callback = function()
+                                P.cycleCorner()
+                                desktop:updateView()
+                            end,
+                        })
+                    end,
+                    function(iw)
+                        local P = require("papersprite.ui.read_prefs")
+                        return Row.widget({
+                            width = iw, chevron = false, kind = "action", icon = "menu_book",
+                            title = _("伴读透明度"),
+                            subtitle = _("点一下换一档，越低越实"),
+                            status = P.fadeName(), status_on = true,
+                            callback = function()
+                                P.cycleFade()
+                                desktop:updateView()
+                            end,
+                        })
+                    end,
                 } }, { title = _("更新"), rows = {
                     function(iw)
                         local on = Update.autoEnabled()
@@ -144,9 +199,25 @@ return {
     -- 顶部下拉快捷面板：月读只开放「动作开关」挂点（title / icon / run），不能放自定义画面，
     -- 所以这里放一个「阿页」开关，点一下全屏打开阁楼（画面在首页「阁楼」组件里看）。
     features = { setting = { entries = settingEntries }, lockscreen = "papersprite.ui.lock_card", panel = { actions = function()
+        local P = require("papersprite.ui.read_prefs")
         return { {
             id = "attic", scope = "desktop", title = _("阿页"), icon = "home",
             run = function() pcall(function() require("papersprite.ui.moon_widgets").open("attic") end) end,
+        }, {
+            id = "disturb", scope = "reader", title = _("允许打扰"), icon = "mail", keep_open = true,
+            active = function() return P.disturb() end,
+            run = function() P.toggleDisturb() end,
+        }, {
+            id = "companion", scope = "reader", title = _("伴读"), icon = "menu_book", keep_open = true,
+            active = function() return P.companion() end,
+            label = function() return P.companion() and P.cornerName() or nil end,
+            run = function() P.toggleCompanion() end,
+            hold = function() P.cycleCorner() end,
+        }, {
+            id = "companion_fade", scope = "reader", title = _("伴读透明度"), icon = "menu_book", keep_open = true,
+            active = function() return P.companion() end,
+            label = function() return P.fadeName() end,
+            run = function() P.cycleFade() end,
         } }
     end } },
     home_widgets = {
