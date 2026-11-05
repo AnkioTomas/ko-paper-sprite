@@ -1001,7 +1001,7 @@ end
 do -- 伴读：设置立即重绘，翻页按真实经过时间结束，并重画原来的看书姿势。
     local names = {
         "papersprite.ui.read_prefs", "papersprite.ui.reader_overlay", "ui/uimanager",
-        "ui/time", "ui/widget/imagewidget", "ffi/blitbuffer", "ffi",
+        "ui/time", "ui/geometry", "ui/widget/imagewidget", "ffi/blitbuffer", "ffi",
     }
     local saved = {}
     for _, name in ipairs(names) do saved[name] = package.loaded[name] end
@@ -1017,8 +1017,11 @@ do -- 伴读：设置立即重绘，翻页按真实经过时间结束，并重�
     P.set = function(key, value) settings[key] = value end
     local clock, pending, dirty = 100, {}, {}
     package.loaded["ui/time"] = { now = function() return clock end, to_s = function(t) return t end }
+    package.loaded["ui/geometry"] = { new = function(_self, rect) return rect end }
     package.loaded["ui/uimanager"] = {
-        setDirty = function(_self, widget) dirty[#dirty + 1] = widget end,
+        setDirty = function(_self, widget, mode, region)
+            dirty[#dirty + 1] = { widget = widget, mode = mode, region = region }
+        end,
         scheduleIn = function(_self, _delay, fn) pending[#pending + 1] = fn end,
     }
     local loaded, painted = {}, {}
@@ -1041,24 +1044,30 @@ do -- 伴读：设置立即重绘，翻页按真实经过时间结束，并重�
     }
     local M = require("papersprite.ui.reader_overlay")
     M.poke = function() end
-    local ui = { document = {}, view = { dimen = { w = 540, h = 720 } } }
+    local ui = { document = {}, view = { dimen = { x = 10, y = 20, w = 540, h = 720 } } }
     ui.view.registerViewModule = function(self, name, widget) self[name] = widget widget.view = self end
     M.attach(ui)
     local bb = { pmulalphablitFrom = function(_self, src) painted[#painted + 1] = src.pixel end }
     assert(P.fade() == 20, "default transparency is 20%")
     ui.view.papersprite_companion:paintTo(bb, 0, 0)
     assert(painted[#painted].alpha == 204, "20% transparency leaves 80% opacity")
-    P.cycleFade()
-    assert(P.fade() == 0 and dirty[#dirty] == "all", "setting changes invalidate the top-level page")
+    P.setFade(0)
+    assert(P.fade() == 0 and dirty[#dirty].widget == ui and dirty[#dirty].mode == "ui",
+        "setting changes refresh only the companion region")
+    assert(dirty[#dirty].region.x == 28 and dirty[#dirty].region.y == 571
+        and dirty[#dirty].region.w == 151 and dirty[#dirty].region.h == 151,
+        "refresh region matches the companion bounds")
     ui.view.papersprite_companion:paintTo(bb, 0, 0)
     assert(painted[#painted].alpha == 255, "new transparency applies without settling game state")
     M.onPage({ ui = ui })
-    assert(dirty[#dirty] == ui, "animation redraws ReaderUI, not its child view")
-    clock = 100.4
+    assert(dirty[#dirty].widget == ui and dirty[#dirty].mode == "ui",
+        "animation redraws only the companion area without partial-refresh promotion")
+    assert(#pending == 1, "animation schedules only the next visual state")
+    clock = 100.13
     table.remove(pending, 1)()
     ui.view.papersprite_companion:paintTo(bb, 0, 0)
     assert(loaded[#loaded]:find("chair_turn.png", 1, true), "middle frame uses the AI page-turn image")
-    clock = 100.65
+    clock = 100.5
     table.remove(pending, 1)()
     ui.view.papersprite_companion:paintTo(bb, 0, 0)
     assert(loaded[#loaded]:find("chair_turn_left.png", 1, true), "page crosses the spine and lands on the left")
@@ -1066,9 +1075,14 @@ do -- 伴读：设置立即重绘，翻页按真实经过时间结束，并重�
     table.remove(pending, 1)()
     assert(M.flags.turn_from == nil and not M.flags.turn_ticking and #pending == 0,
         "animation ends even when CPU time does not advance")
-    assert(dirty[#dirty] == ui, "ending animation redraws the resting image")
+    assert(dirty[#dirty].widget == ui and dirty[#dirty].mode == "ui",
+        "ending animation redraws only the companion area")
     ui.view.papersprite_companion:paintTo(bb, 0, 0)
     assert(painted[#painted].alpha == 255)
+    P.setCorner("se")
+    assert(dirty[#dirty - 1].region.x == 28 and dirty[#dirty - 1].region.y == 571
+        and dirty[#dirty].region.x == 381,
+        "moving the companion clears its old corner and draws the new one")
     settings.companion_fade = 100
     local count = #painted
     ui.view.papersprite_companion:paintTo(bb, 0, 0)

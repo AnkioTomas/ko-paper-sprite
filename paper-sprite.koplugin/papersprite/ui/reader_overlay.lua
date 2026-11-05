@@ -32,7 +32,9 @@ local function sprite(name, h)
     return sprites[key] or nil
 end
 
+local TURN_START = 0.12
 local TURN_S = 0.9
+local TURN_MID = TURN_S / 2
 local faded = {}
 
 local function now()
@@ -115,7 +117,7 @@ function companion:paintTo(bb, x, y)
         local elapsed = now() - f.turn_from
         if elapsed >= TURN_S then
             f.turn_from = nil
-        elseif elapsed > 0.12 and elapsed < TURN_S - 0.12 then
+        elseif elapsed >= TURN_START and elapsed < TURN_S - TURN_START then
             name = elapsed < TURN_S / 2 and "chair_turn" or "chair_turn_left"
         end
     end
@@ -159,16 +161,37 @@ local function loadState()
     return s, true
 end
 
+local function dirtyCompanion(corner)
+    local ui = M.ui
+    local view = ui and ui.view
+    if not view then return end
+    local sx, sy, sh = M.seat(view, corner)
+    local dim = view.dimen or {}
+    local Geom = require("ui/geometry")
+    require("ui/uimanager"):setDirty(ui, "ui", Geom:new{
+        x = (dim.x or 0) + sx, y = (dim.y or 0) + sy, w = sh, h = sh,
+    })
+end
+
 function M.syncFlags()
     local f = M.flags
+    local was_away = f.away
     f.shown = Prefs.companion()
     f.corner = Prefs.corner()
     f.fade = Prefs.fade()
     local ok, s = pcall(loadState)
     if ok and s then f.away = s.sprite and s.sprite.status == "away" end
     f.ready = true
-    pcall(function() require("ui/uimanager"):setDirty("all", "partial") end)
+    if f.shown and was_away ~= f.away then dirtyCompanion(f.corner) end
     return ok and s or nil
+end
+
+function M.refreshCompanion()
+    local f = M.flags
+    local shown, corner, fade = Prefs.companion(), Prefs.corner(), Prefs.fade()
+    if f.shown and f.corner then dirtyCompanion(f.corner) end
+    if shown and (not f.shown or corner ~= f.corner) then dirtyCompanion(corner) end
+    f.shown, f.corner, f.fade = shown, corner, fade
 end
 
 local function noteBody(s, note)
@@ -293,14 +316,18 @@ function M.onPage(plugin)
             f.turn_ticking = true
             local function tick()
                 local UIManager = require("ui/uimanager")
-                if not M.flags.turn_from or now() - M.flags.turn_from >= TURN_S then
+                local elapsed = M.flags.turn_from and now() - M.flags.turn_from
+                if not elapsed or elapsed >= TURN_S then
                     M.flags.turn_from = nil
                     M.flags.turn_ticking = nil
-                    UIManager:setDirty(M.ui or "all", "partial")
+                    dirtyCompanion(Prefs.corner())
                     return
                 end
-                UIManager:setDirty(M.ui or "all", "partial")
-                UIManager:scheduleIn(0.08, tick)
+                dirtyCompanion(Prefs.corner())
+                local next_at = elapsed < TURN_START and TURN_START
+                    or elapsed < TURN_MID and TURN_MID
+                    or TURN_S
+                UIManager:scheduleIn(next_at - elapsed, tick)
             end
             tick()
         end
