@@ -1162,6 +1162,11 @@ do -- 伴读：设置立即重绘，翻页按真实经过时间结束，并重�
         end,
     }
     local M = require("papersprite.ui.reader_overlay")
+    M.syncFlags = function()
+        M.flags.away, M.flags.ready, M.flags.shown = false, true, true
+        M.flags.corner, M.flags.fade = P.corner(), P.fade()
+        return { sprite = { status = "home" } }
+    end
     M.poke = function() end
     local ui = { document = {}, view = { dimen = { x = 10, y = 20, w = 540, h = 720 } } }
     ui.view.registerViewModule = function(self, name, widget) self[name] = widget widget.view = self end
@@ -1190,7 +1195,11 @@ do -- 伴读：设置立即重绘，翻页按真实经过时间结束，并重�
     table.remove(pending, 1)()
     ui.view.papersprite_companion:paintTo(bb, 0, 0)
     assert(loaded[#loaded]:find("chair_turn_left.png", 1, true), "page crosses the spine and lands on the left")
-    clock = 101
+    clock = 100.78
+    table.remove(pending, 1)()
+    ui.view.papersprite_companion:paintTo(bb, 0, 0)
+    assert(M.last_name == "chair_read", "put-down keyframe returns to the reading pose")
+    clock = 100.9
     table.remove(pending, 1)()
     assert(M.flags.turn_from == nil and not M.flags.turn_ticking and #pending == 0,
         "animation ends even when CPU time does not advance")
@@ -1206,5 +1215,144 @@ do -- 伴读：设置立即重绘，翻页按真实经过时间结束，并重�
     local count = #painted
     ui.view.papersprite_companion:paintTo(bb, 0, 0)
     assert(#painted == count, "fully transparent companion draws nothing")
+    local dirty_n, pending_n = #dirty, #pending
+    M.onPage({ ui = ui })
+    assert(#dirty == dirty_n and #pending == pending_n,
+        "fully transparent companion does not dirty or tick for a page-turn")
+
+    settings.companion_fade = 0
+    settings.companion_static = true
+    dirty_n, pending_n = #dirty, #pending
+    M.flags.turn_from, M.flags.turn_ticking = nil, nil
+    M.onPage({ ui = ui })
+    assert(#pending == pending_n and M.flags.turn_from == nil,
+        "static companion does not start a page-turn animation")
+    ui.view.papersprite_companion:paintTo(bb, 0, 0)
+    assert(M.last_name == "chair_read", "static companion still sits in the chair")
     for _, name in ipairs(names) do package.loaded[name] = saved[name] end
 end
+
+do -- 伴读：打开书或状态变化时马上同步在家/出门，不等下一次定时器。
+    local names = {
+        "papersprite.ui.read_prefs", "papersprite.ui.reader_overlay", "ui/uimanager",
+        "ui/time", "ui/geometry", "ui/widget/imagewidget", "ffi/blitbuffer", "ffi",
+        "papersprite.game", "papersprite.core.state", "papersprite.core.travel",
+        "papersprite.core.autopilot",
+    }
+    local saved = {}
+    for _, name in ipairs(names) do saved[name] = package.loaded[name] end
+    package.loaded["papersprite.ui.read_prefs"] = nil
+    package.loaded["papersprite.ui.reader_overlay"] = nil
+    local P = require("papersprite.ui.read_prefs")
+    local settings = { companion = true }
+    local state = require("papersprite.core.state").fresh(1)
+    state.sprite = { status = "away", left_at = 1, return_at = 1e12, mail = {}, trip = 1, place = "ink_lake" }
+    P.host = function() return {
+        loadState = function() return state end, saveState = function() end,
+        now = function() return 10 end, getSetting = function(_, _k, d) return d end,
+    } end
+    P.get = function(key, default)
+        if settings[key] == nil then return default end
+        return settings[key]
+    end
+    P.set = function(key, value) settings[key] = value end
+    package.loaded["ui/time"] = { now = function() return 10 end, to_s = function(t) return t end }
+    package.loaded["ui/geometry"] = { new = function(_self, rect) return rect end }
+    local dirty = {}
+    package.loaded["ui/uimanager"] = {
+        setDirty = function(_self, widget, mode, region)
+            dirty[#dirty + 1] = { widget = widget, mode = mode, region = region }
+        end,
+        scheduleIn = function() end,
+    }
+    local pixel = { a = 0, getAlpha = function() return 255 end }
+    pixel.getColor8A = function() return pixel end
+    package.loaded["ui/widget/imagewidget"] = { new = function(_self, args)
+        return { _bb = { getPixel = function() return pixel end },
+            getSize = function() return { w = 1, h = 1 } end, file = args.file }
+    end }
+    package.loaded["ffi"] = { fill = function() end }
+    package.loaded["ffi/blitbuffer"] = {
+        TYPE_BB8A = 2,
+        Color8A = function(gray, alpha) return { a = gray, alpha = alpha } end,
+        new = function()
+            return { data = {}, stride = 2, h = 1,
+                getWidth = function() return 1 end, getHeight = function() return 1 end,
+                setPixel = function() end }
+        end,
+    }
+    local M = require("papersprite.ui.reader_overlay")
+    M.poke = function() end
+    local ui = { document = {}, view = { dimen = { x = 10, y = 20, w = 540, h = 720 } } }
+    ui.view.registerViewModule = function(self, name, widget) self[name] = widget widget.view = self end
+    M.attach(ui)
+    assert(M.flags.away == true and M.flags.ready, "opening a book syncs an away sprite immediately")
+    local bb = { pmulalphablitFrom = function() end }
+    ui.view.papersprite_companion:paintTo(bb, 0, 0)
+    assert(M.last_name == "chair_empty", "away companion is an empty chair on first paint")
+    state.sprite = { status = "home", back_at = 11 }
+    dirty = {}
+    M.syncFlags()
+    assert(M.flags.away == false and #dirty == 1, "coming home dirties the corner without waiting for a timer")
+    ui.view.papersprite_companion:paintTo(bb, 0, 0)
+    assert(M.last_name == "chair_read", "home companion sits back down after a status sync")
+    for _, name in ipairs(names) do package.loaded[name] = saved[name] end
+end
+
+do -- 阁楼盖在阅读页上时不弹打扰。
+    local names = {
+        "papersprite.ui.reader_overlay", "papersprite.ui.read_prefs", "ui/uimanager",
+        "apps/reader/readerui", "ui.themes.widgets.modal", "ui.themes",
+        "ui.themes.widgets.text", "ui/widget/verticalgroup", "ui/widget/verticalspan",
+        "ui/widget/container/centercontainer", "ui/geometry", "ui/widget/imagewidget",
+        "papersprite.ui.postcard", "device",
+    }
+    local saved = {}
+    for _, name in ipairs(names) do saved[name] = package.loaded[name] end
+    local state = require("papersprite.core.state").fresh(1)
+    local shown
+    package.loaded["device"] = { screen_saver_mode = false }
+    package.loaded["papersprite.ui.read_prefs"] = {
+        disturb = function() return true end,
+        host = function() return {
+            loadState = function() return state end, now = function() return 10 end,
+            saveState = function() end,
+        } end,
+    }
+    package.loaded["ui/uimanager"] = { setDirty = function() end, scheduleIn = function() end, unschedule = function() end }
+    package.loaded["apps/reader/readerui"] = { instance = { document = {} } }
+    local Modal = {}
+    function Modal:new(args)
+        args.theme = { space = { md = 8 }, dialog = { bg = "white" } }
+        return setmetatable(args, { __index = self })
+    end
+    function Modal:innerWidth() return 400 end
+    function Modal:setDialog(dialog) self.dialog = dialog end
+    function Modal:show() shown = self end
+    function Modal:dismiss() if self.close_callback then self.close_callback() end end
+    package.loaded["ui.themes.widgets.modal"] = Modal
+    package.loaded["ui.themes"] = { px = function(n) return n end }
+    package.loaded["ui.themes.widgets.text"] = { box = function(_role, text) return { text = text } end }
+    local widget = { new = function(_self, args) return args end }
+    for _, name in ipairs({ "ui/widget/verticalgroup", "ui/widget/verticalspan",
+        "ui/widget/container/centercontainer", "ui/geometry", "ui/widget/imagewidget" }) do
+        package.loaded[name] = widget
+    end
+    package.loaded["papersprite.ui.postcard"] = { widget = function(body) return { side = body.side } end }
+    package.loaded["papersprite.ui.reader_overlay"] = nil
+    local M = require("papersprite.ui.reader_overlay")
+    M.syncFlags = function() return state end
+    require("papersprite.core.disturb").arm(state)
+    state.sprite = { status = "away", left_at = 2 }
+    local Game = require("papersprite.game")
+    local prev = Game.current
+    Game.current = { closed = false, state = state }
+    M.poke()
+    assert(shown == nil, "an open attic suppresses the reader notice")
+    Game.current.closed = true
+    M.poke()
+    assert(shown and shown.dialog.title == "阿页出门了", "closing the attic allows the notice again")
+    Game.current = prev
+    for _, name in ipairs(names) do package.loaded[name] = saved[name] end
+end
+

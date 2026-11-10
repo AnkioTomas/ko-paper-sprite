@@ -2579,6 +2579,8 @@ return {
     ["伴读透明度"] = "Companion transparency",
     ["选择阿页显示的位置"] = "Choose where Aye appears",
     ["选择透明度，数值越低越实"] = "Choose opacity; a lower value looks more solid",
+    ["静态伴读"] = "Static companion",
+    ["只坐在椅子上看书，翻页时不抬手"] = "Stay seated in the chair; no page-turn animation",
     ["左下"] = "Bottom left",
     ["右下"] = "Bottom right",
     ["左上"] = "Top left",

@@ -92,6 +92,12 @@ function Game:close()
     self.closed = true
     if self.timer then self.host:unschedule(self.timer) self.timer = nil end
     self.host:closeScreen()
+    -- 阁楼关掉后，阅读页角落要马上跟上在家/出门，不等下一次翻页或 45 秒定时器。
+    -- 只在阅读页已经挂上伴读时才同步，避免无阅读界面时去碰另一套宿主存档。
+    pcall(function()
+        local Overlay = require("papersprite.ui.reader_overlay")
+        if Overlay.ui then Overlay.syncFlags() end
+    end)
 end
 
 function Game:_arm()

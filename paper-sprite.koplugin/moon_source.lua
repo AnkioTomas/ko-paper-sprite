@@ -80,9 +80,10 @@ local function imageWidget(kind, title, icon, builder, page)
     }
 end
 
+-- 不要用 for _, x：Lua 5.1 会盖住本文件的翻译函数 _()。
 local function chooseCompanionSetting(title, options, selected, on_select)
     local items = {}
-    for _, option in ipairs(options) do
+    for i, option in ipairs(options) do
         items[#items + 1] = {
             text = (option.value == selected and "✓ " or "") .. option.text,
             callback = function() on_select(option.value) end,
@@ -151,6 +152,20 @@ local function settingEntries(desktop)
                     end,
                     function(iw)
                         local P = require("papersprite.ui.read_prefs")
+                        local on = P.static()
+                        return Row.widget({
+                            width = iw, chevron = false, kind = "toggle", icon = "chair",
+                            title = _("静态伴读"),
+                            subtitle = _("只坐在椅子上看书，翻页时不抬手"),
+                            status = on and _("开") or _("关"), status_on = on,
+                            callback = function()
+                                P.toggleStatic()
+                                desktop:updateView()
+                            end,
+                        })
+                    end,
+                    function(iw)
+                        local P = require("papersprite.ui.read_prefs")
                         return Row.widget({
                             width = iw, chevron = false, kind = "action", icon = "menu_book",
                             title = _("伴读位置"),
@@ -158,7 +173,7 @@ local function settingEntries(desktop)
                             status = P.cornerName(), status_on = true,
                             callback = function()
                                 local options = {}
-                                for _, value in ipairs({ "sw", "se", "nw", "ne" }) do
+                                for i, value in ipairs({ "sw", "se", "nw", "ne" }) do
                                     options[#options + 1] = { value = value, text = _(P.CORNER_NAME[value]) }
                                 end
                                 chooseCompanionSetting(_("伴读位置"), options, P.corner(), function(value)
@@ -177,7 +192,7 @@ local function settingEntries(desktop)
                             status = P.fadeName(), status_on = true,
                             callback = function()
                                 local options = {}
-                                for _, value in ipairs({ 20, 0, 40, 60, 80, 100 }) do
+                                for i, value in ipairs({ 20, 0, 40, 60, 80, 100 }) do
                                     options[#options + 1] = { value = value, text = string.format("%d%%", value) }
                                 end
                                 chooseCompanionSetting(_("伴读透明度"), options, P.fade(), function(value)
@@ -237,7 +252,7 @@ return {
             run = function() P.toggleCompanion() end,
             hold = function()
                 local options = {}
-                for _, value in ipairs({ "sw", "se", "nw", "ne" }) do
+                for i, value in ipairs({ "sw", "se", "nw", "ne" }) do
                     options[#options + 1] = { value = value, text = _(P.CORNER_NAME[value]) }
                 end
                 chooseCompanionSetting(_("伴读位置"), options, P.corner(), P.setCorner)
@@ -248,11 +263,15 @@ return {
             label = function() return P.fadeName() end,
             run = function()
                 local options = {}
-                for _, value in ipairs({ 20, 0, 40, 60, 80, 100 }) do
+                for i, value in ipairs({ 20, 0, 40, 60, 80, 100 }) do
                     options[#options + 1] = { value = value, text = string.format("%d%%", value) }
                 end
                 chooseCompanionSetting(_("伴读透明度"), options, P.fade(), P.setFade)
             end,
+        }, {
+            id = "companion_static", scope = "reader", title = _("静态伴读"), icon = "chair", keep_open = true,
+            active = function() return P.companion() and P.static() end,
+            run = function() P.toggleStatic() end,
         } }
     end } },
     home_widgets = {

@@ -10,7 +10,7 @@
 local T = require("papersprite.l10n")
 local Prefs = require("papersprite.ui.read_prefs")
 
-local M = { flags = { pose = "chair_read" } }
+local M = { flags = {} }
 local popup
 local timer_on
 local sprites = {}
@@ -36,9 +36,12 @@ end
 local TURN_START = 0.12
 local TURN_S = 0.9
 local TURN_MID = TURN_S / 2
+local TURN_PUT = TURN_S - TURN_START -- 放下那一帧：约 0.78s，回到看书姿势
 -- 解锁后再等一会儿才打扰。5 秒对齐月读 utils.wake.GRACE：刚揭开锁屏或输完密码时不要立刻弹窗。
 local WAKE_GRACE = 5
 local faded = {}
+local faded_order = {}
+local FADE_CACHE_MAX = 8
 
 local function now()
     local time = require("ui/time")
@@ -61,16 +64,32 @@ function M.seat(view, corner)
     return sx, sy, sh, vw, vh
 end
 
+local function evictFade(key)
+    local ent = faded[key]
+    faded[key] = nil
+    if type(ent) == "table" and ent.bb and ent.bb.free then pcall(ent.bb.free, ent.bb) end
+end
+
+local function rememberFade(key, value)
+    if faded[key] == nil then
+        faded_order[#faded_order + 1] = key
+        while #faded_order > FADE_CACHE_MAX do
+            evictFade(table.remove(faded_order, 1))
+        end
+    end
+    faded[key] = value
+end
+
 local function fadedBB(name, h)
     local opacity = math.floor((100 - Prefs.fade()) * 255 / 100)
     if opacity <= 0 then return nil end
     local key = name .. ":" .. h .. ":" .. opacity
     if faded[key] ~= nil then return faded[key] or nil end
     local img = sprite(name, h)
-    if not img then faded[key] = false return nil end
+    if not img then rememberFade(key, false) return nil end
     local size = img:getSize()
     local src = img._bb
-    if not src or size.w < 1 or size.h < 1 then faded[key] = false return nil end
+    if not src or size.w < 1 or size.h < 1 then rememberFade(key, false) return nil end
     local BB = require("ffi/blitbuffer")
     local ffi = require("ffi")
     local bb = BB.new(size.w, size.h, BB.TYPE_BB8A)
@@ -92,7 +111,7 @@ local function fadedBB(name, h)
             end
         end
     end
-    faded[key] = { bb = bb, straight = straight }
+    rememberFade(key, { bb = bb, straight = straight })
     return faded[key]
 end
 
@@ -124,6 +143,7 @@ function companion:paintTo(bb, x, y)
             name = elapsed < TURN_S / 2 and "chair_turn" or "chair_turn_left"
         end
     end
+    M.last_name = name
     paintSprite(bb, name, x + sx, y + sy, sh)
 end
 
@@ -299,6 +319,17 @@ local function readerOpen()
     return ok and ReaderUI and ReaderUI.instance and ReaderUI.instance.document
 end
 
+-- 阁楼盖在阅读页上时不弹打扰。Game.current 是本项目判断阁楼开着的方式。
+local function atticOpen()
+    local ok, Game = pcall(require, "papersprite.game")
+    return ok and Game and Game.current and not Game.current.closed
+end
+
+-- 透明度 100% 时完全看不见，静态伴读也不播动画：都不该为翻页去刷新角落。
+local function companionAnimates()
+    return Prefs.companion() and not Prefs.static() and Prefs.fade() < 100 and not M.flags.away
+end
+
 local asleep = false
 local quiet_until = 0
 local wake_wait
@@ -366,7 +397,7 @@ end
 
 function M.poke()
     -- 打扰只叠在阅读页上。桌面、阁楼开着都不弹。休眠或锁屏时也不弹。
-    if not readerOpen() then return end
+    if not readerOpen() or atticOpen() then return end
     if deviceInactive() then
         asleep = true
         watchUnlock()
@@ -398,13 +429,20 @@ end
 
 function M.onPage(plugin)
     if plugin and plugin.ui then M.ui = plugin.ui end
+    -- 先同步在家/出门，避免沿用上次 poke 留下的 flags.away（未同步时是 nil，会被当成在家）。
+    M.syncFlags()
     local f = M.flags
     -- 翻页不看 flags.shown：那是上次 poke 的快照，开关和透明度已经每帧直接读设置。
-    if Prefs.companion() and not f.away then
+    if companionAnimates() then
         f.turn_from = now()
         if not f.turn_ticking then
             f.turn_ticking = true
             local function tick()
+                if not companionAnimates() then
+                    M.flags.turn_from = nil
+                    M.flags.turn_ticking = nil
+                    return
+                end
                 local UIManager = require("ui/uimanager")
                 local elapsed = M.flags.turn_from and now() - M.flags.turn_from
                 if not elapsed or elapsed >= TURN_S then
@@ -416,6 +454,7 @@ function M.onPage(plugin)
                 dirtyCompanion(Prefs.corner())
                 local next_at = elapsed < TURN_START and TURN_START
                     or elapsed < TURN_MID and TURN_MID
+                    or elapsed < TURN_PUT and TURN_PUT
                     or TURN_S
                 UIManager:scheduleIn(next_at - elapsed, tick)
             end
@@ -431,6 +470,7 @@ function M.attach(ui)
     if not view or not view.registerViewModule or not ui.document then return end
     if view.view_modules then view.view_modules.papersprite_companion = nil end
     view:registerViewModule("papersprite_companion", companion)
+    pcall(M.syncFlags)
 end
 
 function M.install(plugin)

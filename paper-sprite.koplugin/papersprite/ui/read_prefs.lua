@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
---[[-- 阅读页开关：允许打扰、伴读、角落、透明度。存在宿主设置里，不进游戏存档。 --]]
+--[[-- 用户开关：允许打扰、伴读（角落 / 透明度 / 静态）。存在宿主设置里，不进游戏存档。 --]]
 local P = {}
 
 local CORNERS = { "sw", "se", "nw", "ne" }
@@ -14,6 +14,8 @@ function P.set(key, value) P.host():setSetting(key, value) end
 function P.disturb() return P.get("disturb", false) == true end
 
 function P.companion() return P.get("companion", false) == true end
+
+function P.static() return P.get("companion_static", false) == true end
 
 function P.corner()
     local c = P.get("companion_corner", "sw")
@@ -64,6 +66,12 @@ function P.toggleCompanion()
     P.set("companion", not P.companion())
     refresh()
     return P.companion()
+end
+
+function P.toggleStatic()
+    P.set("companion_static", not P.static())
+    refresh()
+    return P.static()
 end
 
 function P.setCorner(corner)
