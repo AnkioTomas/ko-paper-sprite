@@ -81,15 +81,44 @@ local function imageWidget(kind, title, icon, builder, page)
 end
 
 -- 不要用 for _, x：Lua 5.1 会盖住本文件的翻译函数 _()。
-local function chooseCompanionSetting(title, options, selected, on_select)
-    local items = {}
-    for i, option in ipairs(options) do
-        items[#items + 1] = {
-            text = (option.value == selected and "✓ " or "") .. option.text,
-            callback = function() on_select(option.value) end,
-        }
+local function cornerOptions()
+    local P = require("papersprite.ui.read_prefs")
+    local options = {}
+    for i, value in ipairs({ "sw", "se", "nw", "ne" }) do
+        options[#options + 1] = { value = value, text = _(P.CORNER_NAME[value]) }
     end
-    require("ui.themes.widgets.sheet"):new{ title = title, items = items }:show()
+    return options
+end
+
+-- 月读单选列表（带 radio），用于设置页和快捷面板。
+local function chooseCompanionSetting(title, options, selected, on_select)
+    require("ui.themes.widgets.list"):new{
+        title = title,
+        items = options,
+        current = selected,
+        centered = true,
+        on_select = function(value)
+            if value == nil or value == selected then return end
+            on_select(value)
+        end,
+    }:show()
+end
+
+-- 月读数值调节框，0–100%，步进 5。
+local function chooseCompanionFade(on_select)
+    local P = require("papersprite.ui.read_prefs")
+    local selected = P.fade()
+    require("ui.themes.widgets.spin"):new{
+        title = _("伴读透明度"),
+        fields = { {
+            value = selected, min = 0, max = 100, step = 5,
+            format = function(v) return v .. "%" end,
+        } },
+        callback = function(value)
+            if value == nil or value == selected then return end
+            on_select(value)
+        end,
+    }:show()
 end
 
 -- 月读设置「游戏」组 → 三级页：自动 / 手动检查更新。
@@ -181,36 +210,26 @@ local function settingEntries(desktop)
                     end,
                     function(iw)
                         local P = require("papersprite.ui.read_prefs")
-                        return Row.widget({
-                            width = iw, chevron = false, kind = "action", icon = "menu_book",
+                        return Row.choice({
+                            width = iw, icon = "picture_in_picture",
                             title = _("伴读位置"),
                             subtitle = _("选择阿页显示的位置"),
-                            status = P.cornerName(), status_on = true,
-                            callback = function()
-                                local options = {}
-                                for i, value in ipairs({ "sw", "se", "nw", "ne" }) do
-                                    options[#options + 1] = { value = value, text = _(P.CORNER_NAME[value]) }
-                                end
-                                chooseCompanionSetting(_("伴读位置"), options, P.corner(), function(value)
-                                    P.setCorner(value)
-                                    desktop:updateView()
-                                end)
+                            items = cornerOptions(), current = P.corner(),
+                            on_select = function(value)
+                                P.setCorner(value)
+                                desktop:updateView()
                             end,
                         })
                     end,
                     function(iw)
                         local P = require("papersprite.ui.read_prefs")
                         return Row.widget({
-                            width = iw, chevron = false, kind = "action", icon = "menu_book",
+                            width = iw, kind = "nav", icon = "opacity",
                             title = _("伴读透明度"),
-                            subtitle = _("选择透明度，数值越低越实"),
+                            subtitle = _("用数值调节框调整，数值越低越实"),
                             status = P.fadeName(), status_on = true,
                             callback = function()
-                                local options = {}
-                                for i, value in ipairs({ 20, 0, 40, 60, 80, 100 }) do
-                                    options[#options + 1] = { value = value, text = string.format("%d%%", value) }
-                                end
-                                chooseCompanionSetting(_("伴读透明度"), options, P.fade(), function(value)
+                                chooseCompanionFade(function(value)
                                     P.setFade(value)
                                     desktop:updateView()
                                 end)
@@ -266,22 +285,14 @@ return {
             label = function() return P.companion() and P.cornerName() or nil end,
             run = function() P.toggleCompanion() end,
             hold = function()
-                local options = {}
-                for i, value in ipairs({ "sw", "se", "nw", "ne" }) do
-                    options[#options + 1] = { value = value, text = _(P.CORNER_NAME[value]) }
-                end
-                chooseCompanionSetting(_("伴读位置"), options, P.corner(), P.setCorner)
+                chooseCompanionSetting(_("伴读位置"), cornerOptions(), P.corner(), P.setCorner)
             end,
         }, {
-            id = "companion_fade", scope = "reader", title = _("伴读透明度"), icon = "menu_book", keep_open = true,
+            id = "companion_fade", scope = "reader", title = _("伴读透明度"), icon = "opacity", keep_open = true,
             active = function() return P.companion() end,
             label = function() return P.fadeName() end,
             run = function()
-                local options = {}
-                for i, value in ipairs({ 20, 0, 40, 60, 80, 100 }) do
-                    options[#options + 1] = { value = value, text = string.format("%d%%", value) }
-                end
-                chooseCompanionSetting(_("伴读透明度"), options, P.fade(), P.setFade)
+                chooseCompanionFade(P.setFade)
             end,
         }, {
             id = "companion_static", scope = "reader", title = _("静态伴读"), icon = "chair", keep_open = true,

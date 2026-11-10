@@ -94,10 +94,14 @@ function P.setCorner(corner)
 end
 
 function P.setFade(fade)
-    if fade ~= 0 and fade ~= 20 and fade ~= 40 and fade ~= 60 and fade ~= 80 and fade ~= 100 then
+    local n = tonumber(fade)
+    if not n then
         error("invalid companion fade: " .. tostring(fade))
     end
-    P.set("companion_fade", fade)
+    n = math.floor(n)
+    if n < 0 then n = 0 end
+    if n > 100 then n = 100 end
+    P.set("companion_fade", n)
     refresh()
 end
 
