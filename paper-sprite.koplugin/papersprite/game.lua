@@ -47,6 +47,7 @@ function Game:tick()
         require("logger").err("papersprite reading module:", Reading)
     end
     local ev = Travel.settle(self.state, self.host:now(), self.debug)
+    require("papersprite.core.autopilot").tick(self.state, self.host:now(), self.debug)
     self.host:saveState(self.state)
     local function fresh(cur)
         if self.closed then return end

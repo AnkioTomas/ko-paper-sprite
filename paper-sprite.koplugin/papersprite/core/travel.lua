@@ -211,6 +211,7 @@ function T.settle(s, now, debug_fast)
         depart(s, sp.depart_at, u)
         events[#events + 1] = "depart"
         sp = s.sprite
+        require("papersprite.core.autopilot").onDepart(s, sp.left_at)
     end
     if sp.status == "away" then
         local ai = aiFor(sp)
@@ -240,6 +241,7 @@ function T.settle(s, now, debug_fast)
             end
         end
         if now >= sp.return_at then
+            local was_auto = sp.autopilot
             local p = T.place(sp.place)
             local sv = sp.souvenir
             local ev
@@ -282,6 +284,7 @@ function T.settle(s, now, debug_fast)
             s.sprite = { status = "home", back_at = sp.return_at }
             events[#events + 1] = "return"
             s.visit_check = sp.return_at
+            require("papersprite.core.autopilot").onReturn(s, sp.return_at, was_auto)
         end
     end
     if s.sprite.status ~= "away" then

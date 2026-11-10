@@ -121,6 +121,21 @@ local function settingEntries(desktop)
                             end,
                         })
                     end,
+                } }, { title = _("生活"), rows = {
+                    function(iw)
+                        local P = require("papersprite.ui.read_prefs")
+                        local on = P.autopilot()
+                        return Row.widget({
+                            width = iw, chevron = false, kind = "toggle", icon = "auto_mode",
+                            title = _("托管模式"),
+                            subtitle = _("有灵感时，阿页会自己买东西，也会自己出门旅行。两次出门至少隔 1 小时，每天最多 3 次。"),
+                            status = on and _("开") or _("关"), status_on = on,
+                            callback = function()
+                                P.toggleAutopilot()
+                                desktop:updateView()
+                            end,
+                        })
+                    end,
                 } }, { title = _("阅读"), rows = {
                     function(iw)
                         local P = require("papersprite.ui.read_prefs")

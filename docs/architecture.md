@@ -6,7 +6,7 @@ paper-sprite.koplugin/
   moon_source.lua    月读扩展（ext.papersprite）：首页卡片
   papersprite/
     host/            宿主适配
-    core/            state / travel / album（剪贴簿/来客簿聚合）/ rng / reading / story（AI，可选）
+    core/            state / travel / autopilot（托管：自购与自出门）/ album（剪贴簿/来客簿聚合）/ rng / reading / story（AI，可选）
     data/            places / items / souvenirs / visitors / postcards（纯数据）
     ui/              screen（全屏浮层）/ moon_card（首页卡片）/ moon_widgets（阁楼·明信片·纪念物柜组件）
                      widget_data（组件数据，纯函数）/ compose（分层画面合成 + 位图缓存）
@@ -38,6 +38,7 @@ paper-sprite.koplugin/
 `core/travel.lua` 是状态机 `home → packed → away → home`：
 - 收好行囊时就算好 `depart_at`；出发时一次性排好 `return_at` 和每张明信片的寄达时刻 `mail[].at`。
 - `Travel.settle(state, now)` 把所有已到时刻的事件依次落地；`Travel.nextAt` 给出下一件事的时刻，界面开着时只在那时（最多 60 秒）刷新一次，关掉即停。
+- 托管模式（`core/autopilot.lua`）在会写盘的结算之后运行（`Game:tick`、阅读页 `loadState`），不在首页卡片的只读副本上行动。
 - 随机数用存档里的种子（`core/rng.lua`，Park–Miller 乘同余，乘积在 double 内精确），同一存档同一时刻结果确定，便于测试复现。
 
 ## 阅读账本

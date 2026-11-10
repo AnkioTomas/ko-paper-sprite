@@ -1356,3 +1356,88 @@ do -- 阁楼盖在阅读页上时不弹打扰。
     for _, name in ipairs(names) do package.loaded[name] = saved[name] end
 end
 
+do -- 托管：有灵感才自己买、自己出门；间隔 1 小时、每天最多 3 次；玩家出行不计次数。
+    local Auto = require("papersprite.core.autopilot")
+    local State = require("papersprite.core.state")
+    local Travel = require("papersprite.core.travel")
+    local saved_enabled = Auto.enabled
+    Auto.enabled = function() return true end
+    local function pack_player(s, t)
+        assert(Travel.put(s, "oat_biscuit", t, true))
+        assert(Travel.put(s, "pencil_stub", t, true))
+        assert(Travel.put(s, "tiny_atlas", t, true))
+    end
+    local t0 = 1700000000 -- 固定时刻，日期可加一天
+    local s = State.fresh(t0)
+    s.inspiration = 20
+    s.inventory = { oat_biscuit = 0, pencil_stub = 0, tiny_atlas = 0 }
+    assert(Auto.maybeBuy(s, t0, true), "buys an affordable shop item")
+    assert(s.inspiration < 20 and s.inspiration >= 20 - 12 - 0, "spends a real price and keeps a reserve")
+    local bought
+    for id, n in pairs(s.inventory) do
+        local it = Travel.item(id)
+        if it and it.price > 0 and n > 0 then bought = it end
+    end
+    assert(bought and (s.inventory[bought.id] or 0) >= 1, "purchase lands in inventory")
+    assert(s.autopilot.last_buy_at == t0)
+    assert(not Auto.maybeBuy(s, t0 + 10, true), "does not buy again inside the 2-hour gap")
+    local ink = s.inspiration
+    s.inspiration = 2
+    assert(not Auto.maybeBuy(s, t0 + 30, true), "does not buy when the reserve would be broken")
+    s.inspiration = 0
+    assert(not Auto.maybeTravel(s, t0 + 30, true), "does not self-depart with no inspiration")
+    s.inspiration = ink
+    assert(Auto.maybeTravel(s, t0, true), "packs a trip when funded and at home")
+    assert(s.sprite.status == "packed" and s.autopilot.pending, "self-initiated trip uses the existing packed flow")
+    Travel.settle(s, s.sprite.depart_at, true)
+    assert(s.sprite.status == "away" and s.sprite.autopilot and s.autopilot.trips == 1
+        and s.autopilot.pending == nil, "depart records a caretaker trip")
+    local return_at = s.sprite.return_at
+    Travel.settle(s, return_at, true)
+    assert(s.sprite.status == "home" and s.autopilot.last_trip_at == return_at, "return starts the 1-hour gap")
+    s.visitor = nil
+    assert(not Auto.maybeTravel(s, return_at, true), "does not leave again immediately after returning")
+    assert(Auto.maybeTravel(s, return_at + 10, true), "may leave again after one debug hour")
+    Travel.settle(s, s.sprite.depart_at, true)
+    Travel.settle(s, s.sprite.return_at, true)
+    assert(s.autopilot.trips == 2)
+    s.visitor = nil
+    assert(Auto.maybeTravel(s, s.sprite.back_at + 10, true), "third trip of the day after the gap")
+    Travel.settle(s, s.sprite.depart_at, true)
+    Travel.settle(s, s.sprite.return_at, true)
+    assert(s.autopilot.trips == 3)
+    s.visitor = nil
+    assert(not Auto.maybeTravel(s, s.sprite.back_at + 10, true), "fourth trip in the same day is refused")
+    local next_day = t0 + 24 * 3600
+    -- 把上次回家时间拨到新的一天之前，只检验每日上限按日历日重置。
+    s.autopilot.last_trip_at = next_day - 20
+    s.sprite.back_at = next_day - 20
+    s.visitor = nil
+    assert(Auto.dayKey(next_day) ~= Auto.dayKey(t0))
+    assert(Auto.maybeTravel(s, next_day, true), "a new calendar day resets the trip cap")
+    -- 玩家自己出门不计托管次数
+    local s2 = State.fresh(t0)
+    s2.inspiration = 10
+    pack_player(s2, t0)
+    Travel.settle(s2, s2.sprite.depart_at, true)
+    assert(s2.sprite.status == "away" and not s2.sprite.autopilot)
+    assert(not s2.autopilot or s2.autopilot.trips == nil, "player-initiated trips do not consume the daily cap")
+    local home_at = s2.sprite.return_at
+    Travel.settle(s2, home_at, true)
+    assert(s2.sprite.status == "home")
+    s2.visitor = nil
+    assert(not Auto.maybeTravel(s2, home_at, true), "still waits an hour after a player-initiated return")
+    assert(Auto.maybeTravel(s2, home_at + 10, true), "caretaker travel may resume after the hour")
+    -- 行囊里已有玩家放的东西时不插手
+    local s3 = State.fresh(t0)
+    s3.inspiration = 10
+    assert(Travel.put(s3, "oat_biscuit", t0, true))
+    assert(not Auto.maybeTravel(s3, t0, true), "does not complete a basket the player already started")
+    -- 关开关时 Game:tick / settle 写路径也不行动（enabled 已覆盖的反例）
+    Auto.enabled = function() return false end
+    local s4 = State.fresh(t0)
+    s4.inspiration = 20
+    Auto.tick(s4, t0, true)
+    assert(s4.inspiration == 20 and s4.sprite.status == "home", "disabled caretaker mode changes nothing")
+    Auto.enabled = saved_enabled
+end

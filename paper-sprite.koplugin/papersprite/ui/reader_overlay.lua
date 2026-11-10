@@ -179,7 +179,9 @@ local function loadState()
     if Game.current and not Game.current.closed then return Game.current.state, false end
     local h = Prefs.host()
     local s = require("papersprite.core.state").load(h:loadState(), h:now())
-    require("papersprite.core.travel").settle(s, h:now(), h:getSetting("debug_fast", false))
+    local now, fast = h:now(), h:getSetting("debug_fast", false)
+    require("papersprite.core.travel").settle(s, now, fast)
+    require("papersprite.core.autopilot").tick(s, now, fast)
     h:saveState(s)
     return s, true
 end
