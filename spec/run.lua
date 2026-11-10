@@ -998,6 +998,125 @@ do -- 提醒使用月读弹窗：插画、翻面、关闭确认都走同一套�
     for _, name in ipairs(names) do package.loaded[name] = saved[name] end
 end
 
+do -- 休眠或锁屏时不打扰，解锁后再等 WAKE_GRACE 才弹。
+    local names = {
+        "papersprite.ui.reader_overlay", "papersprite.ui.read_prefs", "ui/uimanager",
+        "ui/time", "apps/reader/readerui", "ui.themes.widgets.modal", "ui.themes",
+        "ui.themes.widgets.text", "ui/widget/verticalgroup", "ui/widget/verticalspan",
+        "ui/widget/container/centercontainer", "ui/geometry", "ui/widget/imagewidget",
+        "papersprite.ui.postcard", "device", "features.passcode", "utils.wake",
+    }
+    local saved = {}
+    for _, name in ipairs(names) do saved[name] = package.loaded[name] end
+    local state = require("papersprite.core.state").fresh(1)
+    local shown, locked, waiters, clock, pending = nil, false, {}, 100, {}
+    local Device = { screen_saver_mode = false }
+    package.loaded["device"] = Device
+    package.loaded["features.passcode"] = {
+        isLocked = function() return locked end,
+        afterUnlock = function(key, fn)
+            if not locked then return fn() end
+            waiters[key] = fn
+        end,
+    }
+    package.loaded["utils.wake"] = { GRACE = 5 }
+    package.loaded["papersprite.ui.read_prefs"] = {
+        disturb = function() return true end,
+        host = function() return {
+            loadState = function() return state end, now = function() return 10 end,
+            saveState = function() end,
+        } end,
+    }
+    package.loaded["ui/time"] = { now = function() return clock end, to_s = function(t) return t end }
+    package.loaded["ui/uimanager"] = {
+        setDirty = function() end,
+        scheduleIn = function(_self, delay, fn) pending[#pending + 1] = { at = clock + delay, fn = fn } end,
+        unschedule = function(_self, fn)
+            for i = #pending, 1, -1 do if pending[i].fn == fn then table.remove(pending, i) end end
+        end,
+    }
+    package.loaded["apps/reader/readerui"] = { instance = { document = {} } }
+    local Modal = {}
+    function Modal:new(args)
+        args.theme = { space = { md = 8 }, dialog = { bg = "white" } }
+        return setmetatable(args, { __index = self })
+    end
+    function Modal:innerWidth() return 400 end
+    function Modal:setDialog(dialog) self.dialog = dialog end
+    function Modal:show() shown = self end
+    function Modal:dismiss() self.close_callback() end
+    package.loaded["ui.themes.widgets.modal"] = Modal
+    package.loaded["ui.themes"] = { px = function(n) return n end }
+    package.loaded["ui.themes.widgets.text"] = { box = function(_role, text) return { text = text } end }
+    local widget = { new = function(_self, args) return args end }
+    for _, name in ipairs({ "ui/widget/verticalgroup", "ui/widget/verticalspan",
+        "ui/widget/container/centercontainer", "ui/geometry", "ui/widget/imagewidget" }) do
+        package.loaded[name] = widget
+    end
+    package.loaded["papersprite.ui.postcard"] = { widget = function(body) return { side = body.side } end }
+    package.loaded["papersprite.ui.reader_overlay"] = nil
+    local M = require("papersprite.ui.reader_overlay")
+    M.syncFlags = function() return state end
+    require("papersprite.core.disturb").arm(state)
+    state.sprite = { status = "away", left_at = 2 }
+    local function advance(secs)
+        local stop = clock + secs
+        while true do
+            table.sort(pending, function(a, b) return a.at < b.at end)
+            local t = pending[1]
+            if not t or t.at > stop then break end
+            table.remove(pending, 1)
+            clock = math.max(clock, t.at)
+            t.fn()
+        end
+        clock = stop
+    end
+
+    M.poke()
+    assert(shown and shown.dialog.title == "阿页出门了", "already awake still shows immediately")
+    shown:dismiss()
+    shown = nil
+    -- 关掉后 0.2 秒会再 poke；先把这条收掉，后面的用例自己控制时间。
+    pending = {}
+
+    Device.screen_saver_mode = true
+    state.sprite = { status = "home", left_at = 2, back_at = 3 }
+    M.poke()
+    assert(shown == nil, "screensaver suppresses the notice")
+    assert(#pending == 1 and pending[1].at == clock + 1, "polls until the screensaver is dismissed")
+
+    M.onResume()
+    Device.screen_saver_mode = false
+    advance(1)
+    assert(shown == nil, "unlock starts a grace period instead of showing immediately")
+    M.poke()
+    assert(shown == nil, "manual poke during grace is also deferred")
+    advance(5)
+    assert(shown and shown.dialog.title == "阿页回来了", "notice appears after the wake grace")
+    shown:dismiss()
+    shown = nil
+    pending = {}
+
+    Device.screen_saver_mode = true
+    locked = true
+    state.visitor = { id = "clip_snail", pose = "", until_at = 100 }
+    M.onSuspend()
+    M.poke()
+    assert(shown == nil, "sleep plus passcode still suppresses the notice")
+    M.onResume()
+    Device.screen_saver_mode = false
+    advance(2)
+    assert(shown == nil and waiters["papersprite.disturb"], "waits for passcode after the screensaver closes")
+    locked = false
+    waiters["papersprite.disturb"]()
+    assert(shown == nil, "passcode unlock also starts the grace period")
+    advance(5)
+    assert(shown and shown.dialog.title:find("来做客", 1, true), "notice appears after passcode grace")
+    shown:dismiss()
+
+    for _, name in ipairs(names) do package.loaded[name] = saved[name] end
+end
+
 do -- 伴读：设置立即重绘，翻页按真实经过时间结束，并重画原来的看书姿势。
     local names = {
         "papersprite.ui.read_prefs", "papersprite.ui.reader_overlay", "ui/uimanager",

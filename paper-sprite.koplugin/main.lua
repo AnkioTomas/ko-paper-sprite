@@ -77,6 +77,15 @@ function PaperSprite:onPageUpdate(pageno)
     self._last_page, self._last_at = pageno, now
 end
 
+-- 休眠不打扰；解锁后再由阅读页 overlay 延迟一会儿才弹。
+function PaperSprite:onSuspend()
+    pcall(function() require("papersprite.ui.reader_overlay").onSuspend() end)
+end
+
+function PaperSprite:onResume()
+    pcall(function() require("papersprite.ui.reader_overlay").onResume() end)
+end
+
 --- 这本书里用户自己划的第一句。没有划线就是 nil。
 function PaperSprite:_quote()
     local items = self.ui.annotation and self.ui.annotation.annotations

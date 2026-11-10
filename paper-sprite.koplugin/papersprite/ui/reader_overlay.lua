@@ -4,6 +4,7 @@
   · 伴读：view module，四个角选一处。在家坐在椅子上看书，翻页时只让手里那页抬一下再放下，出门只留空椅子。
     不占页边。透明度可调，默认 20% 透明，正文从他身上透出来。
   · 打扰：月读主题弹窗，配角色插画；明信片保留正反翻面。
+    休眠 / 锁屏时不弹；解锁后再等一会儿（WAKE_GRACE）。
 结算只在翻页和定时器里做，不在 paintTo 里做。阁楼开着时不另起一份结算。
 --]]
 local T = require("papersprite.l10n")
@@ -35,6 +36,8 @@ end
 local TURN_START = 0.12
 local TURN_S = 0.9
 local TURN_MID = TURN_S / 2
+-- 解锁后再等一会儿才打扰。5 秒对齐月读 utils.wake.GRACE：刚揭开锁屏或输完密码时不要立刻弹窗。
+local WAKE_GRACE = 5
 local faded = {}
 
 local function now()
@@ -296,14 +299,101 @@ local function readerOpen()
     return ok and ReaderUI and ReaderUI.instance and ReaderUI.instance.document
 end
 
+local asleep = false
+local quiet_until = 0
+local wake_wait
+
+local function wakeGrace()
+    local ok, Wake = pcall(require, "utils.wake")
+    local n = ok and type(Wake) == "table" and tonumber(Wake.GRACE)
+    return n or WAKE_GRACE
+end
+
+local function screensaverOn()
+    local ok, Device = pcall(require, "device")
+    return ok and Device and Device.screen_saver_mode == true
+end
+
+local function passcode()
+    local ok, P = pcall(require, "features.passcode")
+    if ok and type(P) == "table" then return P end
+end
+
+local function deviceInactive()
+    if screensaverOn() then return true end
+    local P = passcode()
+    return P and P.isLocked and P.isLocked() == true
+end
+
+local function unscheduleWake()
+    if not wake_wait then return end
+    pcall(function() require("ui/uimanager"):unschedule(wake_wait) end)
+    wake_wait = nil
+end
+
+local function armQuiet()
+    local grace = wakeGrace()
+    quiet_until = now() + grace
+    unscheduleWake()
+    wake_wait = function()
+        wake_wait = nil
+        pcall(M.poke)
+    end
+    pcall(function() require("ui/uimanager"):scheduleIn(grace, wake_wait) end)
+end
+
+-- 等屏保关掉、密码解开后再起宽限期；点按退出或延时关屏时 Resume 来得更早。
+local function watchUnlock()
+    unscheduleWake()
+    local function check()
+        wake_wait = nil
+        if deviceInactive() then
+            local P = passcode()
+            if P and P.isLocked and P.isLocked() and P.afterUnlock then
+                P.afterUnlock("papersprite.disturb", check)
+            end
+            if screensaverOn() or not (P and P.isLocked and P.isLocked()) then
+                wake_wait = check
+                pcall(function() require("ui/uimanager"):scheduleIn(1, check) end)
+            end
+            return
+        end
+        asleep = false
+        armQuiet()
+    end
+    check()
+end
+
 function M.poke()
-    -- 打扰只叠在阅读页上。桌面、阁楼开着都不弹。
+    -- 打扰只叠在阅读页上。桌面、阁楼开着都不弹。休眠或锁屏时也不弹。
     if not readerOpen() then return end
+    if deviceInactive() then
+        asleep = true
+        watchUnlock()
+        return
+    end
+    if asleep then
+        asleep = false
+        armQuiet()
+        return
+    end
+    if quiet_until > 0 and now() < quiet_until then return end
     local s = M.syncFlags()
     if not Prefs.disturb() or popup or not s then return end
     local note = require("papersprite.core.disturb").next(s)
     if not note then return end
     pcall(showNotice, s, note)
+end
+
+function M.onSuspend()
+    asleep = true
+    quiet_until = 0
+    unscheduleWake()
+end
+
+function M.onResume()
+    asleep = true
+    watchUnlock()
 end
 
 function M.onPage(plugin)
