@@ -9,7 +9,7 @@ paper-sprite.koplugin/
     core/            state / travel / autopilot（托管：自购与自出门）/ album（剪贴簿/来客簿聚合）/ rng / reading / story（AI，可选）
     data/            places / items / souvenirs / visitors / postcards（纯数据）
     ui/              screen（全屏浮层）/ moon_card（首页卡片）/ moon_widgets（阁楼·明信片·纪念物柜组件）
-                     widget_data（组件数据，纯函数）/ compose（分层画面合成 + 位图缓存）
+                     widget_data（组件数据，纯函数）/ display（按设备显色）/ compose（分层画面合成 + 位图缓存）
     game.lua         控制器：结算 → 生成 view → host:showScreen
 ```
 
@@ -58,6 +58,6 @@ paper-sprite.koplugin/
 `core/storage.lua`：所有落盘数据放在 `DataStorage:getDataDir() .. "/.moon/game/paper-sprite"`（会一层层建好目录）。
 - `save.lua`：`state`（存档，含 AI 写下的明信片短句 / 旁白）和 KOReader 宿主的设置 `setting_*`。
 - `reading.lua`：阅读账本。
-- 缩略图 / 合成缓存只在内存里（`ui/compose` 的 LRU），不落盘。
+- 缩略图 / 合成缓存只在内存里（`ui/compose` 的 LRU），不落盘。缓存键含显色模式；彩色液晶接近原图，彩色墨水屏只做轻微色域适配（仍明显是彩色），黑白墨水屏合成后收成 3 级灰 `#000 #AAA #FFF`（见 `ui/display`）。
 
 迁移：新文件不存在时，从旧位置复制。来源有三个：`settings/papersprite.lua`、`settings/papersprite_reading.lua`，以及月读的 `ext.papersprite.state`。两份存档都有时，取「明信片数 + 旅行次数」更大的那份。新文件 flush 后写入 `migrated_from`。旧文件不删，留作备份。

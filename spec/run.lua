@@ -1441,3 +1441,259 @@ do -- 托管：有灵感才自己买、自己出门；间隔 1 小时、每天�
     assert(s4.inspiration == 20 and s4.sprite.status == "home", "disabled caretaker mode changes nothing")
     Auto.enabled = saved_enabled
 end
+
+do -- 显色：按设备分三种，判定与取色都集中在 ui/display；合成缓存键含模式。
+    local names = { "device", "papersprite.ui.display", "papersprite.ui.compose", "ffi/blitbuffer" }
+    local saved = {}
+    for _, name in ipairs(names) do saved[name] = package.loaded[name] end
+
+    local function loadDisplay()
+        package.loaded["papersprite.ui.display"] = nil
+        return require("papersprite.ui.display")
+    end
+
+    package.loaded["device"] = nil
+    local D = loadDisplay()
+    assert(D.mode() == "mono" and not D.isColor(), "no device is mono")
+
+    local function install(dev)
+        package.loaded["device"] = dev
+        D = loadDisplay()
+        return D
+    end
+
+    D = install({
+        hasColorScreen = function() return false end,
+        hasEinkScreen = function() return true end,
+        screen = { isColorEnabled = function() return true end },
+    })
+    assert(D.mode() == "mono", "bw eink is mono even if color_rendering is on")
+
+    D = install({
+        hasColorScreen = function() return true end,
+        hasEinkScreen = function() return true end,
+        screen = { isColorEnabled = function() return true end },
+    })
+    assert(D.mode() == "eink_color", "color eink (Colorsoft / Kaleido) is eink_color")
+
+    D = install({
+        hasColorScreen = function() return true end,
+        hasEinkScreen = function() return true end,
+        screen = { isColorEnabled = function() return false end },
+    })
+    assert(D.mode() == "mono", "user disabling color rendering forces mono")
+
+    D = install({
+        hasColorScreen = function() return true end,
+        hasEinkScreen = function() return false end,
+        screen = { isColorEnabled = function() return true end },
+    })
+    assert(D.mode() == "lcd", "color LCD / emulator is lcd")
+
+    package.loaded["ffi/blitbuffer"] = { TYPE_BB8 = 1, TYPE_BBRGB32 = 5 }
+    D.setMode("mono")
+    assert(D.bufferType() == 1)
+    D.setMode("eink_color")
+    assert(D.bufferType() == 5)
+    D.setMode("lcd")
+    assert(D.bufferType() == 5)
+
+    -- 运行时黑白：对比度 1.40 后 3 级灰 {0, 0xAA, 0xFF}，Bayer 矩阵未改。
+    -- 彩色源资产与 process_art 默认出图不变；--gray 仍是旧 4 级对照路径。
+    local levels = { [0] = true, [0xAA] = true, [0xFF] = true }
+    for luma = 0, 255, 17 do
+        for y = 0, 3 do
+            for x = 0, 3 do
+                local g = D.quantizeGray(luma, x, y)
+                assert(levels[g], "quantizeGray left the 3-level palette")
+                assert(g ~= 0x55, "mono policy no longer uses the muddy #555 rung")
+            end
+        end
+    end
+    assert(D.quantizeGray(255, 0, 0) == 255)
+    assert(D.quantizeGray(0, 0, 0) == 0)
+    -- 浅色纸身 / 雪应落在白；细线 / 墨点应落在黑，不随 Bayer 相位被抹掉或弄脏。
+    for _, luma in ipairs({ 230, 240, 245, 250, 255 }) do
+        for y = 0, 3 do
+            for x = 0, 3 do
+                assert(D.quantizeGray(luma, x, y) == 255, "light paper/snow stays white")
+            end
+        end
+    end
+    for _, luma in ipairs({ 0, 8, 16, 24 }) do
+        for y = 0, 3 do
+            for x = 0, 3 do
+                assert(D.quantizeGray(luma, x, y) == 0, "ink and thin dark lines stay black")
+            end
+        end
+    end
+    -- 对比度后靠近 0xAA/0xFF 边界的中亮灰，Bayer 相位应当仍有变化。
+    local mid = {}
+    for y = 0, 3 do
+        for x = 0, 3 do mid[#mid + 1] = D.quantizeGray(173, x, y) end
+    end
+    local seen = {}
+    for _, g in ipairs(mid) do seen[g] = true end
+    local n = 0
+    for _ in pairs(seen) do n = n + 1 end
+    assert(n >= 2, "ordered dither should vary across the Bayer cell")
+
+    -- apply：LCD 空操作；Lua 回退保持 alpha、不写坏 padding；旋转则走 fallback。
+    local Color8 = function(a) return { a = a } end
+    local ColorRGB32 = function(r, g, b, a) return { r = r, g = g, b = b, alpha = a, getR = function(self) return self.r end, getG = function(self) return self.g end, getB = function(self) return self.b end, getAlpha = function(self) return self.alpha end } end
+    package.loaded["ffi/blitbuffer"] = {
+        TYPE_BB8 = 1,
+        TYPE_BBRGB32 = 5,
+        Color8 = Color8,
+        ColorRGB32 = ColorRGB32,
+    }
+
+    local function fakeRGB32(w, h, stride, pixels)
+        -- pixels[y*w+x+1] = {r,g,b,a}; stride is in bytes, may exceed w*4
+        stride = stride or (w * 4)
+        local data = {}
+        for i = 1, stride * h do data[i] = 0xEE end
+        for y = 0, h - 1 do
+            for x = 0, w - 1 do
+                local px = pixels[y * w + x + 1]
+                local o = y * stride + x * 4
+                data[o + 1], data[o + 2], data[o + 3], data[o + 4] = px[1], px[2], px[3], px[4]
+            end
+        end
+        local bb = {
+            w = w, h = h, stride = stride, pixel_stride = w,
+            getType = function() return 5 end,
+            getRotation = function() return 0 end,
+            getInverse = function() return 0 end,
+            getPixel = function(_, x, y)
+                local o = y * stride + x * 4
+                return { getColorRGB32 = function() return ColorRGB32(data[o + 1], data[o + 2], data[o + 3], data[o + 4]) end }
+            end,
+            setPixel = function(_, x, y, c)
+                local o = y * stride + x * 4
+                data[o + 1], data[o + 2], data[o + 3], data[o + 4] = c.r, c.g, c.b, c.alpha
+            end,
+            _data = data,
+        }
+        return bb
+    end
+
+    local function fakeBB8(w, h, stride, pixels)
+        stride = stride or w
+        local data = {}
+        for i = 1, stride * h do data[i] = 0xEE end
+        for y = 0, h - 1 do
+            for x = 0, w - 1 do
+                data[y * stride + x + 1] = pixels[y * w + x + 1]
+            end
+        end
+        local bb = {
+            w = w, h = h, stride = stride, pixel_stride = w,
+            getType = function() return 1 end,
+            getRotation = function() return 0 end,
+            getInverse = function() return 0 end,
+            getPixel = function(_, x, y)
+                local a = data[y * stride + x + 1]
+                return { getColor8 = function() return { a = a } end }
+            end,
+            setPixel = function(_, x, y, c)
+                data[y * stride + x + 1] = c.a
+            end,
+            _data = data,
+        }
+        return bb
+    end
+
+    -- 无 cdata 的假缓冲不能走 FFI，应自动 fallback。
+    D.setMode("lcd")
+    local lcd_bb = fakeRGB32(2, 1, 12, { { 10, 20, 30, 40 }, { 50, 60, 70, 80 } })
+    D.apply(lcd_bb)
+    local d = lcd_bb._data
+    assert(d[1] == 10 and d[2] == 20 and d[3] == 30 and d[4] == 40, "LCD apply is a no-op")
+    assert(d[5] == 50 and d[8] == 80)
+    assert(d[9] == 0xEE and d[12] == 0xEE, "LCD leaves stride padding alone")
+
+    D.setMode("eink_color")
+    D.fast_path = false
+    local src = {
+        { 255, 0, 0, 0 },
+        { 40, 200, 40, 1 },
+        { 10, 20, 30, 128 },
+        { 200, 180, 60, 255 },
+    }
+    local color_bb = fakeRGB32(2, 2, 12, src) -- stride 12 > 8
+    D.apply(color_bb)
+    for y = 0, 1 do
+        for x = 0, 1 do
+            local o = y * 12 + x * 4
+            local px = src[y * 2 + x + 1]
+            local er, eg, eb = D.einkColor(px[1], px[2], px[3], x, y)
+            assert(color_bb._data[o + 1] == er and color_bb._data[o + 2] == eg and color_bb._data[o + 3] == eb,
+                "eink_color Lua path matches einkColor")
+            assert(color_bb._data[o + 4] == px[4], "eink_color preserves alpha, including 0")
+        end
+        -- padding bytes 8..11 of each row
+        for p = 8, 11 do
+            assert(color_bb._data[y * 12 + p + 1] == 0xEE, "eink_color does not write stride padding")
+        end
+    end
+
+    D.setMode("mono")
+    local gray_src = { 0, 24, 173, 230, 245, 128, 40, 255 }
+    local gray_bb = fakeBB8(4, 2, 6, gray_src) -- stride 6 > 4
+    D.apply(gray_bb)
+    for y = 0, 1 do
+        for x = 0, 3 do
+            local want = D.quantizeGray(gray_src[y * 4 + x + 1], x, y)
+            assert(gray_bb._data[y * 6 + x + 1] == want, "mono Lua path matches quantizeGray")
+        end
+        assert(gray_bb._data[y * 6 + 4 + 1] == 0xEE and gray_bb._data[y * 6 + 5 + 1] == 0xEE,
+            "mono does not write stride padding")
+    end
+
+    -- 旋转缓冲不得被判为快路径。
+    D.fast_path = true
+    local rotated = fakeRGB32(2, 1, 8, { { 1, 2, 3, 4 }, { 5, 6, 7, 8 } })
+    rotated.getRotation = function() return 1 end
+    assert(D._fastKind(rotated) == nil, "rotated buffer falls back")
+    local inverted = fakeRGB32(2, 1, 8, { { 1, 2, 3, 4 }, { 5, 6, 7, 8 } })
+    inverted.getInverse = function() return 1 end
+    assert(D._fastKind(inverted) == nil, "inverted buffer falls back")
+    local tight = fakeRGB32(2, 1, 8, { { 1, 2, 3, 4 }, { 5, 6, 7, 8 } })
+    tight.stride = 7
+    assert(D._fastKind(tight) == nil, "stride shorter than width*bpp is rejected")
+    local weird = fakeRGB32(2, 1, 8, { { 1, 2, 3, 4 }, { 5, 6, 7, 8 } })
+    weird.getType = function() return 4 end -- TYPE_BBRGB24
+    assert(D._fastKind(weird) == nil, "unknown buffer type falls back")
+    -- 假缓冲没有 cdata data，快路径条件不成立（无 data 指针）或 applyFast 失败后回退。
+    local nodata = fakeRGB32(2, 1, 8, { { 1, 2, 3, 4 }, { 5, 6, 7, 8 } })
+    assert(D._fastKind(nodata) == nil, "buffer without raw data pointer is not a fast path")
+
+    D.fast_path = true
+
+    -- 彩色墨水屏只做轻微色域适配：比原色稍收一点，但红色 / 绿色仍须一眼能认出。
+    local r, g, b = D.einkColor(255, 0, 0, 0, 0)
+    assert(r < 255 and g > 0 and b > 0, "eink_color slightly desaturates a hot red")
+    assert(math.abs(r - g) < math.abs(255 - 0), "chroma is reduced a little")
+    assert(r > 200 and (r - g) > 80, "eink_color keeps a clearly red hue")
+    local r2, g2, b2 = D.einkColor(40, 200, 40, 1, 0)
+    local sat1 = math.abs(r - g) + math.abs(g - b)
+    local satG = math.abs(r2 - g2) + math.abs(g2 - b2)
+    assert(sat1 < 500 and satG < 500, "eink_color stays off the most extreme primaries")
+    assert(g2 > 140 and g2 > r2 and g2 > b2, "eink_color keeps a clearly green hue")
+
+    -- 合成缓存键必须带上显色模式，避免灰图 / 彩图串台。
+    package.loaded["papersprite.ui.compose"] = nil
+    local Compose = require("papersprite.ui.compose")
+    D.setMode("mono")
+    local k_mono = Compose._key("icon:items/x.png", 64, 64)
+    D.setMode("lcd")
+    local k_lcd = Compose._key("icon:items/x.png", 64, 64)
+    D.setMode("eink_color")
+    local k_eink = Compose._key("icon:items/x.png", 64, 64)
+    assert(k_mono:find(":mono", 1, true) and k_lcd:find(":lcd", 1, true) and k_eink:find(":eink_color", 1, true))
+    assert(k_mono ~= k_lcd and k_lcd ~= k_eink and k_mono ~= k_eink, "cache keys differ by display mode")
+
+    D.reset()
+    for _, name in ipairs(names) do package.loaded[name] = saved[name] end
+end

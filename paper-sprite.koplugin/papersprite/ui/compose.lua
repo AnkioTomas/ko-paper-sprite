@@ -2,8 +2,12 @@
 --[[--
 把分层画面（背景 + 叠加层）合成到一张离屏位图，按目标尺寸「铺满裁切」，并缓存。
 首页组件每次重绘都要显示同一张阁楼 / 明信片缩略图，墨水屏上反复解码缩放 PNG 很慢，
-所以合成结果按「画面签名 + 尺寸」缓存在内存里（最多 CAP 张，最久未用的先释放）。
+所以合成结果按「画面签名 + 尺寸 + 显色模式」缓存在内存里（最多 CAP 张，最久未用的先释放）。
+素材是彩色 PNG；黑白墨水屏在合成后收成 3 级灰，彩色墨水屏只做轻微色域适配（仍明显是彩色），液晶接近原图。
+见 papersprite.ui.display。
 --]]
+local Display = require("papersprite.ui.display")
+
 local M = { CAP = 24 }
 local cache, order = {}, {}
 
@@ -21,11 +25,11 @@ local function evict()
     end
 end
 
-local function paintScene(scene, W0, H0)
+local function paintScene(scene, W0, H0, mode)
     local Blitbuffer = require("ffi/blitbuffer")
     local ImageWidget = require("ui/widget/imagewidget")
     local dir = require("papersprite.host.interface").pluginDir() .. "/assets/"
-    local full = Blitbuffer.new(W0, H0, Blitbuffer.TYPE_BB8)
+    local full = Blitbuffer.new(W0, H0, Display.bufferType(mode))
     full:fill(Blitbuffer.COLOR_WHITE)
     local function put(rel, x, y, w, h, alpha)
         local ok, wdg = pcall(function()
@@ -45,21 +49,34 @@ local function paintScene(scene, W0, H0)
     return full
 end
 
+local function cacheKey(sig, W, H, mode)
+    return (sig or "") .. "@" .. W .. "x" .. H .. ":" .. (mode or Display.mode())
+end
+
 --- 画面 → W×H 位图（素材是 2:1，按短边铺满后居中裁切）。返回的位图归缓存所有，调用方不要 free。
-function M.scene(scene, W, H, sig)
+function M.scene(scene, W, H, sig, mode)
     W, H = math.max(1, math.floor(W)), math.max(1, math.floor(H))
-    local k = (sig or require("papersprite.ui.widget_data").sig(scene)) .. "@" .. W .. "x" .. H
-    if cache[k] then touch(k) return cache[k] end
+    mode = mode or Display.mode()
+    local k = cacheKey(sig or require("papersprite.ui.widget_data").sig(scene), W, H, mode)
+    if cache[k] then
+        touch(k)
+        require("papersprite.ui.timing").record("compose_hit", 0, k)
+        return cache[k]
+    end
+    local Timing = require("papersprite.ui.timing")
+    local t0 = Timing.now()
     local W0, H0 = W, H
     if not scene.icon then W0 = math.max(W, H * 2) H0 = math.floor(W0 / 2) end
-    local full = paintScene(scene, W0, H0)
+    local full = paintScene(scene, W0, H0, mode)
     local out = full
     if W0 ~= W or H0 ~= H then
         local Blitbuffer = require("ffi/blitbuffer")
-        out = Blitbuffer.new(W, H, Blitbuffer.TYPE_BB8)
+        out = Blitbuffer.new(W, H, Display.bufferType(mode))
         out:blitFrom(full, 0, 0, math.floor((W0 - W) / 2), math.floor((H0 - H) / 2), W, H)
         full:free()
     end
+    Display.apply(out, mode)
+    Timing.record("compose_miss", Timing.now() - t0, k)
     cache[k] = out
     touch(k)
     evict()
@@ -67,8 +84,14 @@ function M.scene(scene, W, H, sig)
 end
 
 --- 显示用控件：缓存位图包一层 ImageWidget（不交出所有权）
-function M.widget(scene, W, H, sig)
-    local bb = M.scene(scene, W, H, sig)
+function M.widget(scene, W, H, sig, opts)
+    local mode
+    if type(opts) == "table" then
+        mode = opts.mode
+    elseif type(opts) == "string" then
+        mode = opts
+    end
+    local bb = M.scene(scene, W, H, sig, mode)
     return require("ui/widget/imagewidget"):new{ image = bb, image_disposable = false, width = W, height = H }
 end
 
@@ -80,6 +103,11 @@ end
 function M.clear()
     for k, bb in pairs(cache) do pcall(function() bb:free() end) cache[k] = nil end
     order = {}
+end
+
+-- 测试用：当前缓存键（含显色模式）。
+function M._key(sig, W, H, mode)
+    return cacheKey(sig, W, H, mode)
 end
 
 return M

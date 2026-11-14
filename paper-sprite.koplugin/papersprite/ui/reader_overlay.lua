@@ -83,7 +83,8 @@ end
 local function fadedBB(name, h)
     local opacity = math.floor((100 - Prefs.fade()) * 255 / 100)
     if opacity <= 0 then return nil end
-    local key = name .. ":" .. h .. ":" .. opacity
+    local Display = require("papersprite.ui.display")
+    local key = name .. ":" .. h .. ":" .. opacity .. ":" .. Display.mode()
     if faded[key] ~= nil then return faded[key] or nil end
     local img = sprite(name, h)
     if not img then rememberFade(key, false) return nil end
@@ -92,22 +93,45 @@ local function fadedBB(name, h)
     if not src or size.w < 1 or size.h < 1 then rememberFade(key, false) return nil end
     local BB = require("ffi/blitbuffer")
     local ffi = require("ffi")
-    local bb = BB.new(size.w, size.h, BB.TYPE_BB8A)
+    local color = Display.isColor()
+    local bb = BB.new(size.w, size.h, color and BB.TYPE_BBRGB32 or BB.TYPE_BB8A)
     ffi.fill(bb.data, bb.stride * bb.h, 0)
-    -- RGB32 blit 进 BB8A 会把 alpha 整块丢掉，人就消失。按像素取灰度，不走 blit。
+    -- RGB32 blit 进 BB8A 会把 alpha 整块丢掉，人就消失。按像素取色，不走 blit。
     local ox, oy = img._offset_x or 0, img._offset_y or 0
     local straight = img._is_straight_alpha == true
+    local mode = Display.mode()
     for py = 0, size.h - 1 do
         for px = 0, size.w - 1 do
-            local g8 = src:getPixel(ox + px, oy + py):getColor8A()
-            local a = g8:getAlpha()
-            if a > 0 then
-                local g = g8.a
-                if opacity < 255 then
-                    if not straight then g = math.floor(g * opacity / 255) end
-                    a = math.floor(a * opacity / 255)
+            local pix = src:getPixel(ox + px, oy + py)
+            if color then
+                local c = pix:getColorRGB32()
+                local a = c:getAlpha()
+                if a > 0 then
+                    local r, g, b = c:getR(), c:getG(), c:getB()
+                    if mode == Display.EINK_COLOR then
+                        r, g, b = Display.einkColor(r, g, b, px, py)
+                    end
+                    if opacity < 255 then
+                        if not straight then
+                            r = math.floor(r * opacity / 255)
+                            g = math.floor(g * opacity / 255)
+                            b = math.floor(b * opacity / 255)
+                        end
+                        a = math.floor(a * opacity / 255)
+                    end
+                    bb:setPixel(px, py, BB.ColorRGB32(r, g, b, a))
                 end
-                bb:setPixel(px, py, BB.Color8A(g, a))
+            else
+                local g8 = pix:getColor8A()
+                local a = g8:getAlpha()
+                if a > 0 then
+                    local g = Display.quantizeGray(g8.a, px, py)
+                    if opacity < 255 then
+                        if not straight then g = math.floor(g * opacity / 255) end
+                        a = math.floor(a * opacity / 255)
+                    end
+                    bb:setPixel(px, py, BB.Color8A(g, a))
+                end
             end
         end
     end

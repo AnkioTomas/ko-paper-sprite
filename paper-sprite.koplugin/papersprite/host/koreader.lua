@@ -29,18 +29,22 @@ function Host:_screenModule()
 end
 
 function Host:showScreen(view)
+    local Timing = require("papersprite.ui.timing")
+    local t0 = Timing.now()
     local UIManager = require("ui/uimanager")
     local old = self.widget
     self.widget = self:_screenModule().open(view, function()
         self.widget = nil
         if view.on_close then view.on_close() end
     end)
+    local built = Timing.now() - t0
     -- 先盖上新界面再关旧的，整屏刷新（不留下层残影，见 ko-adarkroom e38498d）
     UIManager:show(self.widget, "ui")
     if old then
         old._replaced = true
         UIManager:close(old, "ui")
     end
+    Timing.record("showScreen", Timing.now() - t0, string.format("build=%.1fms", built))
 end
 
 function Host:closeScreen()
@@ -87,9 +91,12 @@ end
 --- 取今天的节日数据（core/festival.parse 的结果）。没联网 / 超时 / 解析失败都回调 nil；一天只会调一次。
 function Host:almanac(cb)
     local daily
+    local Timing = require("papersprite.ui.timing")
+    local t0 = Timing.now()
     pcall(function()
         local NetworkMgr = require("ui/network/manager")
         if NetworkMgr.isConnected and not NetworkMgr:isConnected() then return end
+        -- 注意：这里的 http.request 是同步的，会占住 UI 线程；调用方应在界面上屏后再调度。
         local http, ltn12 = require("socket.http"), require("ltn12")
         local socket, socketutil = require("socket"), require("socketutil")
         local body = {}
@@ -100,6 +107,7 @@ function Host:almanac(cb)
         local ok, payload = pcall(require("json").decode, table.concat(body))
         if ok then daily = require("papersprite.core.festival").parse(payload) end
     end)
+    Timing.record("almanac_http", Timing.now() - t0, daily and "ok" or "empty")
     cb(daily)
 end
 
