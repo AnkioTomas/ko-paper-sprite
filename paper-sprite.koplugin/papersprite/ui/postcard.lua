@@ -189,10 +189,115 @@ local function at(x, y, child)
     }
 end
 
---- 邮票：3:4，钉在右上角，不跟着邮戳挪。邮戳中心只在左边，沿边随机，含两个左角。
-local function postage(pc, w, h)
+--- 邮戳位置由明信片身份决定，避免每次重绘乱跳。
+function M._stampAnchor(pc)
+    local seed = tonumber(pc and (pc.index or pc.at)) or 0
+    local s = tostring(pc and (pc.key or pc.place or "") or "")
+    for i = 1, #s do
+        seed = seed + s:byte(i) * i
+    end
+    local where = seed % 3 + 1
+    local along = where == 1 and 0 or (where == 3 and 1 or (0.32 + (seed % 36) / 100))
+    return where, along
+end
+
+local function paintWavyStampLua(out, src, sw, sh, inside, margin, inner_w, inner_h, crop_x, crop_y, crop_w, crop_h, dark)
+    for y = 0, sh - 1 do
+        for x = 0, sw - 1 do
+            if inside(x, y) then
+                if not inside(x - 1, y) or not inside(x + 1, y) or not inside(x, y - 1) or not inside(x, y + 1) then
+                    out:setPixel(x, y, dark)
+                else
+                    local u = (x - margin) / inner_w
+                    local v = (y - margin) / inner_h
+                    if u < 0 then u = 0 elseif u > 1 then u = 1 end
+                    if v < 0 then v = 0 elseif v > 1 then v = 1 end
+                    local px = crop_x + math.floor(u * (crop_w - 1))
+                    local py = crop_y + math.floor(v * (crop_h - 1))
+                    if px < 0 then px = 0 elseif px >= src.w then px = src.w - 1 end
+                    if py < 0 then py = 0 elseif py >= src.h then py = src.h - 1 end
+                    out:setPixel(x, y, src:getPixel(px, py))
+                end
+            end
+        end
+    end
+end
+
+-- 邮票边长不大，但 getPixel/setPixel 在彩墨上仍可能到数百毫秒。未旋转 BB8 / BBRGB32 走原始缓冲。
+local function paintWavyStamp(out, src, sw, sh, inside, margin, inner_w, inner_h, crop_x, crop_y, crop_w, crop_h, dark)
+    local ok_ffi, ffi = pcall(require, "ffi")
+    if not ok_ffi or not ffi or not ffi.cast or not out.data or not src.data then
+        return paintWavyStampLua(out, src, sw, sh, inside, margin, inner_w, inner_h, crop_x, crop_y, crop_w, crop_h, dark)
+    end
+    local function kind(bb)
+        if type(bb.getRotation) == "function" and bb:getRotation() ~= 0 then return nil end
+        if type(bb.getInverse) == "function" and bb:getInverse() ~= 0 then return nil end
+        local typ = bb.getType and bb:getType()
+        local stride = tonumber(bb.stride)
+        local w = tonumber(bb.w)
+        if not typ or not stride or not w then return nil end
+        if typ == 5 and stride >= w * 4 then return "rgb32", stride end
+        if typ == 1 and stride >= w then return "bb8", stride end
+        return nil
+    end
+    local ok_kind, src_kind, src_stride = pcall(kind, src)
+    local ok_out, out_kind, out_stride = pcall(kind, out)
+    if not ok_kind or not ok_out or not src_kind or src_kind ~= out_kind then
+        return paintWavyStampLua(out, src, sw, sh, inside, margin, inner_w, inner_h, crop_x, crop_y, crop_w, crop_h, dark)
+    end
+    local okp, sp, op = pcall(function()
+        return ffi.cast("unsigned char*", src.data), ffi.cast("unsigned char*", out.data)
+    end)
+    if not okp or not sp or not op then
+        return paintWavyStampLua(out, src, sw, sh, inside, margin, inner_w, inner_h, crop_x, crop_y, crop_w, crop_h, dark)
+    end
+    local src_w, src_h = tonumber(src.w), tonumber(src.h)
+    for y = 0, sh - 1 do
+        local row = op + y * out_stride
+        for x = 0, sw - 1 do
+            if inside(x, y) then
+                local edge = not inside(x - 1, y) or not inside(x + 1, y) or not inside(x, y - 1) or not inside(x, y + 1)
+                if src_kind == "rgb32" then
+                    local pix = row + x * 4
+                    if edge then
+                        pix[0], pix[1], pix[2] = 0x33, 0x33, 0x33
+                    else
+                        local u = (x - margin) / inner_w
+                        local v = (y - margin) / inner_h
+                        if u < 0 then u = 0 elseif u > 1 then u = 1 end
+                        if v < 0 then v = 0 elseif v > 1 then v = 1 end
+                        local px = crop_x + math.floor(u * (crop_w - 1))
+                        local py = crop_y + math.floor(v * (crop_h - 1))
+                        if px < 0 then px = 0 elseif px >= src_w then px = src_w - 1 end
+                        if py < 0 then py = 0 elseif py >= src_h then py = src_h - 1 end
+                        local q = sp + py * src_stride + px * 4
+                        pix[0], pix[1], pix[2], pix[3] = q[0], q[1], q[2], q[3]
+                    end
+                else
+                    if edge then
+                        row[x] = 0x33
+                    else
+                        local u = (x - margin) / inner_w
+                        local v = (y - margin) / inner_h
+                        if u < 0 then u = 0 elseif u > 1 then u = 1 end
+                        if v < 0 then v = 0 elseif v > 1 then v = 1 end
+                        local px = crop_x + math.floor(u * (crop_w - 1))
+                        local py = crop_y + math.floor(v * (crop_h - 1))
+                        if px < 0 then px = 0 elseif px >= src_w then px = src_w - 1 end
+                        if py < 0 then py = 0 elseif py >= src_h then py = src_h - 1 end
+                        row[x] = sp[py * src_stride + px]
+                    end
+                end
+            end
+        end
+    end
+end
+
+--- 邮票：3:4，钉在右上角，不跟着邮戳挪。邮戳中心只在左边，位置由明信片身份决定，含两个左角。
+local function postage(pc, w, h, mode)
     local Blitbuffer = require("ffi/blitbuffer")
     local Geom = require("ui/geometry")
+    local Display = require("papersprite.ui.display")
     w, h = math.max(8, math.floor(w)), math.max(8, math.floor(h))
     local sh = math.max(20, math.min(h, math.floor(w * 4 / 3)))
     local sw = math.max(16, math.floor(sh * 3 / 4))
@@ -210,18 +315,17 @@ local function postage(pc, w, h)
     end
     local sx = math.max(0, w - sw)
     local sy = 0
-    local where = math.random(3)
-    local along = where == 1 and 0 or (where == 3 and 1 or (0.32 + math.random() * 0.36))
+    local where, along = M._stampAnchor(pc)
     local cx = sx
     local cy = sy + math.floor(along * math.max(1, sh - 1))
     local mx = math.max(0, math.min(w - mark_sz, cx - need))
     local my = math.max(sy, math.min(sy + sh - mark_sz, cy - need))
     my = math.max(0, math.min(h - mark_sz, my))
-    local out = Blitbuffer.new(sw, sh, Blitbuffer.TYPE_BB8)
+    local out = Blitbuffer.new(sw, sh, Display.bufferType(mode))
     out:fill(Blitbuffer.COLOR_WHITE)
     local scene = pc and pc.scene
     if scene then
-        local src = require("papersprite.ui.compose").scene(scene, 280, 180)
+        local src = require("papersprite.ui.compose").scene(scene, 280, 180, nil, mode)
         local amp = 2
         local period = 7
         local freq = (math.pi * 2) / period
@@ -241,25 +345,7 @@ local function postage(pc, w, h)
             return x >= left and x <= right
         end
         local dark = Blitbuffer.Color8(0x33)
-        for y = 0, sh - 1 do
-            for x = 0, sw - 1 do
-                if inside(x, y) then
-                    if not inside(x - 1, y) or not inside(x + 1, y) or not inside(x, y - 1) or not inside(x, y + 1) then
-                        out:setPixel(x, y, dark)
-                    else
-                        local u = (x - margin) / inner_w
-                        local v = (y - margin) / inner_h
-                        if u < 0 then u = 0 elseif u > 1 then u = 1 end
-                        if v < 0 then v = 0 elseif v > 1 then v = 1 end
-                        local px = crop_x + math.floor(u * (crop_w - 1))
-                        local py = crop_y + math.floor(v * (crop_h - 1))
-                        if px < 0 then px = 0 elseif px >= src.w then px = src.w - 1 end
-                        if py < 0 then py = 0 elseif py >= src.h then py = src.h - 1 end
-                        out:setPixel(x, y, src:getPixel(px, py))
-                    end
-                end
-            end
-        end
+        paintWavyStamp(out, src, sw, sh, inside, margin, inner_w, inner_h, crop_x, crop_y, crop_w, crop_h, dark)
     end
     local pic = require("ui/widget/imagewidget"):new{
         image = out, image_disposable = true, width = sw, height = sh,
@@ -283,14 +369,15 @@ local function postage(pc, w, h)
     return require("ui/widget/overlapgroup"):new{ dimen = Geom:new{ w = w, h = h }, unpack(layers) }
 end
 
-local function photo(scene, w, h)
+local function photo(scene, w, h, mode)
     local Blitbuffer = require("ffi/blitbuffer")
     local Geom = require("ui/geometry")
     local iw, ih = math.max(1, w - 2), math.max(1, h - 2)
     local pic = blank(iw, ih)
     if scene then
         pcall(function()
-            local wdg = require("papersprite.ui.compose").widget(scene, iw, ih)
+            local opts = mode and { mode = mode, wrap = false } or nil
+            local wdg = require("papersprite.ui.compose").widget(scene, iw, ih, nil, opts)
             if wdg then pic = wdg end
         end)
     end
@@ -302,11 +389,11 @@ local function photo(scene, w, h)
 end
 
 --- 正面只留画。地名和天气在背面右侧，图上再贴一块就是重复。
-local function front(pc, iw, ih)
-    return photo(pc.scene, iw, ih)
+local function front(pc, iw, ih, mode)
+    return photo(pc.scene, iw, ih, mode)
 end
 
-local function back(pc, iw, ih)
+local function back(pc, iw, ih, mode)
     local Blitbuffer = require("ffi/blitbuffer")
     local Geom = require("ui/geometry")
     local VerticalGroup = require("ui/widget/verticalgroup")
@@ -401,7 +488,7 @@ local function back(pc, iw, ih)
     local addr_push = math.max(4, math.floor((addr_room - addr_h) / 2))
     local right_col = VerticalGroup:new{ align = "right",
         VerticalSpan:new{ width = edge },
-        RightContainer:new{ dimen = Geom:new{ w = right_inner, h = stamp_h }, postage(pc, right_inner, stamp_h) },
+        RightContainer:new{ dimen = Geom:new{ w = right_inner, h = stamp_h }, postage(pc, right_inner, stamp_h, mode) },
         VerticalSpan:new{ width = addr_push },
         addr,
         VerticalSpan:new{ width = math.max(0, addr_room - addr_push - addr_h) },
@@ -418,15 +505,16 @@ local function back(pc, iw, ih)
 end
 
 --- pc 来自 cardface.of，另可带 side = "front"|"back"
-function M.widget(pc, w, h)
+function M.widget(pc, w, h, opts)
     local Blitbuffer = require("ffi/blitbuffer")
     local FrameContainer = require("ui/widget/container/framecontainer")
+    local mode = type(opts) == "table" and opts.mode or nil
     w, h = math.max(1, math.floor(w or 1)), math.max(1, math.floor(h or 1))
     local pad = math.max(8, math.min(12, math.floor(math.min(w, h) * 0.03)))
     local border = 1
     local inset = pad + border
     local iw, ih = math.max(1, w - inset * 2), math.max(1, h - inset * 2)
-    local child = pc and pc.side == "back" and back(pc, iw, ih) or front(pc or {}, iw, ih)
+    local child = pc and pc.side == "back" and back(pc, iw, ih, mode) or front(pc or {}, iw, ih, mode)
     return FrameContainer:new{
         width = w, height = h, padding = pad, bordersize = border, margin = 0, radius = 0,
         background = Blitbuffer.COLOR_WHITE, color = Blitbuffer.COLOR_BLACK, child,
@@ -434,53 +522,121 @@ function M.widget(pc, w, h)
 end
 
 
---- 正反叠成一张图。月读在就弹局域网下载二维码，否则复制正文。
-function M.share(pc, host)
-    local T = require("papersprite.l10n")
-    local function tell(msg)
-        if host and host.notify then host:notify(msg) end
+--- 把正反面导出成一张 PNG，写入数据目录 /screenshots。失败返回 nil, err。不向外部平台上传。
+function M.exportImage(pc)
+    local Blitbuffer = require("ffi/blitbuffer")
+    local w, h, gap, margin = 900, 560, 16, 16
+    -- 分享一律按液晶原色合成（真 RGB32、不做 mono / eink_color 量化）。
+    -- 只把模式传给这一次离屏绘制，绝不 setMode，以免清掉屏幕缓存或改掉下一帧。
+    local export_opts = { mode = "lcd", wrap = false }
+    local function sided(side)
+        local o = {}
+        for k, val in pairs(pc or {}) do o[k] = val end
+        o.side = side
+        return o
     end
-    local ok = pcall(function()
-        local Blitbuffer = require("ffi/blitbuffer")
-        local w, h, gap, margin = 900, 560, 16, 16
-        local function sided(side)
-            local o = {}
-            for k, val in pairs(pc or {}) do o[k] = val end
-            o.side = side
-            return o
+    local front = M.widget(sided("front"), w, h, export_opts)
+    local back = M.widget(sided("back"), w, h, export_opts)
+    front:getSize()
+    back:getSize()
+    local bb = Blitbuffer.new(w + margin * 2, h * 2 + gap + margin * 2, Blitbuffer.TYPE_BBRGB32)
+    bb:fill(Blitbuffer.COLOR_WHITE)
+    front:paintTo(bb, margin, margin)
+    back:paintTo(bb, margin, margin + h + gap)
+    local lfs = require("libs/libkoreader-lfs")
+    local dir = require("datastorage"):getDataDir() .. "/screenshots"
+    if not lfs.attributes(dir, "mode") then lfs.mkdir(dir) end
+    local path = string.format("%s/aye-postcard-%s.png", dir, tostring(pc and (pc.index or pc.key) or os.time()))
+    local wrote, werr = bb:writeToFile(path, "png")
+    bb:free()
+    if not wrote then
+        return nil, werr or "write"
+    end
+    return path
+end
+
+local function tellHost(host, msg)
+    if host and host.notify then
+        host:notify(msg)
+    end
+end
+
+--- 弹出月读局域网二维码（能力保留），并尽量叠在全屏页之上；失败要可见，不可吞掉。
+function M.shareRemote(path, host)
+    local T = require("papersprite.l10n")
+    local okm, remote = pcall(require, "features.remote")
+    if not okm or type(remote) ~= "table" or type(remote.shareUrl) ~= "function" then
+        -- 旧入口 screenshot.share 也算保留的能力
+        local oks, mod = pcall(require, "features.remote.screenshot")
+        if oks and type(mod) == "table" and type(mod.share) == "function" then
+            local ok, err = pcall(mod.share, path)
+            if not ok then
+                tellHost(host, T("分享没成功：%s", tostring(err)))
+                return false, err
+            end
+            return true
         end
-        local front = M.widget(sided("front"), w, h)
-        local back = M.widget(sided("back"), w, h)
-        front:getSize()
-        back:getSize()
-        local bb = Blitbuffer.new(w + margin * 2, h * 2 + gap + margin * 2, Blitbuffer.TYPE_BBRGB32)
-        bb:fill(Blitbuffer.COLOR_WHITE)
-        front:paintTo(bb, margin, margin)
-        back:paintTo(bb, margin, margin + h + gap)
-        local lfs = require("libs/libkoreader-lfs")
-        local dir = require("datastorage"):getDataDir() .. "/screenshots"
-        if not lfs.attributes(dir, "mode") then lfs.mkdir(dir) end
-        local path = string.format("%s/aye-postcard-%s.png", dir, tostring(pc and pc.index or os.time()))
-        local wrote, werr = bb:writeToFile(path, "png")
-        bb:free()
-        if not wrote then error(werr or "write") end
-        local okm, mod = pcall(require, "features.remote.screenshot")
-        if okm and type(mod) == "table" and type(mod.share) == "function" then
-            mod.share(path)
+        return false, "no_remote"
+    end
+    local function showUrl(url)
+        local shown
+        local ok, err = pcall(function()
+            local QR = require("ui.themes.widgets.qr")
+            local qr = QR:new{ title = T("通过远程管理分享"), text = url, caption = url }
+            qr.modal = true
+            if type(qr.show) == "function" then
+                qr:show()
+            else
+                require("ui/uimanager"):show(qr)
+            end
+            shown = true
+        end)
+        if not ok or not shown then
+            tellHost(host, T("分享链接已生成，但没能打开二维码：%s", tostring(err or "")))
+            return false, err
+        end
+        return true
+    end
+    local function run()
+        local url, rerr
+        local ok, e = pcall(function()
+            url, rerr = remote.shareUrl(path)
+        end)
+        if not ok then
+            tellHost(host, T("分享没成功：%s", tostring(e)))
             return
         end
-        local text = table.concat({
-            ((pc.dear or "") .. " " .. (pc.you or "")):gsub("^%s+", ""):gsub("%s+$", ""),
-            pc.line or "",
-            pc.sign or "",
-            pc.place or "",
-            pc.zip or "",
-            pc.date or "",
-        }, "\n")
-        pcall(function() require("device").input.setClipboardText(text) end)
-        tell(T("已复制明信片，可以粘贴分享"))
-    end)
-    if not ok then tell(T("明信片没能存下来")) end
+        if not url then
+            tellHost(host, T("分享没成功：%s", tostring(rerr or "")))
+            return
+        end
+        showUrl(url)
+    end
+    local ok_nm, NM = pcall(require, "ui/network/manager")
+    if ok_nm and type(NM) == "table" and type(NM.runWhenConnected) == "function" then
+        NM:runWhenConnected(run)
+    else
+        run()
+    end
+    return true
+end
+
+--- 先落地导出并明确反馈，再尝试月读局域网二维码。不把成功路径改成只存 PNG。
+function M.share(pc, host)
+    local T = require("papersprite.l10n")
+    local path, err = M.exportImage(pc)
+    if not path then
+        local detail = err and tostring(err) or ""
+        if detail ~= "" then
+            tellHost(host, T("明信片没能存下来：%s", detail))
+        else
+            tellHost(host, T("明信片没能存下来"))
+        end
+        return nil, err or "export"
+    end
+    tellHost(host, T("已保存明信片到\n%s", path))
+    M.shareRemote(path, host)
+    return path
 end
 
 return M

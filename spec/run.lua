@@ -1519,6 +1519,112 @@ do
 end
 
 
+-- 分享：先落地 PNG 并明确反馈；月读二维码能力保留；失败不可静默。
+do
+    local Postcard = require("papersprite.ui.postcard")
+    local orig_widget = Postcard.widget
+    Postcard.widget = function()
+        return { getSize = function() return { w = 900, h = 560 } end, paintTo = function() end }
+    end
+    local names = {
+        "ffi/blitbuffer", "libs/libkoreader-lfs", "datastorage",
+        "features.remote", "features.remote.screenshot",
+        "ui/network/manager", "ui.themes.widgets.qr", "ui/uimanager",
+    }
+    local saved = {}
+    for _, name in ipairs(names) do saved[name] = package.loaded[name] end
+
+    local writes, written_path = {}, nil
+    package.loaded["ffi/blitbuffer"] = {
+        TYPE_BBRGB32 = 5,
+        COLOR_WHITE = 0,
+        new = function()
+            return {
+                fill = function() end,
+                free = function() end,
+                writeToFile = function(_, path)
+                    written_path = path
+                    writes[#writes + 1] = path
+                    return true
+                end,
+            }
+        end,
+    }
+    package.loaded["libs/libkoreader-lfs"] = {
+        attributes = function() return nil end,
+        mkdir = function() return true end,
+    }
+    package.loaded["datastorage"] = { getDataDir = function() return "/tmp/aye-share-spec" end }
+
+    -- 1) 无月读远程：仍保存并通知路径，不假装只复制正文。
+    package.loaded["features.remote"] = nil
+    package.loaded["features.remote.screenshot"] = { -- present but we must still notify first; shareUrl missing
+        -- no share function: treated as no remote if shareUrl missing and no share()? 
+    }
+    local notes = {}
+    local host = { notify = function(_, m) notes[#notes + 1] = m end }
+    local path = Postcard.share({ index = 7, place = "雪镇", line = "hi" }, host)
+    assert(path and path:find("aye-postcard-7", 1, true), "export path uses index")
+    assert(#notes >= 1 and notes[1]:find("已保存明信片到", 1, true) and notes[1]:find(path, 1, true), "visible save feedback")
+
+    -- 2) 写出失败：可见错误。
+    notes = {}
+    package.loaded["ffi/blitbuffer"].new = function()
+        return { fill = function() end, free = function() end, writeToFile = function() return nil, "disk" end }
+    end
+    local p2, e2 = Postcard.share({ index = 8 }, host)
+    assert(p2 == nil and e2 == "disk")
+    assert(#notes == 1 and notes[1]:find("明信片没能存下来", 1, true) and notes[1]:find("disk", 1, true))
+
+    -- 3) 有 shareUrl：保存反馈之后仍走局域网链接并弹出二维码（modal）。
+    notes, writes = {}, {}
+    package.loaded["ffi/blitbuffer"].new = function()
+        return { fill = function() end, free = function() end, writeToFile = function(_, path) writes[#writes+1]=path return true end }
+    end
+    local remote_calls, qr_shown = 0, 0
+    package.loaded["features.remote"] = {
+        shareUrl = function(p) remote_calls = remote_calls + 1 return "http://lan.example/file", nil end,
+    }
+    package.loaded["features.remote.screenshot"] = {
+        share = function() error("screenshot.share should not be the only silent path") end,
+    }
+    package.loaded["ui/network/manager"] = {
+        runWhenConnected = function(_, cb) cb() end,
+    }
+    package.loaded["ui.themes.widgets.qr"] = {
+        new = function(_, opts)
+            assert(opts.text:find("http://lan.example/file", 1, true))
+            qr_shown = qr_shown + 1
+            return { modal = true, show = function(self) self.shown = true end }
+        end,
+    }
+    notes = {}
+    local p3 = Postcard.share({ index = 9 }, host)
+    assert(p3 and #notes >= 1 and notes[1]:find("已保存明信片到", 1, true))
+    assert(remote_calls == 1 and qr_shown == 1, "LAN QR still used after save feedback")
+
+    -- 4) shareUrl 失败：必须通知，不能静默。
+    package.loaded["features.remote"].shareUrl = function() return nil, "remote down" end
+    notes, qr_shown = {}, 0
+    Postcard.share({ index = 10 }, host)
+    assert(notes[1] and notes[1]:find("已保存明信片到", 1, true), "save feedback remains")
+    local saw_fail
+    for _, m in ipairs(notes) do if m:find("分享没成功", 1, true) and m:find("remote down", 1, true) then saw_fail = true end end
+    assert(saw_fail, "remote failure is visible")
+    assert(qr_shown == 0)
+
+    -- 5) 邮戳位置确定，不随调用抖动。
+    local a1, b1 = Postcard._stampAnchor({ index = 3, place = "雪镇" })
+    local a2, b2 = Postcard._stampAnchor({ index = 3, place = "雪镇" })
+    local a3, b3 = Postcard._stampAnchor({ index = 4, place = "雪镇" })
+    assert(a1 == a2 and b1 == b2, "stamp anchor is stable")
+    assert(a1 ~= a3 or b1 ~= b3, "different cards can differ")
+
+    Postcard.widget = orig_widget
+    for _, name in ipairs(names) do package.loaded[name] = saved[name] end
+end
+
+
 do -- 显色：按设备分三种，判定与取色都集中在 ui/display；合成缓存键含模式。
     local names = { "device", "papersprite.ui.display", "papersprite.ui.compose", "ffi/blitbuffer" }
     local saved = {}
