@@ -197,6 +197,7 @@ function S:init()
             local bg = img(scene.bg, SW, SH, false)
             if bg then table.insert(grp, bg) end
             pic = grp
+            pic = require("papersprite.ui.eink_image").wrap(pic)
         end
         table.insert(body, CenterContainer:new{ dimen = Geom:new{ w = w, h = SH + px(6) }, k.frame(pic, scene.frame) })
         gap(12)
@@ -216,8 +217,10 @@ function S:init()
             return o
         end
         local Post = require("papersprite.ui.postcard")
-        local front = try(function() return Post.widget(sided("front"), pw, front_h) end)
-        local back = try(function() return Post.widget(sided("back"), pw, back_h) end)
+        local EinkImage = require("papersprite.ui.eink_image")
+        local id = tostring(v.postcard.index or v.postcard.key or v.postcard.place or "")
+        local front = try(function() return EinkImage.wrap(Post.widget(sided("front"), pw, front_h), { key = "postcard:front:" .. id }) end)
+        local back = try(function() return EinkImage.wrap(Post.widget(sided("back"), pw, back_h), { key = "postcard:back:" .. id }) end)
         if front then
             table.insert(body, CenterContainer:new{ dimen = Geom:new{ w = w, h = front_h }, front })
         end

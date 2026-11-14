@@ -1146,6 +1146,9 @@ do -- 伴读：设置立即重绘，翻页按真实经过时间结束，并重�
             dirty[#dirty + 1] = { widget = widget, mode = mode, region = region }
         end,
         scheduleIn = function(_self, _delay, fn) pending[#pending + 1] = fn end,
+        -- 图片区域 full 走 tickAfterNext，不进动画自己的 scheduleIn 队列。
+        tickAfterNext = function() end,
+        nextTick = function() end,
     }
     local loaded, painted = {}, {}
     local pixel = { a = 0, getAlpha = function() return 255 end }
@@ -1446,6 +1449,7 @@ do -- 托管：有灵感才自己买、自己出门；间隔 1 小时、每天�
     Auto.enabled = saved_enabled
 end
 
+
 -- 收藏册三视图：明信片 / 列表 / 明信片墙；记住上次选择；分享仍在；列表点进详情。
 do
     local State = require("papersprite.core.state")
@@ -1517,7 +1521,6 @@ do
     g3:close()
     H.settings.album_view = nil
 end
-
 
 -- 分享：先落地 PNG 并明确反馈；月读二维码能力保留；失败不可静默。
 do
@@ -1623,7 +1626,6 @@ do
     Postcard.widget = orig_widget
     for _, name in ipairs(names) do package.loaded[name] = saved[name] end
 end
-
 
 do -- 显色：按设备分三种，判定与取色都集中在 ui/display；合成缓存键含模式。
     local names = { "device", "papersprite.ui.display", "papersprite.ui.compose", "ffi/blitbuffer" }

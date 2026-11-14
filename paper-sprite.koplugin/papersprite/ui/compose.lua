@@ -85,14 +85,25 @@ end
 
 --- 显示用控件：缓存位图包一层 ImageWidget（不交出所有权）
 function M.widget(scene, W, H, sig, opts)
-    local mode
+    local mode, do_wrap
     if type(opts) == "table" then
         mode = opts.mode
+        do_wrap = opts.wrap
     elseif type(opts) == "string" then
         mode = opts
     end
     local bb = M.scene(scene, W, H, sig, mode)
-    return require("ui/widget/imagewidget"):new{ image = bb, image_disposable = false, width = W, height = H }
+    local wdg = require("ui/widget/imagewidget"):new{ image = bb, image_disposable = false, width = W, height = H }
+    -- 图标小、对比高，不必每次全刷；阁楼/明信片等画面要区域刷新。
+    -- 分享离屏导出必须 wrap=false，避免 paintTo 把刷新请求打到正在看的屏幕上。
+    if do_wrap == nil then
+        do_wrap = not (scene and scene.icon)
+    end
+    if do_wrap then
+        local key = cacheKey(sig or require("papersprite.ui.widget_data").sig(scene), W, H, mode)
+        wdg = require("papersprite.ui.eink_image").wrap(wdg, { key = key })
+    end
+    return wdg
 end
 
 --- 单张素材（图标）缩放后缓存

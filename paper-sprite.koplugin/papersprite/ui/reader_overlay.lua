@@ -222,6 +222,19 @@ local function dirtyCompanion(corner)
     })
 end
 
+-- 伴读图区域单独 full，且必须晚于本拍可能存在的阅读页刷新，避免和整页合并。
+-- 动画过程中仍只用上面的 "ui"。
+local function fullCompanion(corner)
+    local ui = M.ui
+    local view = ui and ui.view
+    if not view then return end
+    local sx, sy, sh = M.seat(view, corner)
+    local dim = view.dimen or {}
+    require("papersprite.ui.eink_image").schedule({
+        x = (dim.x or 0) + sx, y = (dim.y or 0) + sy, w = sh, h = sh,
+    }, { reason = "quality" })
+end
+
 function M.syncFlags()
     local f = M.flags
     local was_away = f.away
@@ -231,7 +244,10 @@ function M.syncFlags()
     local ok, s = pcall(loadState)
     if ok and s then f.away = s.sprite and s.sprite.status == "away" end
     f.ready = true
-    if f.shown and was_away ~= f.away then dirtyCompanion(f.corner) end
+    if f.shown and was_away ~= f.away then
+        dirtyCompanion(f.corner)
+        fullCompanion(f.corner)
+    end
     return ok and s or nil
 end
 
@@ -240,6 +256,7 @@ function M.refreshCompanion()
     local shown, corner, fade = Prefs.companion(), Prefs.corner(), Prefs.fade()
     if f.shown and f.corner then dirtyCompanion(f.corner) end
     if shown and (not f.shown or corner ~= f.corner) then dirtyCompanion(corner) end
+    if shown then fullCompanion(corner) end
     f.shown, f.corner, f.fade = shown, corner, fade
 end
 
@@ -475,6 +492,7 @@ function M.onPage(plugin)
                     M.flags.turn_from = nil
                     M.flags.turn_ticking = nil
                     dirtyCompanion(Prefs.corner())
+                    fullCompanion(Prefs.corner())
                     return
                 end
                 dirtyCompanion(Prefs.corner())

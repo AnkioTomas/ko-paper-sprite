@@ -38,17 +38,25 @@ function Host:showScreen(view)
         if view.on_close then view.on_close() end
     end)
     local built = Timing.now() - t0
-    -- 先盖上新界面再关旧的，整屏刷新（不留下层残影，见 ko-adarkroom e38498d）
+    -- 先盖上新界面再关旧的，避免先露出下层。新界面已经 setDirty("ui")；
+    -- close 再传 "ui" 会再排一次整屏刷新，墨水屏上往往比颜色转换更慢。
+    -- 进页：图片区域稍后合并成一次 full，清残影；不要每个缩略图各自闪。
+    pcall(function() require("papersprite.ui.eink_image").enterPage() end)
     UIManager:show(self.widget, "ui")
     if old then
         old._replaced = true
-        UIManager:close(old, "ui")
+        UIManager:close(old)
     end
     Timing.record("showScreen", Timing.now() - t0, string.format("build=%.1fms", built))
 end
 
 function Host:closeScreen()
     if self.widget then
+        pcall(function()
+            local E = require("papersprite.ui.eink_image")
+            E.leavePage()
+            E.scheduleLast("close")
+        end)
         require("ui/uimanager"):close(self.widget, "ui")
         self.widget = nil
     end
