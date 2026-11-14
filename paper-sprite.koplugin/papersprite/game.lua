@@ -48,7 +48,6 @@ function Game:tick()
     end
     local ev = Travel.settle(self.state, self.host:now(), self.debug)
     require("papersprite.core.autopilot").tick(self.state, self.host:now(), self.debug)
-    self.host:saveState(self.state)
     local function fresh(cur)
         if self.closed then return end
         self.state = cur
@@ -59,6 +58,7 @@ function Game:tick()
     Story.maybeDaily(self.host, self.state, fresh)
     Story.maybeGuest(self.host, self.state, fresh)
     Pool.maybeFill(self.host, self.state, fresh)
+    -- 同步段只落盘一次。maybe* 若发起异步请求，回调里会自己再存。
     self.host:saveState(self.state)
     return ev
 end
@@ -79,11 +79,13 @@ function Game:_almanac()
         local cur = State.load(self.host:loadState() or self.state, now)
         if not Festival.refresh(self.host, cur, now, function(daily)
             cur = State.load(self.host:loadState() or cur, now)
-            if not Festival.store(cur, daily, now) then cur.almanac_try = now end
+            local stored = Festival.store(cur, daily, now)
+            if not stored then cur.almanac_try = now end
             self.host:saveState(cur)
             if self.closed then return end
             self.state = cur
-            self:render()
+            -- 只有拿到可用节日数据才整页重绘，避免失败/空结果再闪一次屏。
+            if stored then self:render() end
         end) then return end
         self.host:saveState(cur)
     end)
@@ -473,6 +475,88 @@ function Game.cardIndex(s, page)
     return n - page + 1, page, n
 end
 
+Game.ALBUM_VIEWS = { "card", "list", "wall" }
+Game.ALBUM_VIEW_NAME = { card = T("明信片"), list = T("列表"), wall = T("明信片墙") }
+Game.ALBUM_VIEW_ICON = { card = "photo", list = "view_list", wall = "grid_view" }
+Game.ALBUM_LIST_PER = 8
+Game.ALBUM_GRID_PER = 9
+
+function Game:albumView()
+    local v = self._album_view
+    if not v then
+        v = self.host:getSetting("album_view", "card")
+    end
+    if v ~= "card" and v ~= "list" and v ~= "wall" then
+        v = "card"
+    end
+    self._album_view = v
+    return v
+end
+
+function Game:setAlbumView(mode)
+    if mode ~= "card" and mode ~= "list" and mode ~= "wall" then
+        return
+    end
+    local prev = self:albumView()
+    local n = #(self.state.postcards or {})
+    local sel = math.max(1, math.min(self.wall_page or 1, math.max(n, 1)))
+    self.wall_page = sel
+    if mode == "list" and prev ~= "list" then
+        local per = self:per("album_list", Game.ALBUM_LIST_PER)
+        self.album_list_page = math.ceil(sel / math.max(per, 1))
+    elseif mode == "wall" and prev ~= "wall" then
+        local per = self:per("album_grid", Game.ALBUM_GRID_PER)
+        self.album_grid_page = math.ceil(sel / math.max(per, 1))
+    end
+    self._album_view = mode
+    self.host:setSetting("album_view", mode)
+    if self.page == "wall" then
+        self:render()
+    end
+end
+
+function Game:_albumViewSwitch()
+    local cur = self:albumView()
+    local order = Game.ALBUM_VIEWS
+    local next_i = 1
+    for i, m in ipairs(order) do
+        if m == cur then
+            next_i = i % #order + 1
+            break
+        end
+    end
+    local nxt = order[next_i]
+    return {
+        icon = Game.ALBUM_VIEW_ICON[cur],
+        text = Game.ALBUM_VIEW_NAME[cur],
+        callback = function()
+            self:setAlbumView(nxt)
+            self.host:notify(T("已切换到%s", Game.ALBUM_VIEW_NAME[nxt]))
+        end,
+    }
+end
+
+function Game:_albumShare(i)
+    local s = self.state
+    if not i or not s.postcards[i] then return nil end
+    local seen_before = self._wall_seen0 or s.wall_seen or 0
+    local face = require("papersprite.ui.cardface").of(s.postcards[i])
+    face.new = i > (seen_before or 0)
+    face.index = i
+    face.line = s.postcards[i].line or ""
+    face.sign = T("——阿页")
+    return { icon = "share", text = T("分享"), callback = function()
+        require("papersprite.ui.postcard").share(face, self.host)
+    end }
+end
+
+function Game:_openAlbumCard(i)
+    local n = #self.state.postcards
+    if not i or i < 1 or i > n then return end
+    self.wall_page = n - i + 1
+    self:go("card", i)
+end
+
 function Game:_postcardView(i, seen_before, pager)
     local s = self.state
     local c = s.postcards[i]
@@ -492,21 +576,124 @@ function Game:_postcardView(i, seen_before, pager)
     }
 end
 
-function Game:_wall()
+function Game:_albumCard()
     local s = self.state
     local seen_before = self._wall_seen0 or s.wall_seen or 0
-    if s.wall_seen ~= #s.postcards then s.wall_seen = #s.postcards self.host:saveState(self.state) end
-    if #s.postcards == 0 then
-        return { title = T("明信片墙"), empty = { title = T("墙上还空着"), caption = T("等阿页寄第一张回来。") } }
-    end
     local i, page, pages = Game.cardIndex(s, self.wall_page)
     self.wall_page = page
-    return self:_postcardView(i, seen_before, {
+    local v = self:_postcardView(i, seen_before, {
         page = page, pages = pages,
         prev = function() self.wall_page = page - 1 self:render() end,
         next = function() self.wall_page = page + 1 self:render() end,
         go = function(n) self.wall_page = n self:render() end,
     })
+    v.extra = self:_albumViewSwitch()
+    return v
+end
+
+function Game:_albumList()
+    local s = self.state
+    local n = #s.postcards
+    local per = self:per("album_list", Game.ALBUM_LIST_PER)
+    local sel = math.max(1, math.min(self.wall_page or 1, n))
+    self.wall_page = sel
+    local pages = math.max(1, math.ceil(n / per))
+    local want = math.ceil(sel / math.max(per, 1))
+    local page = math.max(1, math.min(self.album_list_page or want, pages))
+    if sel < (page - 1) * per + 1 or sel > page * per then
+        page = want
+    end
+    self.album_list_page = page
+    local rows = {}
+    local now = self.host:now()
+    for p = (page - 1) * per + 1, math.min(n, page * per) do
+        local i = n - p + 1
+        local c = s.postcards[i]
+        local place = ((c.place and Travel.place(c.place)) or {}).name or c.place or T("明信片")
+        local weather = (Postcards.weather_names and Postcards.weather_names[c.weather]) or c.weather or ""
+        local when = Game.when(c.at, now)
+        local bits = {}
+        if when then bits[#bits + 1] = when end
+        if weather ~= "" then bits[#bits + 1] = weather end
+        if c.line and c.line ~= "" then bits[#bits + 1] = c.line end
+        local selected = p == sel
+        rows[#rows + 1] = {
+            text = (selected and "✓ " or "") .. place,
+            meta = table.concat(bits, "　"),
+            callback = function() self:_openAlbumCard(i) end,
+        }
+    end
+    local i_sel = n - sel + 1
+    return {
+        title = T("明信片墙"),
+        extra = self:_albumViewSwitch(),
+        switch = self:_albumShare(i_sel),
+        notes = { rows = rows, per = per, fit = self:fitter("album_list", true) },
+        pager = pages > 1 and {
+            page = page, pages = pages,
+            prev = function() self.album_list_page = page - 1 self:render() end,
+            next = function() self.album_list_page = page + 1 self:render() end,
+            go = function(n) self.album_list_page = n self:render() end,
+        } or nil,
+    }
+end
+
+function Game:_albumGrid()
+    local s = self.state
+    local n = #s.postcards
+    local per = self:per("album_grid", Game.ALBUM_GRID_PER)
+    local sel = math.max(1, math.min(self.wall_page or 1, n))
+    self.wall_page = sel
+    local pages = math.max(1, math.ceil(n / per))
+    local want = math.ceil(sel / math.max(per, 1))
+    local page = math.max(1, math.min(self.album_grid_page or want, pages))
+    if sel < (page - 1) * per + 1 or sel > page * per then
+        page = want
+    end
+    self.album_grid_page = page
+    local cells = {}
+    local seen_before = self._wall_seen0 or s.wall_seen or 0
+    -- 只为当前页可见项生成缩略图，走 compose 缓存，避免一次合成整本收藏。
+    for p = (page - 1) * per + 1, math.min(n, page * per) do
+        local i = n - p + 1
+        local c = s.postcards[i]
+        local place = ((c.place and Travel.place(c.place)) or {}).name or c.place or T("明信片")
+        cells[#cells + 1] = {
+            scene = Game.cardScene(c),
+            title = place,
+            check = p == sel,
+            new = i > (seen_before or 0),
+            meta = Game.when(c.at, self.host:now()) or "",
+            callback = function() self:_openAlbumCard(i) end,
+        }
+    end
+    local i_sel = n - sel + 1
+    return {
+        title = T("明信片墙"),
+        extra = self:_albumViewSwitch(),
+        switch = self:_albumShare(i_sel),
+        shelf = { cols = 3, icon = 56, compact = true, cells = cells, per = per, fit = self:fitter("album_grid", true) },
+        pager = pages > 1 and {
+            page = page, pages = pages,
+            prev = function() self.album_grid_page = page - 1 self:render() end,
+            next = function() self.album_grid_page = page + 1 self:render() end,
+            go = function(n) self.album_grid_page = n self:render() end,
+        } or nil,
+    }
+end
+
+function Game:_wall()
+    local s = self.state
+    local seen_before = self._wall_seen0 or s.wall_seen or 0
+    if s.wall_seen ~= #s.postcards then s.wall_seen = #s.postcards self.host:saveState(self.state) end
+    if #s.postcards == 0 then
+        return { title = T("明信片墙"), extra = self:_albumViewSwitch(),
+            empty = { title = T("墙上还空着"), caption = T("等阿页寄第一张回来。") } }
+    end
+    local mode = self:albumView()
+    if mode == "list" then return self:_albumList() end
+    if mode == "wall" then return self:_albumGrid() end
+    return self:_albumCard()
 end
 
 --- 明信片的分层画面
@@ -894,7 +1081,7 @@ Game.PARENT = {
 function Game:view()
     if self.page == "basket" and self.state.sprite.status == "away" then self.page, self.attic_page = "attic", 1 end
     local v = self["_" .. self.page](self)
-    -- 子页面不再放「回阁楼」按钮：标题栏右上角的按钮就是返回上一级（阁楼页才是关闭）
+    -- 子页面不再放「回阁楼」按钮：标题栏左侧是返回（无 back 时关闭）；右侧是 switch，收藏册另有 extra 切视图。
     local parent = Game.PARENT[self.page]
     if parent then v.back = function() self:go(parent) end end
     v.on_close = function() self.closed = true if self.timer then self.host:unschedule(self.timer) self.timer = nil end end
@@ -903,8 +1090,20 @@ end
 
 function Game:render()
     if self.closed then return end
-    self.host:showScreen(self:view())
+    local Timing = require("papersprite.ui.timing")
+    local page = self.page
+    local v = Timing.span("view", page, function()
+        return self:view()
+    end)
+    self.host:showScreen(v)
     self:_arm()
+    local sh = Timing.last.showScreen
+    local vw = Timing.last.view
+    local miss = Timing.last.compose_miss
+    Timing.record("render_total", (vw and vw.ms or 0) + (sh and sh.ms or 0), string.format(
+        "page=%s view=%.1fms show=%.1fms compose_miss=%s",
+        tostring(page), vw and vw.ms or -1, sh and sh.ms or -1,
+        miss and string.format("%.1fms", miss.ms) or "none"))
 end
 
 return Game

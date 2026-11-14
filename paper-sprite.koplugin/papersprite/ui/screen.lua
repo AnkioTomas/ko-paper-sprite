@@ -8,7 +8,8 @@ view = {
   postcard? = cardface，一页同时画正面和背面
   status? = { icon?, title, caption?, meta?, callback? }                  状态卡（图标 + 标题 / 说明 / 小字）
   empty?  = { title, caption? }                                           空状态卡
-  switch? = { icon, text, callback }                                      标题栏右侧视图切换；左侧固定是返回（无 back 时关闭）
+  switch? = { icon, text, callback }                                      标题栏最右侧按钮（明信片分享等）
+  extra?  = { icon, text, callback }                                      标题栏右侧、switch 左边的第二按钮（收藏册视图切换）
   notes?  = { rows = { {text, meta?} }, per, fit }                        文字卡列表（按最高一张自适应每页条数）
   lines 里 { text, label = true } 是小节标签（小号灰字）
   tabs?  = { {text, active, callback} },                                  分类页签（一行按钮，当前项加 ✓）
@@ -83,10 +84,11 @@ local function kit()
     function k.line(text, w, muted, small)
         return Text.line(small and "caption" or "body", text, { width = w, color = muted and c.muted or nil })
     end
-    function k.title(w, title, left, right)
+    function k.title(w, title, left, right, extra)
         return require("ui.themes.widgets.titlebar").widget{ width = w, title = title or "",
             left_icon = left and left.icon, left_callback = left and left.callback,
-            right_icon = right and right.icon, right_callback = right and right.callback }
+            right_icon = right and right.icon, right_callback = right and right.callback,
+            extra_icon = extra and extra.icon, extra_callback = extra and extra.callback }
     end
     function k.head(text, w) return Text.line("title", text, { width = w }) end
     function k.frame(child, border)
@@ -170,7 +172,12 @@ function S:init()
     end
     local left = v.back and { icon = "arrow_back", text = T("‹ 返回"), callback = v.back }
         or { icon = "close", text = "✕", callback = function() self:onClose() end }
-    table.insert(body, k.title(w, v.title, left, v.switch))
+    -- 有 switch 时 extra 排在其左侧；只有 extra 就放在最右侧，避免空出两个槽。
+    local right, extra = v.switch, v.extra
+    if extra and not right then
+        right, extra = extra, nil
+    end
+    table.insert(body, k.title(w, v.title, left, right, extra))
     gap(8)
     -- 分层画面：缓存合成成一张位图
     -- scene_wide：贴满屏宽（阁楼主页），高度默认 2:1；放不下只缩高度
@@ -299,6 +306,10 @@ function S:init()
             if r.meta then table.insert(col, VerticalSpan:new{ width = px(2) }) table.insert(col, k.line(r.meta, inner - px(28), true, true)) end
             local c = cardBox(col)
             tallest = math.max(tallest, c:getSize().h + px(1) + px(8))
+            if r.callback then
+                local sz = c:getSize()
+                c = tap(c, math.max(sz.w, inner), sz.h, r.callback)
+            end
             table.insert(body, indent(c))
             table.insert(body, indent(hair()))
             gap(8)

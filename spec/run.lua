@@ -32,6 +32,10 @@ local function btns()
     for _, c in ipairs(H.view.shelf and H.view.shelf.cells or {}) do out[#out + 1] = { text = c.title or c.name, callback = c.callback } end
     for _, c in ipairs(H.view.shelf2 and H.view.shelf2.cells or {}) do out[#out + 1] = { text = c.title or c.name, callback = c.callback } end
     if H.view.switch then out[#out + 1] = { text = "switch:" .. H.view.switch.text, callback = H.view.switch.callback } end
+    if H.view.extra then out[#out + 1] = { text = "extra:" .. (H.view.extra.text or ""), callback = H.view.extra.callback } end
+    for _, r in ipairs((H.view.notes and H.view.notes.rows) or {}) do
+        if r.callback then out[#out + 1] = { text = r.text, callback = r.callback } end
+    end
     for _, c in ipairs(H.view.tabs or {}) do out[#out + 1] = { text = "tab:" .. c.text, callback = c.callback } end
     for _, b in ipairs(H.view.buttons or {}) do
         if b[1] then for _, c in ipairs(b) do out[#out + 1] = c end else out[#out + 1] = b end
@@ -1441,6 +1445,79 @@ do -- 托管：有灵感才自己买、自己出门；间隔 1 小时、每天�
     assert(s4.inspiration == 20 and s4.sprite.status == "home", "disabled caretaker mode changes nothing")
     Auto.enabled = saved_enabled
 end
+
+-- 收藏册三视图：明信片 / 列表 / 明信片墙；记住上次选择；分享仍在；列表点进详情。
+do
+    local State = require("papersprite.core.state")
+    local st = State.fresh(0)
+    for k = 1, 12 do
+        st.postcards[k] = { place = "ink_lake", pose = "sit", prop = "none", weather = "clear", line = "line" .. k, at = k }
+    end
+    H.settings = { debug_fast = true }
+    H.saved = st
+    local g = Game.new(H.host):show()
+    attic_ops(); click("明信片墙")
+    assert(g:albumView() == "card", "default album view is single postcard")
+    assert(H.view.postcard and H.view.switch and H.view.switch.icon == "share", "card view keeps share")
+    assert(H.view.extra and H.view.extra.icon == "photo" and H.view.extra.text == "明信片", "view switch on the title bar")
+    local first_index = H.view.postcard.index
+    H.view.pager.go(5)
+    assert(g.wall_page == 5)
+    -- 切到列表：分享还在，选中项落在当前页，列表无整本 scene 合成
+    H.view.extra.callback()
+    assert(g:albumView() == "list" and H.settings.album_view == "list")
+    assert(H.view.notes and H.view.notes.rows and #H.view.notes.rows >= 1, "list uses notes rows")
+    assert(H.view.switch and H.view.switch.icon == "share", "list view keeps share")
+    assert(H.view.extra and H.view.extra.icon == "view_list")
+    assert(not H.view.postcard, "list is not the single-card layout")
+    local saw_sel
+    for _, r in ipairs(H.view.notes.rows) do
+        if r.text:find("✓", 1, true) then saw_sel = true end
+        assert(r.callback, "list rows open a card")
+        assert(not r.scene, "list does not compose thumbnails")
+    end
+    assert(saw_sel, "selected card stays marked in the list")
+    -- 点列表打开详情，返回仍是列表
+    local row = H.view.notes.rows[1]
+    row.callback()
+    assert(g.page == "card" and H.view.postcard, "list click opens postcard detail")
+    assert(H.view.switch and H.view.switch.icon == "share", "detail keeps share")
+    assert(not H.view.extra, "detail does not replace share with the view switch")
+    back()
+    assert(g.page == "wall" and g:albumView() == "list" and H.view.notes)
+
+    -- 切到明信片墙：只给当前页做缩略，分享仍在
+    H.view.extra.callback()
+    assert(g:albumView() == "wall" and H.settings.album_view == "wall")
+    assert(H.view.shelf and H.view.shelf.cols == 3 and #H.view.shelf.cells > 0)
+    assert(#H.view.shelf.cells <= (H.view.shelf.per or 9), "grid only composes the visible page")
+    assert(H.view.shelf.cells[1].scene, "grid cells are postcard thumbs")
+    assert(H.view.switch and H.view.switch.icon == "share", "grid view keeps share")
+    local checked = 0
+    for _, c in ipairs(H.view.shelf.cells) do if c.check then checked = checked + 1 end end
+    assert(checked == 1, "one selected thumb in the grid")
+    H.view.shelf.cells[1].callback()
+    assert(g.page == "card" and H.view.postcard, "grid click opens detail")
+    back()
+    assert(g:albumView() == "wall")
+
+    -- 再切回单张，记住设置；新实例读到上次选择
+    H.view.extra.callback()
+    assert(g:albumView() == "card" and H.view.postcard)
+    g:close()
+    local g2 = Game.new(H.host):show()
+    attic_ops(); click("明信片墙")
+    assert(g2:albumView() == "card", "persisted card mode")
+    -- 直接改设置后新开是列表
+    g2:close()
+    H.settings.album_view = "list"
+    local g3 = Game.new(H.host):show()
+    attic_ops(); click("明信片墙")
+    assert(g3:albumView() == "list" and H.view.notes, "new game remembers list setting")
+    g3:close()
+    H.settings.album_view = nil
+end
+
 
 do -- 显色：按设备分三种，判定与取色都集中在 ui/display；合成缓存键含模式。
     local names = { "device", "papersprite.ui.display", "papersprite.ui.compose", "ffi/blitbuffer" }

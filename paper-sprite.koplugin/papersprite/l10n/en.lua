@@ -2678,5 +2678,7 @@ return {
     ["目录车站有我的包裹。让阿页去取。"] = "My parcel is at Index Station. Have Aye pick it up.",
     ["分享"] = "Share",
     ["已复制明信片，可以粘贴分享"] = "Postcard copied. Paste it to share.",
+    ["已切换到%s"] = "Switched to %s",
+    ["列表"] = "List",
     ["明信片没能存下来"] = "Couldn't save the postcard.",
 }
