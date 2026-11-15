@@ -69,6 +69,78 @@ local function attic_home()
 end
 local attic_ops = attic_home
 
+-- 书架表的内存替身（真实实现走月读 SQLite，spec 不碰）
+local function fakeShelf()
+    local rows = {}
+    local impl = {}
+    function impl.count() return #rows end
+    function impl.page(offset, limit)
+        local out = {}
+        for i = #rows - offset, math.max(1, #rows - offset - limit + 1), -1 do out[#out + 1] = rows[i] end
+        return out
+    end
+    function impl.pending(limit, skip)
+        local out = {}
+        for _, r in ipairs(rows) do if not r.thought and not skip[r.key] and #out < limit then out[#out + 1] = r end end
+        return out
+    end
+    function impl.add(b)
+        for _, r in ipairs(rows) do
+            if r.key == b.key or (r.title == b.title and (not r.id or not b.id)) then return false end
+        end
+        local r = {}
+        for k, v in pairs(b) do r[k] = v end
+        rows[#rows + 1] = r
+        return true
+    end
+    function impl.setThought(key, text) for _, r in ipairs(rows) do if r.key == key then r.thought = text end end end
+    function impl.batch(fn) fn() return true end
+    require("papersprite.core.shelf").use(impl)
+    return rows
+end
+
+-- 明细表的内存替身（真实实现走 sqlite，spec 不碰）。返回重置函数
+local Vault = require("papersprite.core.vault")
+local function fakeVault()
+    local data = {}
+    local be = {}
+    local function sorted(t)
+        local out = {}
+        for _, r in pairs(data[t] or {}) do out[#out + 1] = r end
+        local pk = (t == "paper_postcards" or t == "paper_log") and "seq" or "k"
+        table.sort(out, function(x, y) return x[pk] < y[pk] end)
+        return out
+    end
+    local function pkOf(t, row) return (t == "paper_postcards" or t == "paper_log") and row.seq or row.k end
+    function be.count(t) local n = 0 for _ in pairs(data[t] or {}) do n = n + 1 end return n end
+    function be.get(t, pk) return (data[t] or {})[pk] end
+    function be.put(t, row)
+        data[t] = data[t] or {}
+        local r = {} for k, v in pairs(row) do r[k] = v end
+        data[t][pkOf(t, row)] = r
+    end
+    function be.del(t, pk) if data[t] then data[t][pk] = nil end end
+    function be.page(t, offset, limit, desc)
+        local all, out = sorted(t), {}
+        if desc then for i = 1, math.floor(#all / 2) do all[i], all[#all - i + 1] = all[#all - i + 1], all[i] end end
+        for i = offset + 1, math.min(#all, offset + limit) do out[#out + 1] = all[i] end
+        return out
+    end
+    function be.scan(t, fn) for _, r in ipairs(sorted(t)) do if fn(r) == false then break end end end
+    function be.tx(fn) fn() end
+    Vault.use(be)
+    return function() data = {} end, be
+end
+local resetVault, vaultBackend = fakeVault()
+local function cards()
+    local out = {}
+    Vault.eachCard(function(c) out[#out + 1] = c end)
+    return out
+end
+local function addCards(list) for _, c in ipairs(list) do Vault.cardAdd(c) end end
+local function logs() local t = Vault.logList() return t end
+
+fakeShelf()
 -- 1. 打开，收拾行囊
 local Game = require("papersprite.game")
 local g = Game.new(H.host):show()
@@ -88,11 +160,11 @@ g:close(); assert(#H.queue == 0, "timers left after close")
 local n = H.shows; advance(10000); assert(H.shows == n, "render after close")
 g = Game.new(H.host):show()
 assert(H.saved.sprite.status == "home", "should be home")
-assert(#H.saved.postcards >= 1, "no postcard")
-local sv = 0 for _, c in pairs(H.saved.souvenirs) do sv = sv + c end
+assert(Vault.cardCount() >= 1, "no postcard")
+local sv = 0 for _, c in pairs(Vault.all("souvenirs")) do sv = sv + c end
 assert(sv == 1, "souvenir")
-local place_id = H.saved.postcards[1].place
-assert((H.saved.place_trips or {})[place_id] == 1, "place_trips on return")
+local place_id = Vault.card(1).place
+assert(Vault.get("place_trips", place_id) == 1, "place_trips on return")
 -- 4. 明信片墙：一页同时是正面和背面，不再翻面
 attic_ops(); click("明信片墙")
 assert(H.view.postcard and H.view.postcard.scene and H.view.postcard.scene.bg and H.view.postcard.scene.overlays[1].img:find("^sprite/"), "card view")
@@ -115,9 +187,10 @@ g:close()
 local State = require("papersprite.core.state")
 assert(State.load(nil, 1).version == State.VERSION)
 assert(State.load({ version = 1 }, 1).sprite.status == "home")
+resetVault()
 local mig = State.load({ version = 1, postcards = { { id = "ink_lake_01", at = 5 }, { id = "gone", at = 6 }, { id = "ink_lake_01", at = 7 } },
     wall_seen = 2, visitor = { until_at = 9 }, sprite = { status = "home" } }, 10)
-assert(#mig.postcards == 1 and mig.postcards[1].place == "ink_lake" and mig.postcards[1].line, "migrate cards")
+assert(Vault.cardCount() == 1 and Vault.card(1).place == "ink_lake" and Vault.card(1).line and mig.postcards == nil, "migrate cards")
 assert(mig.wall_seen == 1 and mig.visitor.id == "inkbug", "migrate misc")
 
 -- 6. 首页卡片摘要（纯函数）
@@ -127,6 +200,7 @@ local s = Card.summary(H.saved, H.clock, true); assert(s.line1 and s.line2)
 
 -- 7. 确定性：同存档同时刻结果一致；长期跑 50 趟不出错
 local Travel = require("papersprite.core.travel")
+resetVault()
 local st = State.fresh(0); st.inventory = { tea_bag = 99, paper_umbrella = 99, poem_slip = 99 }
 local t = 0
 for i = 1, 50 do
@@ -137,7 +211,7 @@ for i = 1, 50 do
 end
 -- 多样性：50 趟去过的地点与画面组合
 local seenPlace, seenCombo = {}, {}
-for _, c in ipairs(st.postcards) do seenPlace[c.place] = true seenCombo[c.place .. c.pose .. c.prop .. c.weather] = true end
+for _, c in ipairs(cards()) do seenPlace[c.place] = true seenCombo[c.place .. c.pose .. c.prop .. c.weather] = true end
 local np, nc = 0, 0 for _ in pairs(seenPlace) do np = np + 1 end for _ in pairs(seenCombo) do nc = nc + 1 end
 assert(np >= 8, "place variety " .. np)
 
@@ -145,6 +219,7 @@ assert(np >= 8, "place variety " .. np)
 local Story = require("papersprite.core.story")
 local function trip(ai_impl)
     H.saved, H.queue = nil, {}
+    resetVault()
     H.host.ai = ai_impl and function() return ai_impl end or nil
     local g2 = Game.new(H.host):show()
     attic_ops(); click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
@@ -166,16 +241,16 @@ local good = { json = function(msgs, cb)
 end }
 local sv = trip(good)
 assert(calls == 1, "one request per trip")
-local ai_cards = 0 for _, c in ipairs(sv.postcards) do if c.ai then ai_cards = ai_cards + 1 assert(c.line:find("AI")) end end
+local ai_cards = 0 for _, c in ipairs(cards()) do if c.ai then ai_cards = ai_cards + 1 assert(c.line:find("AI")) end end
 assert(ai_cards >= 1, "ai lines cached into save")
-assert(sv.log[#sv.log]:find("把风叠好") or table.concat(sv.log, "|"):find("把风叠好"), "narration")
+assert(table.concat(logs(), "|"):find("把风叠好"), "narration")
 -- 不合规：句子太长 → 整体放弃，用本地句
 local bad = { json = function(_, cb) cb({ lines = { string.rep("长", 80) } }) end }
-sv = trip(bad); for _, c in ipairs(sv.postcards) do assert(not c.ai, "invalid ai rejected") end
+sv = trip(bad); for _, c in ipairs(cards()) do assert(not c.ai, "invalid ai rejected") end
 -- 报错
-sv = trip({ json = function() error("boom") end }); assert(#sv.postcards >= 1)
+sv = trip({ json = function() error("boom") end }); assert(Vault.cardCount() >= 1)
 -- 永不回调（超时）
-sv = trip({ json = function() return { cancel = function() end } end }); assert(#sv.postcards >= 1)
+sv = trip({ json = function() return { cancel = function() end } end }); assert(Vault.cardCount() >= 1)
 -- 校验函数
 assert(Story.validate({ lines = { "好" } }, 1).lines[1] == "好")
 assert(not Story.validate({ lines = { "<script>" } }, 1))
@@ -207,6 +282,7 @@ do
         cb({ lines = lines, souvenir_note = "迟到小注。" })
     end }
     H.saved, H.queue = nil, {}
+    resetVault()
     H.host.ai = nil
     local g3 = Game.new(H.host):show()
     attic_ops(); click("收拾行囊"); click("燕麦饼干"); click("铅笔头"); click("火柴盒地图册")
@@ -216,7 +292,7 @@ do
     g3:tick()
     local cur = H.saved
     assert(not cur.recap, "recap consumed")
-    local late = 0 for _, c in ipairs(cur.postcards) do if c.line:find("迟到") then late = late + 1 end end
+    local late = 0 for _, c in ipairs(cards()) do if c.line:find("迟到") then late = late + 1 end end
     assert(late >= 1, "late lines patched")
     assert(next(cur.pool.lines) and next(cur.pool.events), "lines and events prefetched")
     if not (cur.errands and cur.errands[1] and cur.errands[1].aside) then
@@ -242,7 +318,7 @@ do
     g3:tick()
     cur = H.saved
     assert(cur.visitor.react and cur.visitor.react.match == "它眼睛一亮。", "guest reaction prefetched")
-    cur.souvenirs.shelf_plank = 1
+    Vault.set("souvenirs", "shelf_plank", 1)
     local ok, msg = require("papersprite.core.quest").give(cur, "shelf_plank", H.clock)
     assert(ok and msg:find("它眼睛一亮。", 1, true), "reaction shown when hosting: " .. tostring(msg))
     g3:close()
@@ -250,18 +326,19 @@ end
 
 -- 9. 明信片去重：200 趟不重复；同一趟不重复；全部收集后退回最久没见过的
 local P = require("papersprite.data.postcards")
+resetVault()
 local st2 = State.fresh(0); st2.inventory = {}
 local tt, keys = 0, {}
 for i = 1, 200 do
     for _, id in ipairs({ "oat_biscuit", "pencil_stub", "tiny_atlas" }) do assert(Travel.put(st2, id, tt, false)) end
     tt = tt + 40 * 3600; Travel.settle(st2, tt, false)
 end
-for _, c in ipairs(st2.postcards) do
+for _, c in ipairs(cards()) do
     assert(c.key, "card has key")
     assert(not keys[c.key], "duplicate postcard " .. c.key)
     keys[c.key] = true
 end
-print("  200 trips, " .. #st2.postcards .. " postcards, all unique")
+print("  200 trips, " .. Vault.cardCount() .. " postcards, all unique")
 -- 耗尽：只剩 2 张没收过 → 先给这 2 张，再给最久没见过的那张
 local all = P.candidates("ink_lake")
 local col = {}
@@ -279,13 +356,14 @@ assert((got[1] == k1 or got[1] == k2) and (got[2] == k1 or got[2] == k2) and got
 assert(got[3] == P.key(all[5]), "then least recently seen")
 -- AI 去重：每趟都返回同样的句子 → 只有第一次被采用
 H.saved = nil
+resetVault()
 local same = { json = function(msgs, cb)
     local n = select(2, msgs[2].content:gsub("%d%. 天气", ""))
     local lines = {} for i = 1, n do lines[i] = "同一句话，第" .. i .. "张。" end
     cb({ lines = lines })
 end }
 sv = trip(same)
-local first_ai = 0 for _, c in ipairs(sv.postcards) do if c.ai then first_ai = first_ai + 1 end end
+local first_ai = 0 for _, c in ipairs(cards()) do if c.ai then first_ai = first_ai + 1 end end
 local function again()
     H.host.ai = function() return same end
     local g3 = Game.new(H.host):show()
@@ -294,20 +372,21 @@ local function again()
     return H.saved
 end
 sv = again()
-local ai2 = 0 for _, c in ipairs(sv.postcards) do if c.ai then ai2 = ai2 + 1 end end
-local dup1 = 0 for _, c in ipairs(sv.postcards) do if c.line == "同一句话，第1张。" then dup1 = dup1 + 1 end end
+local ai2 = 0 for _, c in ipairs(cards()) do if c.ai then ai2 = ai2 + 1 end end
+local dup1 = 0 for _, c in ipairs(cards()) do if c.line == "同一句话，第1张。" then dup1 = dup1 + 1 end end
 assert(first_ai >= 1 and dup1 == 1 and ai2 >= first_ai, "repeated AI lines rejected: " .. dup1)
 -- 同一回复里两句相同 → 整体放弃
 assert(not Story.validate({ lines = { "一样。", "一样！" } }, 2), "dup within response")
-local wk = {} for _, c in ipairs(sv.postcards) do assert(not wk[c.key], "dup in save") wk[c.key] = true end
+local wk = {} for _, c in ipairs(cards()) do assert(not wk[c.key], "dup in save") wk[c.key] = true end
 
 -- 10. 第 3/4 批：v2 → v4 迁移、背景变体、搭配限制、阁楼季节与装饰、访客姿势、剪贴簿回填
+resetVault()
 local m3 = State.load({ version = 2, postcards = { { place = "ink_lake", pose = "sit", prop = "none", weather = "clear", text_id = "p:1", key = "ink_lake|sit|none|clear|p:1", trip = 1 } },
     collected = { ["ink_lake|sit|none|clear|p:1"] = 1 }, visitor = { id = "inkbug", until_at = 9 },
     souvenirs = { lake_pebble = 1 } }, 0)
-assert(m3.version == State.VERSION and m3.postcards[1].variant == "a" and type(m3.decor) == "table" and m3.visitor.pose == "" and type(m3.errands) == "table")
-assert(m3.place_trips.ink_lake == 1 and m3.seen_visitors.inkbug == 9, "v4 album migrate")
-assert(P.key(m3.postcards[1]) == "ink_lake|sit|none|clear|p:1", "old key stays valid")
+assert(m3.version == State.VERSION and Vault.card(1).variant == "a" and type(m3.decor) == "table" and m3.visitor.pose == "" and type(m3.errands) == "table")
+assert(Vault.get("place_trips", "ink_lake") == 1 and Vault.get("seen_visitors", "inkbug") == 9, "v4 album migrate")
+assert(P.key(Vault.card(1)) == "ink_lake|sit|none|clear|p:1", "old key stays valid")
 local cb = { place = "ink_lake", variant = "b", pose = "fish", prop = "none", weather = "clear", text_id = "p:1" }
 assert(P.key(cb) == "ink_lake@b|fish|none|clear|p:1" and P.layers(cb).bg == "places/ink_lake_b.png")
 local sd = 7
@@ -332,7 +411,7 @@ assert(Game.atticTod(os.time({ year = 2026, month = 4, day = 1, hour = 12 })) ==
 assert(Game.atticTod(os.time({ year = 2026, month = 4, day = 1, hour = 19 })) == "dusk")
 assert(Game.atticTod(os.time({ year = 2026, month = 4, day = 1, hour = 23 })) == "night")
 -- 特产摆进阁楼
-H.saved.souvenirs = { lake_pebble = 1, fog_jar = 2 }
+Vault.set("souvenirs", "lake_pebble", 1) Vault.set("souvenirs", "fog_jar", 2)
 H.saved.decor = {}
 H.saved.visitor = { id = "seal_bear", pose = "_2", until_at = H.clock + 99999 }
 local g4 = Game.new(H.host):show()
@@ -379,28 +458,30 @@ local vw = WD.view(raw, H.clock, true)
 local da = WD.attic(vw, H.clock, true)
 assert(da.scene.bg:match("^attic/attic_") and type(da.line) == "string" and da.sub:find("灵感"))
 local dp = WD.postcards(vw, 3)
-assert(dp.total == #vw.postcards and #dp.cards == math.min(3, dp.total))
+assert(dp.total == Vault.cardCount() and #dp.cards == math.min(3, dp.total))
 for k = 2, #dp.cards do assert(dp.cards[k - 1].index > dp.cards[k].index, "newest first") end
 if dp.cards[1] then assert(dp.cards[1].scene.bg:match("^places/") and dp.cards[1].place ~= "") end
-vw.wall_seen = #vw.postcards - 1
+vw.wall_seen = Vault.cardCount() - 1
 local dp2 = WD.postcards(vw, 3)
 assert(dp2.new == 1 and dp2.cards[1].new and (not dp2.cards[2] or not dp2.cards[2].new), "new mark")
-vw.souvenirs = { fog_jar = 2, lake_pebble = 1, gone_item = 3 }
+resetVault() Vault.set("souvenirs", "fog_jar", 2) Vault.set("souvenirs", "lake_pebble", 1) Vault.set("souvenirs", "gone_item", 3)
 local dc = WD.cabinet(vw)
 assert(dc.total == Game.souvenirTotal() and dc.have == 2 and dc.items[1].icon:match("^souvenirs/"), "cabinet n/total")
 assert(WD.sig(raw) == before, "widget data must not touch the save")
 assert(WD.sig({ a = 1, b = { 2 } }) == WD.sig({ b = { 2 }, a = 1 }))
+resetVault()
 local empty = WD.view(nil, 0, false)
 assert(#WD.postcards(empty, 5).cards == 0 and WD.cabinet(empty).have == 0 and WD.attic(empty, 0, false).scene)
 
 -- 12. 明信片墙：一页一张，新的在前
 local sw = State.fresh(0)
-for k = 1, 30 do sw.postcards[k] = { place = "ink_lake", pose = "sit", prop = "none", weather = "clear", line = "l" .. k, at = k } end
-local i, pg, pgs = Game.cardIndex(sw, 1)
+resetVault()
+for k = 1, 30 do Vault.cardAdd({ place = "ink_lake", pose = "sit", prop = "none", weather = "clear", line = "l" .. k, at = k }) end
+local i, pg, pgs = Game.cardIndex(30, 1)
 assert(i == 30 and pg == 1 and pgs == 30)
-i, pg, pgs = Game.cardIndex(sw, 99)
+i, pg, pgs = Game.cardIndex(30, 99)
 assert(pg == 30 and i == 1, "clamped last page")
-assert(select(3, Game.cardIndex(State.fresh(0), 1)) == 1)
+assert(select(3, Game.cardIndex(0, 1)) == 1)
 H.saved = sw
 local g5 = Game.new(H.host):show()
 attic_ops(); click("明信片墙")
@@ -441,6 +522,7 @@ g6:close()
 
 -- 14. 子页面没有「回…」按钮；标题栏返回到上一级，阁楼页没有 back
 H.saved = State.fresh(0)
+resetVault()
 local g7 = Game.new(H.host):show()
 assert(not H.view.back)
 for _, pg in ipairs({ "basket", "shop", "wall", "cabinet", "scrapbook", "guestbook" }) do
@@ -452,7 +534,8 @@ g7:close()
 
 -- 15. 阁楼主页分页：第 1 页通栏画面 + 状态；第 2 页入口；第 3 页来客 + 最近；日志多时更多页
 local sa = State.fresh(0)
-for k = 1, 15 do sa.log[k] = "事" .. k end
+resetVault()
+for k = 1, 15 do Vault.logAdd("事" .. k, 1000 + k) end
 sa.visitor = { id = "inkbug", pose = "", until_at = 1e12 }
 H.saved = sa
 local g8 = Game.new(H.host):show()
@@ -471,16 +554,26 @@ do
     local G = Game
     assert(G.when(1000, 1030) == "刚刚" and G.when(1000, 1000 + 180) == "3 分钟前" and G.when(1000, 1000 + 3 * 3600) == "3 小时前")
     assert(G.when(1000, 1000 + 3 * 86400) == os.date("%m-%d %H:%M", 1000) and G.when(0, 5) == nil and G.when(nil, 5) == nil)
+    resetVault()
     local old = State.fresh(0); old.log = { "旧1", "旧2" }; old.log_at = nil
     local ls = State.load(old, 0)
-    assert(#ls.log_at == 2 and ls.log_at[1] == 0)
-    State.log(ls, "新", 12345); assert(ls.log_at[3] == 12345)
+    local _, ats = Vault.logList()
+    assert(#ats == 2 and ats[1] == 0)
+    State.log(ls, "新", 12345); _, ats = Vault.logList(); assert(ats[3] == 12345)
     for k = 1, 30 do State.log(ls, "x" .. k, k) end
-    assert(#ls.log == 20 and #ls.log_at == 20 and ls.log_at[20] == 30)
+    local texts
+    texts, ats = Vault.logList()
+    assert(#texts == 20 and #ats == 20 and ats[20] == 30 and Vault.logLast() == "x30")
     H.saved = ls
     local g9 = Game.new(H.host):show(); H.view.tabbar.on_tab(3)
     local r1 = H.view.notes.rows[1]; assert(r1.text == "x30" and r1.meta)
     g9:close()
+    for k = 1, 3 do Vault.cardAdd({ key = "k" .. k, line = "l" .. k, at = k, trip = k, ai = false }) end
+    local newest = Vault.cardsNewest(0, 2)
+    assert(newest[1].index == 3 and newest[2].index == 2 and newest[1].trip == 3 and newest[2].key == "k2")
+    local fix = Vault.card(2) fix.line = "改" Vault.cardReplace(2, fix)
+    assert(Vault.card(2).line == "改" and Vault.cardCount() == 3 and Vault.card(2).index == nil)
+    resetVault()
 end
 
 -- 17. 存档位置与迁移：新目录 <data>/.moon/game/paper-sprite；旧 KOReader / 月读存档只复制不删，取进度多的
@@ -493,22 +586,72 @@ do
         return { data = f.data, readSetting = function(_, k) return f.data[k] end,
             saveSetting = function(_, k, v) f.data[k] = v end, flush = function() f.flushed = true end }
     end
-    local moon = { postcards = { 1, 2, 3 }, trips = 5 }
-    St.deps = { dataDir = function() return "/D" end, settingsDir = function() return "/D/settings" end,
+    local moon = { postcards = { {}, {}, {} }, trips = 5 }
+    local kv = {}
+    local tbl = {}
+    local backend = {
+        load = function(name) local o = {} for k, v in pairs(kv[name] or {}) do o[k] = v end return o end,
+        write = function(name, changes)
+            kv[name] = kv[name] or {}
+            for k, v in pairs(changes) do kv[name][k] = v or nil end
+        end }
+    St.deps = { backend = backend, dataDir = function() return "/D" end, settingsDir = function() return "/D/settings" end,
         open = fake, exists = function(p) return files[p] ~= nil end, mkdirp = function(p) made[#made + 1] = p end,
         moonState = function() return moon end }
     St._reset()
-    fake("/D/settings/papersprite.lua").saveSetting(nil, "state", { postcards = { 1 }, trips = 1 })
+    fake("/D/settings/papersprite.lua").saveSetting(nil, "state", { postcards = { {} }, trips = 1 })
     fake("/D/settings/papersprite.lua").saveSetting(nil, "setting_ui_skin", "native")
     fake("/D/settings/papersprite_reading.lua").saveSetting(nil, "pages", 42)
     local sv = St.open("save")
-    assert(made[1] == "/D/.moon/game/paper-sprite" and files["/D/.moon/game/paper-sprite/save.lua"].flushed)
+    assert(made[1] == "/D/.moon/game/paper-sprite" and kv.save["state.trips"])
     assert(sv:readSetting("state") == moon and sv:readSetting("setting_ui_skin") == "native" and sv:readSetting("migrated_from"))
     assert(files["/D/settings/papersprite.lua"].data.state.trips == 1)   -- 旧文件原样保留
     assert(St.open("reading"):readSetting("pages") == 42)
     -- 已有新存档：不再迁移
-    St._reset(); moon = { postcards = { 1, 2, 3, 4, 5, 6 }, trips = 9 }
+    St._reset(); moon = { postcards = { {}, {}, {}, {}, {}, {} }, trips = 9 }
     assert(St.open("save"):readSetting("state").trips == 5)
+    -- 编码：cdata 按数字写、不认识的值丢掉，读回来结构不变
+    local ffi = require("ffi")
+    local back = St.decode(St.encode({ n = ffi.new("int64_t", 7), s = "a\n\"b", l = { 1, 2, { x = true } }, f = print }))
+    assert(back.n == 7 and back.s == "a\n\"b" and back.l[3].x == true and back.f == nil)
+    -- state 按字段拆行，只写变了的；测试版的整份 state 行下次 flush 拆开
+    do
+        St._reset(); kv = { save = { state = St.encode({ a = 1, b = { 2 } }) } }
+        local sv2 = St.open("save")
+        assert(sv2:readSetting("state").a == 1)
+        sv2:saveSetting("state", sv2:readSetting("state")) sv2:flush()
+        assert(kv.save.state == nil and kv.save["state.a"] and kv.save["state.b"])
+        local before = kv.save["state.b"]
+        kv.save["state.b"] = "SENTINEL"
+        local st2 = sv2:readSetting("state") st2.a = 5 st2.c = 9
+        sv2:saveSetting("state", st2) sv2:flush()
+        assert(kv.save["state.b"] == "SENTINEL" and St.decode(kv.save["state.a"]) == 5 and kv.save["state.c"], "only changed fields are written")
+        st2.c = nil sv2:saveSetting("state", st2) sv2:flush()
+        assert(kv.save["state.c"] == nil)
+        St._reset()
+        assert(St.open("save"):readSetting("state").a == 5)
+        kv.save["state.b"] = before
+    end
+    -- 旧存档里的明信片 / 近况 / 特产等：State.load 搬进表，存档里不再留；旧的按字段行下次 flush 删掉
+    do
+        St._reset()
+        kv = { save = { ["state.postcards"] = St.encode({ { key = "z", at = 1 } }), ["state.y"] = "2",
+            ["state.version"] = "5", ["state.souvenirs"] = St.encode({ petal = 2 }) } }
+        resetVault()
+        local sv4 = St.open("save")
+        local loaded = require("papersprite.core.state").load(sv4:readSetting("state"), 0)
+        assert(loaded.postcards == nil and loaded.souvenirs == nil and Vault.card(1).key == "z" and Vault.get("souvenirs", "petal") == 2)
+        sv4:saveSetting("state", loaded) sv4:flush()
+        assert(kv.save["state.postcards"] == nil and kv.save["state.souvenirs"] == nil and kv.save["state.y"])
+        -- 表里已有数据就不再导入第二遍
+        require("papersprite.core.state").load({ version = 5, postcards = { { key = "z" }, { key = "w" } } }, 0)
+        assert(Vault.cardCount() == 1)
+        resetVault()
+    end
+    -- 旧的 save.lua 先补坏书签再导入
+    St._reset(); kv = {}; tbl = {}; moon = nil
+    files["/D/.moon/game/paper-sprite/save.lua"] = { data = { state = { trips = 8, postcards = {} } } }
+    assert(St.open("save"):readSetting("state").trips == 8 and St.decode(kv.save["state.trips"]) == 8)
 end
 
 -- 18. 多语言：英文目录下各页没有残留中文（地点 / 物品 / 访客名也走译文），占位符数与中文一致
@@ -519,6 +662,8 @@ do
     for k in pairs(package.loaded) do
         if k:find("^papersprite%.") and k ~= "papersprite.l10n" and k ~= "papersprite.core.reading" then package.loaded[k] = nil end
     end
+    fakeShelf()
+    Vault = require("papersprite.core.vault") Vault.use(vaultBackend)
     local GameEn, StateEn = require("papersprite.game"), require("papersprite.core.state")
     local function cjk(str) return str:find("[\228-\233]") end
     local function clean(where)
@@ -527,8 +672,6 @@ do
         assert(not cjk(all), where .. " 有残留中文: " .. all)
     end
     H.saved = StateEn.fresh(0)
-    for k, v in pairs(st.souvenirs or {}) do H.saved.souvenirs[k] = v end
-    H.saved.postcards = st.postcards
     H.saved.inspiration = 50
     local ge = GameEn.new(H.host):show()
     clean("attic")
@@ -540,6 +683,7 @@ do
     for k in pairs(package.loaded) do
         if k:find("^papersprite%.") and k ~= "papersprite.l10n" and k ~= "papersprite.core.reading" then package.loaded[k] = nil end
     end
+    Vault = require("papersprite.core.vault") Vault.use(vaultBackend)
 end
 
 -- 随机数：不再陷入短循环；种子越界也不崩
@@ -609,7 +753,7 @@ do
     local sv = State.fresh(1000)
     sv.sprite = { status = "away", trip = 1, place = "ink_lake", mail = { { card = { weather = "clear", pose = "sit", prop = "none" } } },
         souvenir = next(require("papersprite.data.postcards").souvenirs), basket = {}, left_at = os.time({ year = 2026, month = 10, day = 1, hour = 9 }) }
-    sv.postcards = { { line = "上一张的句子。" } }
+    resetVault() Vault.cardAdd({ line = "上一张的句子。" })
     local store, reqs = sv, 0
     local host
     host = { loadState = function() return store end, saveState = function(_, t) store = t end, now = function() return 1000 end,
@@ -627,12 +771,12 @@ do
     assert(not Story.maybeRequest(host, store) and reqs == 2, "gives up after MAX_TRIES")
 end
 
--- 读书墙：阿页的感悟由 AI 补，失败后放弃
+-- 读书墙：阿页的感悟由 AI 补，失败的本次进入不再试
 do
-    local Story, State = require("papersprite.core.story"), require("papersprite.core.state")
-    local st = State.fresh(1000)
-    st.bookmarks = { { title = "甲", at = 5, quote = "划过的一句" }, { title = "乙", at = 6 } }
-    local store, mode = st, "ok"
+    local Story, State, Shelf = require("papersprite.core.story"), require("papersprite.core.state"), require("papersprite.core.shelf")
+    local rows = fakeShelf()
+    Shelf.add({ title = "甲", at = 5, quote = "划过的一句" }) Shelf.add({ title = "乙", at = 6 })
+    local store, mode = State.fresh(1000), "ok"
     local host
     host = { loadState = function() return store end, saveState = function(_, t) store = t end, now = function() return 1000 end,
         schedule = function() end,
@@ -643,22 +787,38 @@ do
     local failed = {}
     assert(Story.maybeThoughts(host, store, nil, failed))
     assert(host.last:find("划过的一句", 1, true))
-    assert(store.bookmarks[1].thought == "灯下读完，心里很静。" and not store.bookmarks[2].thought and failed["乙6"])
+    assert(rows[1].thought == "灯下读完，心里很静。" and not rows[2].thought and failed["t:乙"])
     assert(not Story.maybeThoughts(host, store, nil, failed), "failed ones wait for the next visit")
     mode = "fail"
-    assert(Story.maybeThoughts(host, store, nil, {}) and not store.bookmarks[2].thought)
+    assert(Story.maybeThoughts(host, store, nil, {}) and not rows[2].thought)
     mode = "ok"
-    assert(Story.maybeThoughts(host, store, nil, {}) and store.bookmarks[2].thought, "retries on a new visit")
+    assert(Story.maybeThoughts(host, store, nil, {}) and rows[2].thought, "retries on a new visit")
+    fakeShelf()
+end
+
+-- 1.9.1 的 cdata 书签把存档写成 `["title"] = ,`：补成 nil 救回，其余数据不丢
+do
+    local Storage = require("papersprite.core.storage")
+    local path = os.tmpname()
+    local f = io.open(path, "w")
+    f:write('return {\n ["postcards"] = { 1, 2 },\n ["bookmarks"] = { { ["title"] = , ["at"] = 5 } },\n}')
+    f:close()
+    assert(Storage.repair(path))
+    local data = dofile(path)
+    assert(#data.postcards == 2 and data.bookmarks[1].title == nil and data.bookmarks[1].at == 5)
+    assert(not Storage.repair(path), "a loadable file is left alone")
+    os.remove(path)
 end
 
 -- 剪贴簿 / 来客簿 / 惦记直达
 do
     local Album = require("papersprite.core.album")
     local st = State.fresh(0)
-    st.place_trips = { ink_lake = 2 }
-    st.souvenirs = { lake_pebble = 1, ink_shell = 1, quill_reed = 1 }
-    st.postcards = { { place = "ink_lake", at = 1 }, { place = "ink_lake", at = 2 } }
-    st.seen_visitors = { inkbug = 10 }
+    resetVault()
+    Vault.set("place_trips", "ink_lake", 2)
+    for _, id in ipairs({ "lake_pebble", "ink_shell", "quill_reed" }) do Vault.set("souvenirs", id, 1) end
+    addCards({ { place = "ink_lake", at = 1 }, { place = "ink_lake", at = 2 } })
+    Vault.set("seen_visitors", "inkbug", 10)
     local row = Album.place(st, Travel.place("ink_lake"))
     assert(row.done and row.have == 3 and row.cards == 2, "place page complete")
     local _, done, total = Album.places(st)
@@ -666,6 +826,7 @@ do
     local guests, have, gtotal = Album.visitors(st)
     assert(have == 1 and gtotal == #require("papersprite.data.visitors") and guests[1].visitor.id == "inkbug")
     -- 惦记：下一趟直达（只推进到出门，别把整趟走完）
+    resetVault()
     H.saved = State.fresh(0)
     H.saved.inspiration = 20
     H.saved.wish_place = "fold_peak"
@@ -678,7 +839,7 @@ do
     gw:close()
 end
 
-print("headless ok: postcards=" .. #st.postcards .. " places=" .. np .. " combos=" .. nc)
+print("headless ok: trips=" .. st.trips .. " places=" .. np .. " combos=" .. nc)
 
 do -- 访客：不出门也会来；节日更勤；出门时不来
     local Travel = require("papersprite.core.travel")
@@ -689,9 +850,9 @@ do -- 访客：不出门也会来；节日更勤；出门时不来
             local s = State.fresh(1)
             s.seed = i * 7919
             s.visit_check = 1
-            s.seen_visitors = {}
+            resetVault()
             Travel.settle(s, 1 + 3600 * 72)
-            if next(s.seen_visitors) then n = n + 1 end
+            if Vault.size("seen_visitors") > 0 then n = n + 1 end
         end
         return n
     end
@@ -716,28 +877,29 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     Errand.leave(s, "inkbug", 1001)
     assert(#s.errands == 1, "one open errand per visitor")
     local function bump(st, err)
-        if err.kind == "place" then st.place_trips[err.key] = (err.base or 0) + 1
+        if err.kind == "place" then Vault.set("place_trips", err.key, (err.base or 0) + 1)
         elseif err.kind == "tag" then st.stats.tag = st.stats.tag or {} st.stats.tag[err.key] = (err.base or 0) + 1
         elseif err.kind == "weather" then st.stats.weather = st.stats.weather or {} st.stats.weather[err.key] = (err.base or 0) + 1
         elseif err.kind == "book" then st.stats.books = (err.base or 0) + 1
-        elseif err.kind == "host" then st.bonds[err.visitor] = (err.base or 0) + 1
+        elseif err.kind == "host" then Vault.set("bonds", err.visitor, (err.base or 0) + 1)
         else error("unknown errand kind " .. tostring(err.kind)) end
     end
     bump(s, s.errands[1])
     local before = s.inspiration
     assert(Errand.done(s, s.errands[1]) and Errand.claim(s, 1, 2000))
     -- 领取会顺手判定成就（第一张纸条 +6），灵感增量不只有委托本身
-    assert(s.inspiration >= before + Errand.REWARD and s.achieved.errand1 and (s.bonds.inkbug or 0) >= 1
+    assert(s.inspiration >= before + Errand.REWARD and Vault.get("achieved", "errand1") and (Vault.get("bonds", "inkbug") or 0) >= 1
         and not Errand.claim(s, 1, 2000), "claim once")
     s.sprite.status = "away"
     Errand.leave(s, "inkbug", 3000)
     bump(s, s.errands[#s.errands])
     assert(Errand.done(s, s.errands[#s.errands]) and not Errand.claim(s, #s.errands, 4000), "away cannot claim")
     local d = State.fresh(1)
-    d.postcards[1] = { place = "ink_lake", at = 1 }
+    resetVault()
+    Vault.cardAdd({ place = "ink_lake", at = 1 })
     assert(not Disturb.next(d), "unarmed")
     Disturb.arm(d)
-    d.postcards[2] = { place = "ink_lake", at = 2 }
+    Vault.cardAdd({ place = "ink_lake", at = 2 })
     local note = Disturb.next(d)
     assert(note and note.kind == "card" and note.index == 2)
     Disturb.ack(d, note)
@@ -758,7 +920,7 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     note = Disturb.next(d)
     assert(note and note.kind == "visitor")
     Disturb.ack(d, note)
-    d.achieved = { errand1 = 3 }
+    Vault.set("achieved", "errand1", 3)
     note = Disturb.next(d)
     assert(note and note.kind == "ach" and note.id == "errand1")
     local returned = State.fresh(1)
@@ -769,9 +931,9 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     local g = State.fresh(1)
     g.sprite.status = "home"
     g.visitor = { id = "inkbug", pose = "", until_at = 1e9 }
-    g.souvenirs.ad_slip = 2
+    Vault.set("souvenirs", "ad_slip", 2)
     local ok = Quest.give(g, "ad_slip", 2000)
-    assert(ok and g.souvenirs.ad_slip == 1 and Quest.bond(g, "inkbug") >= 1 and g.visitor.fed)
+    assert(ok and Vault.get("souvenirs", "ad_slip") == 1 and Quest.bond(g, "inkbug") >= 1 and g.visitor.fed)
     assert(not Quest.give(g, "ad_slip", 2000), "one gift per visit")
 
     assert(Reading.tagOf("a detective story") == "night" and Reading.tagOf("plain") == nil)
@@ -799,9 +961,10 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     Reading.record(1003, { title = "同名书", finished = true, id = "edition-b" }, 1, 10)
     assert(#editions.finished == 2 and editions.finished[1].cover == "/covers/a.png",
         "same-title editions are distinct and duplicate reads retain their cover")
-    local edition_wall = State.fresh(1000)
-    assert(Reading.collect(edition_wall) == 10 and #edition_wall.bookmarks == 2
-        and edition_wall.bookmarks[1].cover == "/covers/a.png", "bookmarks retain cover paths and same-title editions")
+    local edition_wall, shelf_rows = State.fresh(1000), fakeShelf()
+    assert(Reading.collect(edition_wall) == 10 and #shelf_rows == 2
+        and shelf_rows[1].cover == "/covers/a.png", "bookmarks retain cover paths and same-title editions")
+    assert(#(editions.finished or {}) == 0 and Reading.collect(edition_wall) == 0, "collected books leave the queue")
     package.preload["utils.db"] = function()
         return { each = function(sql, _, fn)
             if sql:find("FROM notes", 1, true) then return fn({ "NOTE" }) end
@@ -815,18 +978,21 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     package.preload["libs/libkoreader-lfs"] = function()
         return { attributes = function(path) return path == "/cache/a.png" and "file" or nil end }
     end
-    local moon_wall = State.fresh(1000)
-    moon_wall.bookmarks = { { title = 1984, at = 1 } }
-    assert(Reading.collect(moon_wall) == 10 and #moon_wall.bookmarks == 3, "moon books backfill without reward, old id-less bookmarks replaced")
-    assert(moon_wall.bookmarks[3].title == "月读已读" and moon_wall.bookmarks[3].cover == "/cache/a.png", "moon cover only when cached")
-    assert(moon_wall.bookmarks[3].quote == "划过的一句", "moon first highlight kept as AI context")
-    assert(Reading.collect(moon_wall) == 0, "moon books are collected once")
+    local moon_wall, moon_rows = State.fresh(1000), fakeShelf()
+    moon_wall.bookmarks = { { title = 1984, at = 1 }, { id = "old", title = "旧书", at = 3, thought = "旧的感悟" } }
+    assert(Reading.collect(moon_wall) == 0 and #moon_rows == 3 and moon_wall.bookmarks == nil,
+        "legacy bookmarks move to the shelf (bad title dropped), moon books backfill without reward")
+    assert(moon_rows[1].thought == "旧的感悟", "legacy thought kept")
+    assert(moon_rows[2].title == "月读已读" and moon_rows[2].cover == "/cache/a.png", "moon cover only when cached")
+    assert(moon_rows[2].quote == "划过的一句", "moon first highlight kept as AI context")
+    assert(Reading.collect(moon_wall) == 0 and #moon_rows == 3, "moon books are collected once")
     for _, m in ipairs({ "utils.db", "utils.paths", "libs/libkoreader-lfs", "json" }) do package.preload[m], package.loaded[m] = nil, nil end
     Reading._inject(reading_store)
-    local shelf = State.fresh(1000)
+    local shelf, rows = State.fresh(1000), fakeShelf()
+    shelf.moon_imported = 3
     assert(Reading.collect(shelf) == 5)
-    assert(shelf.bookmarks[1].line:find("雾", 1, true) and shelf.log[#shelf.log]:find("灯"))
-    assert(Reading.collect(shelf) == 0 and #shelf.bookmarks == 1)
+    assert(rows[1].line:find("雾", 1, true) and logs()[#logs()]:find("灯"))
+    assert(Reading.collect(shelf) == 0 and #rows == 1)
     Reading._inject({ readSetting = function() error("reading store unavailable") end })
     local collected = pcall(Reading.collect, State.fresh(1000))
     assert(not collected, "reading storage failures must reach the caller")
@@ -896,11 +1062,13 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     package.loaded["ffi/sha2"], package.loaded["papersprite.core.storage"] = old_sha2, old_storage
     for _, name in ipairs(names) do package.loaded[name] = saved[name] end
     local Lock = require("papersprite.core.postcard_lock")
-    assert(Lock.latest(nil) == nil)
-    local card = Lock.latest({ postcards = {
+    resetVault()
+    assert(Lock.latest() == nil)
+    addCards({
         { place = "ink_lake", weather = "mist", line = "旧的", at = 1 },
         { place = "ink_lake", weather = "clear", line = "湖面很静", at = 50 },
-    } })
+    })
+    local card = Lock.latest()
     assert(card and card.place == "墨水湖" and card.weather == "晴" and card.line == "湖面很静")
     local function units(sample)
         local n, i = 0, 1
@@ -915,9 +1083,9 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     assert(Lock.clampLines("一二三", units, 3) == "一二三")
     assert(Lock.clampLines("一二三四", units, 3) == "一二…")
     H.saved = State.fresh(0)
-    H.saved.souvenirs.ad_slip = 1
+    resetVault() Vault.set("souvenirs", "ad_slip", 1)
     H.saved.visitor = { id = "inkbug", pose = "", until_at = 1e12 }
-    H.saved.bookmarks = { { title = "封面书", at = 1, cover = "/covers/book-id.png" } }
+    require("papersprite.core.shelf").add({ title = "封面书", at = 1, cover = "/covers/book-id.png" })
     local gu = Game.new(H.host):show()
     gu:go("achievements")
     local first_achievement = H.view.shelf.cells[1]
@@ -947,8 +1115,8 @@ do -- 锁屏复用新版明信片，两面完整落在屏内，不写存档。
     assert(background.id == "postcard_pair", "new style is independently selectable")
     local empty_key = background.cache_key()
     assert(background.blocks({ w = 1080, h = 1440 })[1].text == "等阿页寄第一张回来。")
-    data.postcards[1] = { place = "ink_lake", pose = "sit", prop = "none", weather = "clear",
-        variant = "a", line = "湖面很静", at = 5 }
+    Vault.cardAdd({ place = "ink_lake", pose = "sit", prop = "none", weather = "clear",
+        variant = "a", line = "湖面很静", at = 5 })
     assert(background.cache_key() ~= empty_key)
     for _, rect in ipairs({ { w = 1080, h = 1440 }, { w = 1440, h = 1080 }, { w = 600, h = 800 } }) do
         local blocks = background.blocks(rect)
@@ -976,7 +1144,7 @@ do -- 提醒使用月读弹窗：插画、翻面、关闭确认都走同一套�
     local saved = {}
     for _, name in ipairs(names) do saved[name] = package.loaded[name] end
     local state = require("papersprite.core.state").fresh(1)
-    state.postcards = { { place = "ink_lake", at = 1 } }
+    resetVault() Vault.cardAdd({ place = "ink_lake", at = 1 })
     local writes, shown, image, opened = 0
     package.loaded["papersprite.ui.read_prefs"] = {
         disturb = function() return true end,
@@ -1028,7 +1196,7 @@ do -- 提醒使用月读弹窗：插画、翻面、关闭确认都走同一套�
     assert(#shown.dialog.buttons == 2 and shown.dialog.buttons[2].text == "招待客人")
     shown.dialog.buttons[2].callback()
     assert(opened == "guest_here", "hosting reuses the existing souvenir selection page")
-    state.postcards[2] = { place = "ink_lake", pose = "sit", prop = "none", weather = "clear", variant = "a", at = 4 }
+    Vault.cardAdd({ place = "ink_lake", pose = "sit", prop = "none", weather = "clear", variant = "a", at = 4 })
     M.poke()
     assert(shown.dialog.body.side == "back" and #shown.dialog.buttons == 2)
     shown.dialog.buttons[1].callback()
@@ -1039,7 +1207,7 @@ do -- 提醒使用月读弹窗：插画、翻面、关闭确认都走同一套�
     M.poke()
     assert(#shown.dialog.buttons == 1, "an already hosted visitor only offers dismissal")
     shown:dismiss()
-    state.achieved.trips1 = 20
+    Vault.set("achieved", "trips1", 20)
     M.poke()
     assert(image:find("achievements/trips1.png", 1, true), "achievement notice uses its matching artwork")
     shown:dismiss()
@@ -1498,8 +1666,9 @@ end
 do
     local State = require("papersprite.core.state")
     local st = State.fresh(0)
+    resetVault()
     for k = 1, 12 do
-        st.postcards[k] = { place = "ink_lake", pose = "sit", prop = "none", weather = "clear", line = "line" .. k, at = k }
+        Vault.cardAdd({ place = "ink_lake", pose = "sit", prop = "none", weather = "clear", line = "line" .. k, at = k })
     end
     H.settings = { debug_fast = true }
     H.saved = st
