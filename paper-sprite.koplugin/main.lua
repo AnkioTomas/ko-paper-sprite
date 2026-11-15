@@ -98,11 +98,11 @@ function PaperSprite:_quote()
     end
 end
 
--- 当前书的书名 / 关键词。翻到最后几页算读完；读完时带上划线。
+-- 当前书的书名 / 关键词。读到 99% 算读完（与月读一致）；读完时带上划线。
 function PaperSprite:_bookInfo(pageno)
     local props = self.ui.doc_props or {}
     local total = self.ui.document:getPageCount()
-    local finished = type(total) == "number" and total >= 20 and pageno >= total - 1
+    local finished = type(total) == "number" and total >= 20 and pageno >= total * 0.99
     local file = self.ui.document.file
     local id, cover
     if type(file) == "string" and file ~= "" then

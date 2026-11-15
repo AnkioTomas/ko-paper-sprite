@@ -779,12 +779,25 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     assert(Reading.collect(edition_wall) == 10 and #edition_wall.bookmarks == 2
         and edition_wall.bookmarks[1].cover == "/covers/a.png", "bookmarks retain cover paths and same-title editions")
     package.preload["utils.db"] = function()
-        return { query = function() return { { title = "月读已读", read_at = 5 }, { title = "同名书", read_at = 6 } } end }
+        return { each = function(sql, _, fn)
+            if sql:find("FROM notes", 1, true) then return fn({ "NOTE" }) end
+            fn({ "同名书", 6, "local", "b" }) fn({ "月读已读", 5, "local", "a" })
+        end }
+    end
+    package.preload["json"] = function()
+        return { decode = function() return { items = { { drawer = "" , text = "书签" }, { drawer = "lighten", text = "划过的一句" } } } end }
+    end
+    package.preload["utils.paths"] = function() return { coverPath = function(id) return "/cache/" .. id .. ".png" end } end
+    package.preload["libs/libkoreader-lfs"] = function()
+        return { attributes = function(path) return path == "/cache/a.png" and "file" or nil end }
     end
     local moon_wall = State.fresh(1000)
-    assert(Reading.collect(moon_wall) == 15 and #moon_wall.bookmarks == 3, "moon read books merge, deduped by title")
+    moon_wall.bookmarks = { { title = 1984, at = 1 } }
+    assert(Reading.collect(moon_wall) == 10 and #moon_wall.bookmarks == 3, "moon books backfill without reward, old id-less bookmarks replaced")
+    assert(moon_wall.bookmarks[3].title == "月读已读" and moon_wall.bookmarks[3].cover == "/cache/a.png", "moon cover only when cached")
+    assert(moon_wall.bookmarks[3].quote == "划过的一句", "moon first highlight kept as AI context")
     assert(Reading.collect(moon_wall) == 0, "moon books are collected once")
-    package.preload["utils.db"], package.loaded["utils.db"] = nil, nil
+    for _, m in ipairs({ "utils.db", "utils.paths", "libs/libkoreader-lfs", "json" }) do package.preload[m], package.loaded[m] = nil, nil end
     Reading._inject(reading_store)
     local shelf = State.fresh(1000)
     assert(Reading.collect(shelf) == 5)
@@ -850,7 +863,7 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
             end },
         },
     }, { __index = Main })
-    local info = Main._bookInfo(book, 19)
+    local info = Main._bookInfo(book, 20)
     assert(info.id == "book-id" and info.cover == "/fake/paper-sprite/covers/book-id.png"
         and written == info.cover .. ":png" and cover_calls == 1 and freed == 1)
     Main._bookInfo(book, 20)

@@ -128,11 +128,27 @@ function M.collect(state)
     local tag, at = s:readSetting("last_tag"), s:readSetting("last_tag_at")
     if tag and at then state.read_tag, state.read_tag_at = tag, at end
     state.bookmarks = state.bookmarks or {}
+    -- 1.9.1 把 DB.query 的列式结果当行读，存下了 title 不是字符串的坏书签
+    for i = #state.bookmarks, 1, -1 do
+        local b = state.bookmarks[i]
+        -- 上一版导入过没有阅读时间（1970）的书，不是在这台设备上读的
+        if type(b.title) ~= "string" or (b.at or 0) <= 0 then table.remove(state.bookmarks, i) end
+    end
     local done = {}
     for _, b in ipairs(s:readSetting("finished") or {}) do done[#done + 1] = b end
-    for _, b in ipairs(require("papersprite.core.moon_books").finished()) do
-        b.tag = M.tagOf(b.title)
-        done[#done + 1] = b
+    if state.moon_imported ~= 3 then
+        local moon = require("papersprite.core.moon_books").finished()
+        if moon then
+            -- 带 id 的是阅读时记下的；没有 id 的都是旧版导入的（缺封面 / 摘录），重导一遍
+            for i = #state.bookmarks, 1, -1 do
+                if not state.bookmarks[i].id then table.remove(state.bookmarks, i) end
+            end
+            state.moon_imported = 3
+            for _idx, b in ipairs(moon) do
+                b.tag, b.backfill = M.tagOf(b.title), true
+                done[#done + 1] = b
+            end
+        end
     end
     for _, b in ipairs(done) do
         local have = false
@@ -143,12 +159,14 @@ function M.collect(state)
         if not have then
             local line = M.farewell(b.title, b.tag)
             state.bookmarks[#state.bookmarks + 1] = {
-                id = b.id, title = b.title, at = b.at, tag = b.tag, line = line, quote = b.quote, cover = b.cover,
+                id = b.id, title = b.title, at = b.at, tag = b.tag, line = line, quote = M.clip(b.quote), cover = b.cover,
             }
-            require("papersprite.core.state").log(state, line, b.at)
-            state.inspiration = state.inspiration + M.FINISH_REWARD
-            gained = gained + M.FINISH_REWARD
-            Quest.note(state, "book")
+            if not b.backfill then
+                require("papersprite.core.state").log(state, line, b.at)
+                state.inspiration = state.inspiration + M.FINISH_REWARD
+                gained = gained + M.FINISH_REWARD
+                Quest.note(state, "book")
+            end
         end
     end
     return math.max(0, gained)
