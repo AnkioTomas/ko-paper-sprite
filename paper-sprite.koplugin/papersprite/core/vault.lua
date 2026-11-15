@@ -125,15 +125,17 @@ end
 
 -- 近况 -------------------------------------------------------------------
 
-function M.logAdd(text, at)
+local function logPut(text, at)
     local last = be.page("paper_log", 0, 1, true)[1]
-    be.tx(function()
-        be.put("paper_log", { seq = (last and last.seq or 0) + 1, text = text, at = at or os.time() })
-        local extra = be.count("paper_log") - M.LOG_MAX
-        if extra > 0 then
-            for _, r in ipairs(be.page("paper_log", 0, extra, false)) do be.del("paper_log", r.seq) end
-        end
-    end)
+    be.put("paper_log", { seq = (last and last.seq or 0) + 1, text = text, at = at or os.time() })
+    local extra = be.count("paper_log") - M.LOG_MAX
+    if extra > 0 then
+        for _, r in ipairs(be.page("paper_log", 0, extra, false)) do be.del("paper_log", r.seq) end
+    end
+end
+
+function M.logAdd(text, at)
+    be.tx(function() logPut(text, at) end)
 end
 
 --- 旧的在前
@@ -189,7 +191,7 @@ function M.import(s)
     end
     if type(s.log) == "table" and be.count("paper_log") == 0 then
         be.tx(function()
-            for i, text in ipairs(s.log) do M.logAdd(text, (s.log_at or {})[i] or 0) end
+            for i, text in ipairs(s.log) do logPut(text, (s.log_at or {})[i] or 0) end
         end)
     end
     for field in pairs(Tables.FIELD) do

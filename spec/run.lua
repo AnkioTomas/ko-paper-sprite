@@ -127,7 +127,15 @@ local function fakeVault()
         return out
     end
     function be.scan(t, fn) for _, r in ipairs(sorted(t)) do if fn(r) == false then break end end end
-    function be.tx(fn) fn() end
+    -- sqlite 不支持嵌套 BEGIN，替身也不许嵌套
+    local in_tx = false
+    function be.tx(fn)
+        assert(not in_tx, "nested transaction")
+        in_tx = true
+        local ok, err = pcall(fn)
+        in_tx = false
+        if not ok then error(err, 0) end
+    end
     Vault.use(be)
     return function() data = {} end, be
 end
