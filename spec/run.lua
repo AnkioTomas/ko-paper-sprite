@@ -611,8 +611,8 @@ do
     St._reset(); moon = { postcards = { {}, {}, {}, {}, {}, {} }, trips = 9 }
     assert(St.open("save"):readSetting("state").trips == 5)
     -- 编码：cdata 按数字写、不认识的值丢掉，读回来结构不变
-    local ffi = require("ffi")
-    local back = St.decode(St.encode({ n = ffi.new("int64_t", 7), s = "a\n\"b", l = { 1, 2, { x = true } }, f = print }))
+    local has_ffi, ffi = pcall(require, "ffi")
+    local back = St.decode(St.encode({ n = has_ffi and ffi.new("int64_t", 7) or 7, s = "a\n\"b", l = { 1, 2, { x = true } }, f = print }))
     assert(back.n == 7 and back.s == "a\n\"b" and back.l[3].x == true and back.f == nil)
     -- state 按字段拆行，只写变了的；测试版的整份 state 行下次 flush 拆开
     do
