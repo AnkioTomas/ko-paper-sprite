@@ -8,13 +8,8 @@ local T = require("papersprite.l10n")
 
 local M = {}
 
-local function loadState()
-    local host = require("papersprite.host.moon").new()
-    return require("papersprite.core.state").load(host:loadState(), host:now())
-end
-
 local function pairCacheKey()
-    local view = require("papersprite.core.postcard_lock").latest(loadState())
+    local view = require("papersprite.core.postcard_lock").latest()
     return "postcard-pair-v1\0" .. (view and view.key or "0")
 end
 
@@ -22,7 +17,7 @@ end
 ---@param rect table
 local function pairBlocks(rect)
     local Lock = require("papersprite.core.postcard_lock")
-    local view = Lock.latest(loadState())
+    local view = Lock.latest()
     local w, h = rect.w, rect.h
     local pad = math.max(12, math.floor(math.min(w, h) * 0.035))
     if not view then
@@ -58,7 +53,7 @@ local function pairBlocks(rect)
 end
 
 function M.cacheKey()
-    local view = require("papersprite.core.postcard_lock").latest(loadState())
+    local view = require("papersprite.core.postcard_lock").latest()
     return view and view.key or "0"
 end
 
@@ -74,7 +69,7 @@ function M.blocks(rect)
     local Render = require("features.lockscreen.render")
     local Lock = require("papersprite.core.postcard_lock")
     local Blitbuffer = require("ffi/blitbuffer")
-    local view = Lock.latest(loadState())
+    local view = Lock.latest()
     local w, h = rect.w, rect.h
     local pad = math.max(12, math.floor(w * 0.035))
     local gap = math.max(10, math.floor(pad * 0.5))

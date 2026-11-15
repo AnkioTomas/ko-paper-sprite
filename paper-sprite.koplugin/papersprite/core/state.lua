@@ -14,26 +14,14 @@ function State.fresh(now)
         basket = {},                      -- slot -> item id
         sprite = { status = "home" },     -- home | packed | away
         seed = (now or 0) % 2147483647 + 1,
-        postcards = {},                   -- { {id, at} }，新的在后
         wall_seen = 0,                    -- 上次看明信片墙时的张数（首页卡片据此显示「新明信片」）
-        collected = {},                   -- 明信片身份 key -> 最近收到时间（去重用）
-        texts = {},                       -- 收到过的文案（归一化）-> true（AI 句去重用）
         decor = {},                       -- 摆在阁楼里的特产 id（最多 4 个，按位置顺序）
-        souvenirs = {},                   -- id -> count
-        log = {},                         -- 阁楼里的近况（新的在后，最多 20 条）
-        log_at = {},                      -- 与 log 一一对应的发生时间（0 = 旧存档没有时间）
         visitor = nil,                    -- 来访小客人：{ id, pose, until_at }
-        seen_visitors = {},               -- 来客簿：id -> 初次来访时间
-        place_trips = {},                 -- 剪贴簿：地点 id -> 回家次数
         wish_place = nil,                 -- 灵感惦记的下一趟目的地
         -- 以下为成长系统（core/quest.lua），旧档缺字段时由 load 补默认
         stats = {},                       -- trips / cards / visits / gifts / books / pages / events + weather / tag 分项
         quests = {},                      -- { day, week, list = { {id, kind, key, target, p, reward, weekly, claimed} } }
-        achieved = {},                    -- 成就 id -> 达成时间
-        bonds = {},                       -- 访客 id -> 交情
-        bookmarks = {},                   -- 读完的书 { title, at, tag, line, quote? }
         errands = {},                     -- 访客留下的纸条 { visitor, kind, key, say, base, at, claimed? }
-        seen_souvenirs = {},              -- 收到过的特产 id（送人后仍算收集过）
         level = 1,
     }
 end
@@ -108,20 +96,18 @@ function State.load(raw, now)
         m(s)
         s.version = s.version + 1
     end
+    -- 明信片 / 近况 / 特产 / 来客等明细在 core/vault 的表里；旧存档里的搬过去，存档里不再留
+    local Vault = require("papersprite.core.vault")
+    Vault.import(s)
+    s.postcards, s.log, s.log_at = nil, nil, nil
+    for field in pairs(require("papersprite.core.tables").FIELD) do s[field] = nil end
     -- 缺字段补默认
     for k, v in pairs(State.fresh(now)) do if s[k] == nil then s[k] = v end end
-    -- 旧存档的日志没有时间：前面补 0 对齐（显示时不写时间）
-    while #s.log_at < #s.log do table.insert(s.log_at, 1, 0) end
-    while #s.log_at > #s.log do table.remove(s.log_at, 1) end
     return s
 end
 
-function State.log(s, text, at)
-    s.log_at = s.log_at or {}
-    while #s.log_at < #s.log do table.insert(s.log_at, 1, 0) end
-    s.log[#s.log + 1] = text
-    s.log_at[#s.log] = at or os.time()
-    while #s.log > 20 do table.remove(s.log, 1) table.remove(s.log_at, 1) end
+function State.log(_s, text, at)
+    require("papersprite.core.vault").logAdd(text, at)
 end
 
 return State

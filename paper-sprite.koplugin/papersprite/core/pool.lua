@@ -77,7 +77,7 @@ local function fillLines(host, s, on_done)
     end
     if #order == 0 then return false end
     table.sort(order, function(a, b)
-        local pt = s.place_trips or {}
+        local pt = require("papersprite.core.vault").all("place_trips")
         return (pt[a.id] or 0) > (pt[b.id] or 0) end)
     local ids, parts = {}, {}
     for i = 1, math.min(Pool.PLACES_PER_REQ, #order) do

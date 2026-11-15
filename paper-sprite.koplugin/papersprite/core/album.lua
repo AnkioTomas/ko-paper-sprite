@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 --[[--
 地点剪贴簿 / 来客簿：在现有旅行数据上聚合「可收齐」进度。
-不引入外来主题合集；纯函数，不写存档。
+不引入外来主题合集；纯函数，数据读 core/vault，不写存档。
 --]]
 local Places = require("papersprite.data.places")
 local Visitors = require("papersprite.data.visitors")
@@ -12,13 +12,14 @@ local A = {}
 A.WISH_COST = 5
 
 --- 某地点：去过几次、明信片张数、特产收齐情况
-function A.place(s, place)
-    local trips = (s.place_trips or {})[place.id] or 0
-    local cards = 0
-    for _, c in ipairs(s.postcards or {}) do if c.place == place.id then cards = cards + 1 end end
+---@param by_place table|nil 各地点明信片张数（批量时只查一遍）
+function A.place(s, place, by_place)
+    local Vault = require("papersprite.core.vault")
+    local trips = Vault.get("place_trips", place.id) or 0
+    local cards = (by_place or Vault.cardsByPlace())[place.id] or 0
     local have, total = 0, #(place.souvenirs or {})
     for _, id in ipairs(place.souvenirs or {}) do
-        if (s.souvenirs or {})[id] and (s.souvenirs[id] or 0) > 0 then have = have + 1 end
+        if (Vault.get("souvenirs", id) or 0) > 0 then have = have + 1 end
     end
     return {
         place = place,
@@ -34,8 +35,9 @@ end
 --- 全部地点进度（按名字排序）；返回列表与「收齐页数 / 总地点」
 function A.places(s)
     local list, done = {}, 0
+    local by_place = require("papersprite.core.vault").cardsByPlace()
     for _, p in ipairs(Places) do
-        local row = A.place(s, p)
+        local row = A.place(s, p, by_place)
         list[#list + 1] = row
         if row.done then done = done + 1 end
     end
@@ -45,7 +47,7 @@ end
 
 --- 来客簿：访客是否见过（人数随 data/visitors.lua）
 function A.visitors(s)
-    local seen = s.seen_visitors or {}
+    local seen = require("papersprite.core.vault").all("seen_visitors")
     local list, have = {}, 0
     for _, v in ipairs(Visitors) do
         local at = seen[v.id]
@@ -61,7 +63,7 @@ function A.visitors(s)
     return list, have, #Visitors
 end
 
---- 从旧存档补地点出行次数（按 trip 去重；没有 trip 的旧明信片 / 仅有特产 → 记至少 1）
+--- 从旧存档（State.load 里尚未搬进表的原始 state）补地点出行次数（按 trip 去重；没有 trip 的旧明信片 / 仅有特产 → 记至少 1）
 function A.rebuildTrips(s)
     local by = {}
     for _, c in ipairs(s.postcards or {}) do

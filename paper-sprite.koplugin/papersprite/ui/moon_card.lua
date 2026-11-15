@@ -31,7 +31,7 @@ function Card.summary(raw, now, debug_fast)
         out.line1 = v and T("在阁楼招待%s", v.name) or T("在阁楼打盹")
     end
     -- 「新」= 上次看明信片墙之后到的（之前用存档前后差值，阁楼开着时寄到的就漏算了）
-    local new = #s.postcards - (s.wall_seen or 0)
+    local new = require("papersprite.core.vault").cardCount() - (s.wall_seen or 0)
     out.line2 = (new > 0 and T("有 %d 张新明信片 · ", new) or "") .. T("灵感 %d", s.inspiration)
     return out
 end

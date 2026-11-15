@@ -12,6 +12,7 @@ local Places = require("papersprite.data.places")
 local Visitors = require("papersprite.data.visitors")
 local Items = require("papersprite.data.items")
 local Postcards = require("papersprite.data.postcards")
+local Vault = require("papersprite.core.vault")
 
 local Q = {}
 
@@ -68,7 +69,7 @@ end
 ----- 访客交情 -----
 local function visitorDef(id) for _, v in ipairs(Visitors) do if v.id == id then return v end end end
 
-function Q.bond(s, id) return (s.bonds or {})[id] or 0 end
+function Q.bond(_s, id) return Vault.get("bonds", id) or 0 end
 
 local STAGE_LINE = {
     [3] = T("%s悄悄告诉阿页一个好地方，下一趟就去那里。"),
@@ -88,19 +89,18 @@ function Q.give(s, sv, now)
     local v = s.visitor
     if not v or s.sprite.status == "away" then return false, T("现在没有客人") end
     if v.fed then return false, T("这位客人已经招待过了") end
-    if not Postcards.souvenirs[sv] or (s.souvenirs[sv] or 0) <= 0 then return false, T("没有这件特产") end
+    if not Postcards.souvenirs[sv] or (Vault.get("souvenirs", sv) or 0) <= 0 then return false, T("没有这件特产") end
     local def = visitorDef(v.id)
-    s.souvenirs[sv] = s.souvenirs[sv] - 1
-    if s.souvenirs[sv] <= 0 then
-        s.souvenirs[sv] = nil
+    local left = Vault.incr("souvenirs", sv, -1)
+    if left <= 0 then
+        Vault.set("souvenirs", sv, nil)
         for i = #(s.decor or {}), 1, -1 do if s.decor[i] == sv then table.remove(s.decor, i) end end
     end
     v.fed = true
-    s.bonds = s.bonds or {}
     local match = v.request == sv
-    local b = (s.bonds[v.id] or 0) + (match and 2 or 1)
-    local prev = s.bonds[v.id] or 0
-    s.bonds[v.id] = b
+    local prev = Vault.get("bonds", v.id) or 0
+    local b = prev + (match and 2 or 1)
+    Vault.set("bonds", v.id, b)
     local gain = (def and def.gift or 2) + (match and 3 or 0)
     s.inspiration = s.inspiration + gain
     local msgs = { match and T("正是想要的！灵感 +%d", gain) or T("客人很高兴，灵感 +%d", gain) }
@@ -147,40 +147,40 @@ end
 ----- 成就 -----
 function Q.counts(s)
     local st = stats(s)
-    local c = { trips = st.trips, cards = #s.postcards, books = st.books, pages = st.pages, gifts = st.gifts, events = st.events,
+    local c = { trips = st.trips, cards = Vault.cardCount(), books = st.books, pages = st.pages, gifts = st.gifts, events = st.events,
         weather = st.weather, souvenirs = 0, rare = 0, places = 0, guests = 0, max_bond = 0,
         errands = st.errands or 0, matches = st.matches or 0 }
-    for id in pairs(s.souvenirs or {}) do
+    local have = Vault.all("souvenirs")
+    for id in pairs(have) do
         if Postcards.souvenirs[id] then
             c.souvenirs = c.souvenirs + 1
             if Q.rarity(id).id == "rare" then c.rare = c.rare + 1 end
         end
     end
     -- 稀有特产被送走后仍算收集过：以 seen_souvenirs 为准
-    for id in pairs(s.seen_souvenirs or {}) do
-        if not (s.souvenirs or {})[id] and Postcards.souvenirs[id] then
+    for id in pairs(Vault.all("seen_souvenirs")) do
+        if not have[id] and Postcards.souvenirs[id] then
             c.souvenirs = c.souvenirs + 1
             if Q.rarity(id).id == "rare" then c.rare = c.rare + 1 end
         end
     end
-    for _ in pairs(s.place_trips or {}) do c.places = c.places + 1 end
-    for _ in pairs(s.seen_visitors or {}) do c.guests = c.guests + 1 end
-    for _, b in pairs(s.bonds or {}) do if b > c.max_bond then c.max_bond = b end end
+    c.places, c.guests = Vault.size("place_trips"), Vault.size("seen_visitors")
+    for _, b in pairs(Vault.all("bonds")) do if b > c.max_bond then c.max_bond = b end end
     c.level = Q.level(s)
     return c
 end
 
 --- 判定成就并自动发奖；阶数提升写日志。返回新达成的成就 id 列表
 function Q.check(s, now)
-    s.achieved = s.achieved or {}
     local lv, name = Q.level(s)
     if (s.level or 1) < lv then State.log(s, T("阿页长大了一点，现在是「%s」。", name), now) end
     s.level = lv
     local c = Q.counts(s)
     local new = {}
+    local done = Vault.all("achieved")
     for _, a in ipairs(Achievements) do
-        if not s.achieved[a.id] and a.ok(c) then
-            s.achieved[a.id] = now
+        if not done[a.id] and a.ok(c) then
+            Vault.set("achieved", a.id, now)
             s.inspiration = s.inspiration + a.reward
             State.log(s, T("成就「%s」达成，灵感 +%d。", a.name, a.reward), now)
             new[#new + 1] = a.id

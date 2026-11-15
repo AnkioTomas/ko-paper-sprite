@@ -262,7 +262,7 @@ end
 
 local function noteBody(s, note)
     if note.kind == "card" then
-        local c = s.postcards[note.index]
+        local c = require("papersprite.core.vault").card(note.index)
         if not c then return end
         local face = require("papersprite.ui.cardface").of(c)
         face.side = "front"

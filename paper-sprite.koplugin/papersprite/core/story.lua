@@ -128,8 +128,9 @@ Story.ask = ask
 
 local function lastLines(s, n)
     local recent = {}
-    for i = math.max(1, #s.postcards - n + 1), #s.postcards do
-        if s.postcards[i].line then recent[#recent + 1] = s.postcards[i].line end
+    local cards = require("papersprite.core.vault").cardsNewest(0, n)
+    for i = #cards, 1, -1 do
+        if cards[i].line then recent[#recent + 1] = cards[i].line end
     end
     return recent
 end
@@ -196,23 +197,20 @@ end
 
 local THOUGHT_BATCH = 5
 
---- 读书墙：为还没有感悟的书签请求阿页的读后感（每批最多 THOUGHT_BATCH 本，失败的本次进入阁楼不再重试（failed 由界面实例持有），下次进入再来；没有感悟时墙上用占位文案）
+--- 读书墙：为还没有感悟的书请求阿页的读后感（每批最多 THOUGHT_BATCH 本）。
+--- 失败的本次进入阁楼不再重试（failed 由界面实例持有，key → true），下次进入再来；没有感悟时墙上用占位文案。
 function Story.maybeThoughts(host, s, on_done, failed)
     local now = host:now()
     local try = s.thought_try
     if try and try.busy and now - try.busy < Story.TIMEOUT then return false end
-    local todo = {}
-    for _idx, b in ipairs(s.bookmarks or {}) do
-        if not b.thought and not failed[b.title .. b.at] and #todo < THOUGHT_BATCH then todo[#todo + 1] = b end
-    end
+    local todo = require("papersprite.core.shelf").pending(THOUGHT_BATCH, failed)
     if #todo == 0 or type(host.ai) ~= "function" or not host:ai() then return false end
     local Quests = require("papersprite.data.quests")
-    local lines, keys = {}, {}
+    local lines = {}
     for i, b in ipairs(todo) do
         local tag = b.tag and Quests.TAG_NAME[b.tag]
         lines[i] = i .. ". 《" .. b.title .. "》" .. (tag and ("（偏向：" .. tag .. "）") or "")
             .. (b.quote and ("，读的人划过一句：" .. b.quote) or "")
-        keys[i] = { title = b.title, at = b.at }
     end
     local user = table.concat({
         "用户读完了下面这几本书，阿页陪着它读。请以阿页的口吻，为每本书写一句读后感悟（第一人称，温柔、克制、有具体的感受，",
@@ -230,12 +228,9 @@ function Story.maybeThoughts(host, s, on_done, failed)
     end, function(result)
         local cur = reload(host)
         cur.thought_try = nil
-        for i, k in ipairs(keys) do
-            for _idx, b in ipairs(cur.bookmarks or {}) do
-                if b.title == k.title and b.at == k.at and not b.thought then
-                    if result and result[i] then b.thought = result[i] else failed[k.title .. k.at] = true end
-                end
-            end
+        local Shelf = require("papersprite.core.shelf")
+        for i, b in ipairs(todo) do
+            if result and result[i] then Shelf.setThought(b.key, result[i]) else failed[b.key] = true end
         end
         host:saveState(cur)
         if on_done then pcall(on_done, cur) end
@@ -289,7 +284,7 @@ function Story.maybeDaily(host, s, on_done)
     if type(host.ai) ~= "function" or not host:ai() then return false end
     local n0 = try and try.n or 0
     local fest = require("papersprite.core.festival").at(s, now)
-    local log = s.log[#s.log]
+    local log = require("papersprite.core.vault").logLast()
     local user = table.concat({
         "为阿页在阁楼里（没有出门）的日子，预先写一批书桌上的小纸条，说它此刻在做什么 / 想什么。",
         "分四个时段：dawn 清晨、day 白天、dusk 傍晚、night 夜里，每个时段 " .. PER_BAND .. " 张，每张≤" .. Story.MAX_NOTE .. "字，第三人称或自言自语均可，同一批里别重复。",

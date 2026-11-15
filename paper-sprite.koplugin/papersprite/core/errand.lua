@@ -30,11 +30,11 @@ local function valid(t)
 end
 
 function E.base(s, kind, key, visitor)
-    if kind == "place" then return (s.place_trips or {})[key] or 0 end
+    if kind == "place" then return require("papersprite.core.vault").get("place_trips", key) or 0 end
     if kind == "tag" then return ((s.stats or {}).tag or {})[key] or 0 end
     if kind == "weather" then return ((s.stats or {}).weather or {})[key] or 0 end
     if kind == "book" then return (s.stats or {}).books or 0 end
-    if kind == "host" then return (s.bonds or {})[visitor] or 0 end
+    if kind == "host" then return require("papersprite.core.vault").get("bonds", visitor) or 0 end
     return 0
 end
 
@@ -111,8 +111,7 @@ function E.claim(s, i, now)
     if not E.here(s, e) then return false, "away" end
     e.claimed = true
     s.inspiration = (s.inspiration or 0) + E.REWARD
-    s.bonds = s.bonds or {}
-    s.bonds[e.visitor] = (s.bonds[e.visitor] or 0) + 1
+    require("papersprite.core.vault").incr("bonds", e.visitor)
     s.stats = s.stats or {}
     s.stats.errands = (s.stats.errands or 0) + 1
     local v = require("papersprite.core.travel").visitor(e.visitor)

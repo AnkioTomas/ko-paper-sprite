@@ -19,6 +19,7 @@ local Errand = require("papersprite.core.errand")
 local Achievements = require("papersprite.data.achievements")
 local Items = require("papersprite.data.items")
 local Postcards = require("papersprite.data.postcards")
+local Vault = require("papersprite.core.vault")
 
 local Game = {}
 Game.__index = Game
@@ -261,12 +262,13 @@ function Game:_attic()
         st.icon = nil
         if p then st.title = st.title end
     end
-    local unseen = #s.postcards - (s.wall_seen or 0)
-    st.meta = T("灵感 ✦ %d　·　明信片 %d", s.inspiration, #s.postcards) .. (unseen > 0 and T("（新 %d）", unseen) or "")
+    local ncards = Vault.cardCount()
+    local unseen = ncards - (s.wall_seen or 0)
+    st.meta = T("灵感 ✦ %d　·　明信片 %d", s.inspiration, ncards) .. (unseen > 0 and T("（新 %d）", unseen) or "")
     local ids = {}
-    for id in pairs(s.souvenirs or {}) do if Postcards.souvenirs[id] then ids[#ids + 1] = id end end
+    for id in pairs(Vault.all("souvenirs")) do if Postcards.souvenirs[id] then ids[#ids + 1] = id end end
     table.sort(ids)
-    local last = s.postcards[#s.postcards]
+    local last = ncards > 0 and Vault.card(ncards)
     local _, places_done, places_total = Album.places(s)
     local _, guests_have, guests_total = Album.visitors(s)
     local cells = {
@@ -276,7 +278,7 @@ function Game:_attic()
         { icon = "items/paper_umbrella.png", title = T("小铺"), meta = T("灵感 ✦ %d", s.inspiration), caption = T("用灵感换行囊里的东西"),
           callback = function() self:go("shop") end },
         { scene = last and Game.cardScene(last), icon = (not last) and "sprite/carry.png" or nil, title = T("明信片墙"),
-          meta = T("%d 张", #s.postcards) .. (unseen > 0 and T("　新 %d", unseen) or ""), badge = unseen > 0 and T("新") or nil,
+          meta = T("%d 张", ncards) .. (unseen > 0 and T("　新 %d", unseen) or ""), badge = unseen > 0 and T("新") or nil,
           caption = last and T("最近：%s", (Travel.place(last.place) or {}).name or "") or T("还没有寄回来的"),
           callback = function() self.wall_page = 1 self:go("wall") end },
         { icon = ids[1] and ("souvenirs/" .. ids[1] .. ".png") or "sprite/carry.png", title = T("特产柜"),
@@ -308,7 +310,7 @@ function Game:_attic()
     elseif page == 2 then
         v = { title = T("阿页的阁楼"),
             status = { icon = "items/pocket_dict.png", title = T("收藏"), caption = T("明信片、特产、地点、客人、读过的书和成就。"),
-                meta = T("明信片 %d　·　读完 %d 本", #s.postcards, #(s.bookmarks or {})) },
+                meta = T("明信片 %d　·　读完 %d 本", Vault.cardCount(), require("papersprite.core.shelf").count()) },
             shelf = { cols = 3, icon = 56, compact = true, cells = keeps } }
     else
         v = self:_feed(now, sp, s)
@@ -318,8 +320,9 @@ function Game:_attic()
 end
 
 function Game:_feed(now, _sp, s)
-    local logs, log_at = {}, s.log_at or {}
-    for i = #s.log, 1, -1 do logs[#logs + 1] = { text = s.log[i], at = log_at[i] } end
+    local logs = {}
+    local texts, ats = Vault.logList()
+    for i = #texts, 1, -1 do logs[#logs + 1] = { text = texts[i], at = ats[i] } end
     local rows, pager, per = self:_slice("feed", logs, 6)
     local first = (pager.page - 1) * per + 1
     local v = { title = T("阿页的阁楼"), pager = pager, lines = {} }
@@ -469,8 +472,7 @@ function Game:_shop_item()
 end
 
 --- 明信片墙：一页一张，正反都在这一页上。page 从 1 起。
-function Game.cardIndex(s, page)
-    local n = #s.postcards
+function Game.cardIndex(n, page)
     if n == 0 then return nil, 1, 1 end
     page = math.max(1, math.min(page or 1, n))
     return n - page + 1, page, n
@@ -499,7 +501,7 @@ function Game:setAlbumView(mode)
         return
     end
     local prev = self:albumView()
-    local n = #(self.state.postcards or {})
+    local n = Vault.cardCount()
     local sel = math.max(1, math.min(self.wall_page or 1, math.max(n, 1)))
     self.wall_page = sel
     if mode == "list" and prev ~= "list" then
@@ -539,12 +541,13 @@ end
 
 function Game:_albumShare(i)
     local s = self.state
-    if not i or not s.postcards[i] then return nil end
+    local c = i and Vault.card(i)
+    if not c then return nil end
     local seen_before = self._wall_seen0 or s.wall_seen or 0
-    local face = require("papersprite.ui.cardface").of(s.postcards[i])
+    local face = require("papersprite.ui.cardface").of(c)
     face.new = i > (seen_before or 0)
     face.index = i
-    face.line = s.postcards[i].line or ""
+    face.line = c.line or ""
     face.sign = T("——阿页")
     return { icon = "share", text = T("分享"), callback = function()
         require("papersprite.ui.postcard").share(face, self.host)
@@ -552,15 +555,14 @@ function Game:_albumShare(i)
 end
 
 function Game:_openAlbumCard(i)
-    local n = #self.state.postcards
+    local n = Vault.cardCount()
     if not i or i < 1 or i > n then return end
     self.wall_page = n - i + 1
     self:go("card", i)
 end
 
 function Game:_postcardView(i, seen_before, pager)
-    local s = self.state
-    local c = s.postcards[i]
+    local c = i and Vault.card(i)
     if not c then return { title = T("明信片墙"), empty = { title = T("墙上还空着"), caption = T("等阿页寄第一张回来。") } } end
     local face = require("papersprite.ui.cardface").of(c)
     face.new = i > (seen_before or 0)
@@ -580,7 +582,7 @@ end
 function Game:_albumCard()
     local s = self.state
     local seen_before = self._wall_seen0 or s.wall_seen or 0
-    local i, page, pages = Game.cardIndex(s, self.wall_page)
+    local i, page, pages = Game.cardIndex(Vault.cardCount(), self.wall_page)
     self.wall_page = page
     local v = self:_postcardView(i, seen_before, {
         page = page, pages = pages,
@@ -593,23 +595,18 @@ function Game:_albumCard()
 end
 
 function Game:_albumList()
-    local s = self.state
-    local n = #s.postcards
+    local n = Vault.cardCount()
     local per = self:per("album_list", Game.ALBUM_LIST_PER)
     local sel = math.max(1, math.min(self.wall_page or 1, n))
     self.wall_page = sel
     local pages = math.max(1, math.ceil(n / per))
     local want = math.ceil(sel / math.max(per, 1))
     local page = math.max(1, math.min(self.album_list_page or want, pages))
-    if sel < (page - 1) * per + 1 or sel > page * per then
-        page = want
-    end
     self.album_list_page = page
     local rows = {}
     local now = self.host:now()
-    for p = (page - 1) * per + 1, math.min(n, page * per) do
-        local i = n - p + 1
-        local c = s.postcards[i]
+    for k, c in ipairs(Vault.cardsNewest((page - 1) * per, per)) do
+        local p, i = (page - 1) * per + k, c.index
         local place = ((c.place and Travel.place(c.place)) or {}).name or c.place or T("明信片")
         local weather = (Postcards.weather_names and Postcards.weather_names[c.weather]) or c.weather or ""
         local when = Game.when(c.at, now)
@@ -641,23 +638,19 @@ end
 
 function Game:_albumGrid()
     local s = self.state
-    local n = #s.postcards
+    local n = Vault.cardCount()
     local per = self:per("album_grid", Game.ALBUM_GRID_PER)
     local sel = math.max(1, math.min(self.wall_page or 1, n))
     self.wall_page = sel
     local pages = math.max(1, math.ceil(n / per))
     local want = math.ceil(sel / math.max(per, 1))
     local page = math.max(1, math.min(self.album_grid_page or want, pages))
-    if sel < (page - 1) * per + 1 or sel > page * per then
-        page = want
-    end
     self.album_grid_page = page
     local cells = {}
     local seen_before = self._wall_seen0 or s.wall_seen or 0
     -- 只为当前页可见项生成缩略图，走 compose 缓存，避免一次合成整本收藏。
-    for p = (page - 1) * per + 1, math.min(n, page * per) do
-        local i = n - p + 1
-        local c = s.postcards[i]
+    for k, c in ipairs(Vault.cardsNewest((page - 1) * per, per)) do
+        local p, i = (page - 1) * per + k, c.index
         local place = ((c.place and Travel.place(c.place)) or {}).name or c.place or T("明信片")
         cells[#cells + 1] = {
             scene = Game.cardScene(c),
@@ -686,8 +679,9 @@ end
 function Game:_wall()
     local s = self.state
     local seen_before = self._wall_seen0 or s.wall_seen or 0
-    if s.wall_seen ~= #s.postcards then s.wall_seen = #s.postcards self.host:saveState(self.state) end
-    if #s.postcards == 0 then
+    local n = Vault.cardCount()
+    if s.wall_seen ~= n then s.wall_seen = n self.host:saveState(self.state) end
+    if n == 0 then
         return { title = T("明信片墙"), extra = self:_albumViewSwitch(),
             empty = { title = T("墙上还空着"), caption = T("等阿页寄第一张回来。") } }
     end
@@ -709,8 +703,8 @@ end
 function Game:_card()
     local s = self.state
     local i = self.arg
-    local n = #s.postcards
-    if not s.postcards[i] then self.page = "wall" return self:_wall() end
+    local n = Vault.cardCount()
+    if not i or i < 1 or i > n then self.page = "wall" return self:_wall() end
     local page = n - i + 1
     return self:_postcardView(i, s.wall_seen or 0, {
         page = page, pages = n,
@@ -738,7 +732,8 @@ function Game:_cabinet()
     local s = self.state
     s.decor = s.decor or {}
     local ids = {}
-    for id in pairs(s.souvenirs) do if Postcards.souvenirs[id] then ids[#ids + 1] = id end end
+    local have = Vault.all("souvenirs")
+    for id in pairs(have) do if Postcards.souvenirs[id] then ids[#ids + 1] = id end end
     table.sort(ids, function(a, b) return Postcards.souvenirs[a].name < Postcards.souvenirs[b].name end)
     local cper = self:per("cabinet", Game.CAB_PER)
     local pages = math.max(1, math.ceil(#ids / cper))
@@ -750,7 +745,7 @@ function Game:_cabinet()
         local sv = Postcards.souvenirs[id]
         local on = indexOf(s.decor, id)
         cells[#cells + 1] = { icon = "souvenirs/" .. id .. ".png", title = sv.name, check = on ~= nil,
-            meta = "×" .. s.souvenirs[id] .. (on and T("　摆在阁楼") or ""), caption = (s.souvenir_notes and s.souvenir_notes[id]) or sv.note,
+            meta = "×" .. have[id] .. (on and T("　摆在阁楼") or ""), caption = (s.souvenir_notes and s.souvenir_notes[id]) or sv.note,
             callback = function() self:go("souvenir", id) end }
     end
     return { title = T("特产柜"),
@@ -767,11 +762,12 @@ function Game:_souvenir()
     s.decor = s.decor or {}
     local id = self.arg
     local sv = Postcards.souvenirs[id]
-    if not sv or not s.souvenirs[id] then self.page = "cabinet" return self:_cabinet() end
+    local count = sv and Vault.get("souvenirs", id)
+    if not count then self.page = "cabinet" return self:_cabinet() end
     local on = indexOf(s.decor, id)
     return { title = sv.name,
         status = { icon = "souvenirs/" .. id .. ".png", icon_size = 120, title = sv.name, caption = (s.souvenir_notes and s.souvenir_notes[id]) or sv.note,
-            meta = T("收着 ×%d　·　%s", s.souvenirs[id], on and T("摆在阁楼里") or T("收在柜子里")) },
+            meta = T("收着 ×%d　·　%s", count, on and T("摆在阁楼里") or T("收在柜子里")) },
         lines = { { text = T("阁楼右墙的矮架上能摆 %d 样，现在摆了 %d 样。", Game.DECOR_MAX, #s.decor), muted = true, small = true } },
         buttons = { { text = on and T("从阁楼收起") or T("摆到阁楼里"), callback = function() self:_toggleDecor(id) end } } }
 end
@@ -814,7 +810,7 @@ function Game:_place()
     local row = Album.place(s, p)
     local lines = { { text = T("特产"), label = true } }
     for _, id in ipairs(p.souvenirs or {}) do
-        local have = (s.souvenirs or {})[id] and (s.souvenirs[id] or 0) > 0
+        local have = (Vault.get("souvenirs", id) or 0) > 0
         local name = Album.souvenirName(id)
         lines[#lines + 1] = (have and "✓ " or "· ") .. name
     end
@@ -885,7 +881,7 @@ function Game:_guest()
     local s = self.state
     local v = Travel.visitor(self.arg)
     if not v then self.page = "guestbook" return self:_guestbook() end
-    local at = (s.seen_visitors or {})[v.id]
+    local at = Vault.get("seen_visitors", v.id)
     local seen = at ~= nil
     local lines
     if seen then
@@ -908,15 +904,21 @@ function Game:_guest()
 end
 
 --- 通用分页：按 key 记住每页条数与当前页；返回当前页的切片和 pager
-function Game:_slice(key, list, default)
+--- 分页器；total 是总条数，返回 (起始下标从 1 起, 分页器, 每页条数)
+function Game:_pager(key, total, default)
     local per = self:per(key, default)
-    local pages = math.max(1, math.ceil(#list / per))
+    local pages = math.max(1, math.ceil(total / per))
     local page = math.max(1, math.min(self[key .. "_page"] or 1, pages))
     self[key .. "_page"] = page
-    local out = {}
-    for i = (page - 1) * per + 1, math.min(#list, page * per) do out[#out + 1] = list[i] end
-    return out, { page = page, pages = pages, go = function(n) self[key .. "_page"] = n self:render() end,
+    return (page - 1) * per + 1, { page = page, pages = pages, go = function(n) self[key .. "_page"] = n self:render() end,
         prev = function() self[key .. "_page"] = page - 1 self:render() end, next = function() self[key .. "_page"] = page + 1 self:render() end }, per
+end
+
+function Game:_slice(key, list, default)
+    local first, pager, per = self:_pager(key, #list, default)
+    local out = {}
+    for i = first, math.min(#list, first + per - 1) do out[#out + 1] = list[i] end
+    return out, pager, per
 end
 
 --- 阁楼第 2 页状态：阿页的阶与成长进度
@@ -937,13 +939,13 @@ end
 
 function Game:_achCell()
     local n = 0
-    for _ in pairs(self.state.achieved or {}) do n = n + 1 end
+    n = Vault.size("achieved")
     return { icon = "items/paper_clip.png", title = T("成就"), meta = T("%d / %d", n, #Achievements), caption = T("达成自动记入"),
         callback = function() self.ach_page = 1 self:go("achievements") end }
 end
 
 function Game:_bookCell()
-    return { icon = "items/pocket_dict.png", title = T("读书墙"), meta = T("%d 本", #(self.state.bookmarks or {})), caption = T("读完的书会变成书签"),
+    return { icon = "items/pocket_dict.png", title = T("读书墙"), meta = T("%d 本", require("papersprite.core.shelf").count()), caption = T("读完的书会变成书签"),
         callback = function() self.book_page = 1 self:go("bookwall") end }
 end
 
@@ -976,12 +978,13 @@ function Game:_achievements()
     local s = self.state
     local counts = Quest.counts(s)
     local ordered, done = {}, 0
-    for _, a in ipairs(Achievements) do if (s.achieved or {})[a.id] then ordered[#ordered + 1] = a done = done + 1 end end
-    for _, a in ipairs(Achievements) do if not (s.achieved or {})[a.id] then ordered[#ordered + 1] = a end end
+    local got = Vault.all("achieved")
+    for _, a in ipairs(Achievements) do if got[a.id] then ordered[#ordered + 1] = a done = done + 1 end end
+    for _, a in ipairs(Achievements) do if not got[a.id] then ordered[#ordered + 1] = a end end
     local rows, pager, per = self:_slice("ach", ordered, 6)
     local cells = {}
     for _, a in ipairs(rows) do
-        local at = (s.achieved or {})[a.id]
+        local at = got[a.id]
         local progress, target = a.progress(counts)
         cells[#cells + 1] = { icon = "achievements/" .. a.id .. ".png", title = at and (a.voice or a.name) or a.name,
             check = at ~= nil, dim = at == nil,
@@ -996,9 +999,10 @@ end
 function Game:_bookwall()
     local s = self.state
     local Quests = require("papersprite.data.quests")
-    local books = {}
-    for i = #(s.bookmarks or {}), 1, -1 do books[#books + 1] = s.bookmarks[i] end
-    local rows, pager, per = self:_slice("book", books, 6)
+    local Shelf = require("papersprite.core.shelf")
+    local total = Shelf.count()
+    local first, pager, per = self:_pager("book", total, 6)
+    local rows = Shelf.page(first - 1, per)
     local cells = {}
     for _, b in ipairs(rows) do
         local tag = b.tag and Quests.TAG_NAME[b.tag]
@@ -1007,9 +1011,9 @@ function Game:_bookwall()
             caption = b.thought or T("阿页还在慢慢想这本书。") }
     end
     local now_tag = s.read_tag and Quests.TAG_NAME[s.read_tag]
-    return { title = T("读书墙"), status = { icon = "items/pocket_dict.png", title = T("读完 %d 本书", #books),
+    return { title = T("读书墙"), status = { icon = "items/pocket_dict.png", title = T("读完 %d 本书", total),
             caption = now_tag and T("最近读的书把阿页往「%s」带。", now_tag) or T("读完的书会留下一句，也会把阿页往书里的地方带。") },
-        empty = #books == 0 and { title = T("墙上还空着"), caption = T("读完一本书试试。") } or nil,
+        empty = total == 0 and { title = T("墙上还空着"), caption = T("读完一本书试试。") } or nil,
         shelf = { cols = 1, cells = cells, per = per, fit = self:fitter("book", true) }, pager = pager }
 end
 
@@ -1018,7 +1022,8 @@ function Game:_guest_here()
     local v = s.visitor and Travel.visitor(s.visitor.id)
     if not v or s.visitor.fed or s.sprite.status == "away" then self.page = "attic" return self:_attic() end
     local ids = {}
-    for id in pairs(s.souvenirs) do if Postcards.souvenirs[id] then ids[#ids + 1] = id end end
+    local have = Vault.all("souvenirs")
+    for id in pairs(have) do if Postcards.souvenirs[id] then ids[#ids + 1] = id end end
     table.sort(ids, function(a, b) return Postcards.souvenirs[a].name < Postcards.souvenirs[b].name end)
     local rows, pager, per = self:_slice("gh", ids, 6)
     local cells = {}
@@ -1026,7 +1031,7 @@ function Game:_guest_here()
         local sv = Postcards.souvenirs[id]
         local want = s.visitor.request == id
         cells[#cells + 1] = { icon = "souvenirs/" .. id .. ".png", title = sv.name, check = want,
-            meta = Quest.rarity(id).name .. " ×" .. s.souvenirs[id] .. (want and T("　它想要这个") or ""), caption = sv.note,
+            meta = Quest.rarity(id).name .. " ×" .. have[id] .. (want and T("　它想要这个") or ""), caption = sv.note,
             callback = function()
                 local ok, msg = Quest.give(s, id, self.host:now())
                 Quest.check(s, self.host:now())

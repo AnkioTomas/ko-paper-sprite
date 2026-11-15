@@ -11,6 +11,7 @@ local L = require("papersprite.l10n")
 local Items = require("papersprite.data.items")
 local Places = require("papersprite.data.places")
 local Postcards = require("papersprite.data.postcards")
+local Vault = require("papersprite.core.vault")
 local Visitors = require("papersprite.data.visitors")
 local R = require("papersprite.core.rng")
 local Lines = require("papersprite.data.lines")
@@ -123,12 +124,12 @@ local function depart(s, at, u)
     s.seed, f = R.next(s.seed)
     if f < (Quest.level(s) >= 3 and 0.25 or 0) then n = n + 1 end
     if ev then n = n + (ev.mail or 0) end
-    s.collected = s.collected or {}
+    local collected = Vault.all("collected")
     local picked = {}
     for i = 1, n do
         local card
         local mt = at + math.floor((ret - at) * i / (n + 1))
-        s.seed, card = Postcards.compose(s.seed, place.id, s.collected, picked, Festival.context(s, mt))
+        s.seed, card = Postcards.compose(s.seed, place.id, collected, picked, Festival.context(s, mt))
         picked[card.key] = true
         mail[#mail + 1] = { at = mt, card = card }
     end
@@ -164,8 +165,7 @@ local function arriveVisitor(s, at, u)
             s.seed, pose = R.pick(s.seed, v.poses or { "" })
             s.visitor = { id = v.id, pose = pose, until_at = at + v.stay * u.hour, request = Quest.request(s) }
             Quest.note(s, "visit")
-            s.seen_visitors = s.seen_visitors or {}
-            if not s.seen_visitors[v.id] then s.seen_visitors[v.id] = at end
+            if not Vault.get("seen_visitors", v.id) then Vault.set("seen_visitors", v.id, at) end
             State.log(s, v.arrive, at)
             require("papersprite.core.errand").leave(s, v.id, at)
             return v
@@ -231,8 +231,8 @@ function T.settle(s, now, debug_fast)
                 end
                 T.markText(s, card.line)
                 card.at, card.trip = m.at, sp.trip
-                if card.key then s.collected[card.key] = m.at end
-                table.insert(s.postcards, card)
+                if card.key then Vault.set("collected", card.key, m.at) end
+                Vault.cardAdd(card)
                 Quest.note(s, "card", card.weather)
                 local ml
                 s.seed, ml = R.pick(s.seed, Lines.mail)
@@ -246,12 +246,10 @@ function T.settle(s, now, debug_fast)
             local sv = sp.souvenir
             local ev
             for _, e in ipairs(Events) do if e.id == sp.event then ev = e end end
-            s.souvenirs[sv] = (s.souvenirs[sv] or 0) + ((ev and ev.double) and 2 or 1)
-            s.seen_souvenirs = s.seen_souvenirs or {}
-            s.seen_souvenirs[sv] = true
+            Vault.incr("souvenirs", sv, (ev and ev.double) and 2 or 1)
+            Vault.set("seen_souvenirs", sv, true)
             Quest.note(s, "trip", p.tag)
-            s.place_trips = s.place_trips or {}
-            s.place_trips[sp.place] = (s.place_trips[sp.place] or 0) + 1
+            Vault.incr("place_trips", sp.place)
             local bl
             s.seed, bl = R.pick(s.seed, Lines.back)
             local back = bl:format(p.name, Postcards.souvenirs[sv].name)
@@ -311,16 +309,20 @@ function T.applyRecap(s, ai)
     local rc = s.recap
     if not rc then return end
     local i = 0
-    for _, c in ipairs(s.postcards) do
+    -- 一趟最多几张，最近 10 张里必有（旧在前）
+    local recent = Vault.cardsNewest(0, 10)
+    for n = #recent, 1, -1 do
+        local c = recent[n]
         if c.trip == rc.trip and not c.ai then
             i = i + 1
             local line = ai.lines and ai.lines[i]
             if line and not T.seenText(s, line) then
-                s.collected[c.key or ""] = nil
+                Vault.set("collected", c.key or "", nil)
                 c.line, c.ai = line, true
                 c.key = c.key and (c.key:gsub("|[^|]*$", "|ai:" .. T.norm(line))) or nil
-                if c.key then s.collected[c.key] = c.at end
+                if c.key then Vault.set("collected", c.key, c.at) end
                 T.markText(s, line)
+                Vault.cardReplace(c.index, c)
             end
         end
     end
@@ -336,8 +338,8 @@ end
 function T.norm(text)
     return (tostring(text or ""):gsub("[%s%p]", ""):gsub("\227\128[\129-\130]", ""):gsub("\239\188[\129-\160]", ""))
 end
-function T.seenText(s, text) return s.texts ~= nil and s.texts[T.norm(text)] ~= nil end
-function T.markText(s, text) s.texts = s.texts or {} s.texts[T.norm(text)] = true end
+function T.seenText(_s, text) return Vault.get("texts", T.norm(text)) ~= nil end
+function T.markText(_s, text) Vault.set("texts", T.norm(text), true) end
 
 function T.nextAt(s)
     local sp, t = s.sprite, nil

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 --[[--
-锁屏用的最近一张明信片。只读存档，新的在 postcards 末尾。
+锁屏用的最近一张明信片。只读 core/vault 的明信片表。
 没有明信片时返回 nil。短句超过给定行数时在这里截断。
 --]]
 local M = {}
@@ -19,13 +19,12 @@ local function codes(text)
 end
 
 --- 最近一张明信片。card 留给画面合成，别改它。
----@param state table|nil
 ---@return table|nil
-function M.latest(state)
-    local cards = type(state) == "table" and state.postcards
-    if type(cards) ~= "table" or #cards == 0 then return end
-    local card = cards[#cards]
-    if type(card) ~= "table" then return end
+function M.latest()
+    local Vault = require("papersprite.core.vault")
+    local count = Vault.cardCount()
+    local card = count > 0 and Vault.card(count)
+    if not card then return end
     local place = require("papersprite.core.travel").place(card.place)
     local names = require("papersprite.data.postcards").weather_names
     local weather = names[card.weather] or ""
@@ -37,7 +36,7 @@ function M.latest(state)
         at = card.at or 0,
         card = card,
         key = table.concat({
-            tostring(#cards), tostring(card.at or 0), line, tostring(card.place or ""), tostring(card.weather or ""),
+            tostring(count), tostring(card.at or 0), line, tostring(card.place or ""), tostring(card.weather or ""),
         }, "\0"),
     }
 end

@@ -51,7 +51,7 @@ function M.attic(s, now, debug_fast)
         local v = s.visitor and Travel.visitor(s.visitor.id)
         line = v and T("阿页在招待%s", v.name) or T("阿页坐在书桌边")
     end
-    local new = #s.postcards - (s.wall_seen or 0)
+    local new = require("papersprite.core.vault").cardCount() - (s.wall_seen or 0)
     local sub = (new > 0 and T("新明信片 %d · ", new) or "") .. T("灵感 %d", s.inspiration)
     return { scene = Game.atticScene(s, now), line = line, sub = sub }
 end
@@ -61,28 +61,29 @@ function M.postcards(s, n, page)
     local Travel = require("papersprite.core.travel")
     local P = require("papersprite.data.postcards")
     local Game = require("papersprite.game")
+    local Vault = require("papersprite.core.vault")
     local out, seen = {}, s.wall_seen or 0
     n = math.max(1, n)
-    local pages = math.max(1, math.ceil(#s.postcards / n))
+    local total = Vault.cardCount()
+    local pages = math.max(1, math.ceil(total / n))
     page = math.max(1, math.min(page or 1, pages))
-    local first = #s.postcards - (page - 1) * n
-    for i = first, math.max(1, first - n + 1), -1 do
-        local c = s.postcards[i]
+    for _, c in ipairs(Vault.cardsNewest((page - 1) * n, n)) do
+        local i = c.index
         local p = Travel.place(c.place)
         out[#out + 1] = { index = i, scene = Game.cardScene(c), place = p and p.name or c.place,
             weather = P.weather_names[c.weather] or "", line = c.line or "", new = i > seen,
             date = os.date("%m-%d %H:%M", c.at or 0) }
     end
-    return { cards = out, total = #s.postcards, new = math.max(0, #s.postcards - seen), page = page, pages = pages }
+    return { cards = out, total = total, new = math.max(0, total - seen), page = page, pages = pages }
 end
 
 --- 纪念物柜组件：已收集的特产图标（按名字排序）+ n/总数
-function M.cabinet(s)
+function M.cabinet(_s)
     local P = require("papersprite.data.postcards")
     local total = 0
     for _ in pairs(P.souvenirs) do total = total + 1 end
     local items = {}
-    for id, n in pairs(s.souvenirs or {}) do
+    for id, n in pairs(require("papersprite.core.vault").all("souvenirs")) do
         local sv = P.souvenirs[id]
         if sv and n > 0 then items[#items + 1] = { id = id, name = sv.name, count = n, icon = "souvenirs/" .. id .. ".png" } end
     end
