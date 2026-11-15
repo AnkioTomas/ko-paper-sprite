@@ -17,7 +17,12 @@ function M.view(raw, now, debug_fast)
     local State = require("papersprite.core.state")
     local Travel = require("papersprite.core.travel")
     local s = State.load(copy(raw), now)
-    pcall(Travel.settle, s, now, debug_fast)
+    local Vault = require("papersprite.core.vault")
+    -- 副本上结算，明细表写入不落库；预览里新到的明信片数留在副本上给「新明信片」用
+    Vault.preview(function()
+        pcall(Travel.settle, s, now, debug_fast)
+        s.card_total = Vault.cardCount()
+    end)
     return s
 end
 
@@ -51,7 +56,7 @@ function M.attic(s, now, debug_fast)
         local v = s.visitor and Travel.visitor(s.visitor.id)
         line = v and T("阿页在招待%s", v.name) or T("阿页坐在书桌边")
     end
-    local new = require("papersprite.core.vault").cardCount() - (s.wall_seen or 0)
+    local new = (s.card_total or require("papersprite.core.vault").cardCount()) - (s.wall_seen or 0)
     local sub = (new > 0 and T("新明信片 %d · ", new) or "") .. T("灵感 %d", s.inspiration)
     return { scene = Game.atticScene(s, now), line = line, sub = sub }
 end

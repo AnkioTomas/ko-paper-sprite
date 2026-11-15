@@ -72,6 +72,38 @@ end
 local be = sqlite
 function M.use(x) be = x or sqlite end
 
+--- 只读预览：fn 里的写入只记在内存，不落库（首页组件在存档副本上结算「现在」时用）。
+--- 明细表不在 state 里，不套这层，预览结算会把明信片 / 近况 / 特产重复写进真库。
+--- 读的是真库；预览里新增的行只体现在 count 上（组件只要「新明信片数」），不进 page / scan。
+function M.preview(fn)
+    local base, added, extra = be, {}, {}
+    local function known(t, pk) return (extra[t] and extra[t][pk]) or base.get(t, pk) end
+    local ov = setmetatable({
+        count = function(t) return base.count(t) + (added[t] or 0) end,
+        get = function(t, pk)
+            local r = extra[t] and extra[t][pk]
+            if r == false then return nil end
+            return r or base.get(t, pk)
+        end,
+        put = function(t, row)
+            local pk = row[Tables.COLS[t][1]]
+            if pkOf(t) == "seq" or not known(t, pk) then added[t] = (added[t] or 0) + 1 end
+            extra[t] = extra[t] or {}
+            extra[t][pk] = row
+        end,
+        del = function(t, pk)
+            if known(t, pk) then added[t] = (added[t] or 0) - 1 end
+            extra[t] = extra[t] or {}
+            extra[t][pk] = false
+        end,
+        tx = function(f) f() end,
+    }, { __index = base })
+    be = ov
+    local ok, err = pcall(fn)
+    be = base
+    if not ok then error(err, 0) end
+end
+
 -- 明信片 -----------------------------------------------------------------
 
 function M.cardCount() return be.count("paper_postcards") end

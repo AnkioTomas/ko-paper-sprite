@@ -557,6 +557,20 @@ H.view.pager.go(3); assert(H.view.notes.rows[1].text == "事5" and #H.view.notes
 H.view.notes.fit(6); assert(H.view.pager.pages == 3 and #H.view.notes.rows == 5, "feed per only shrinks, no 4/5 flapping")
 g8:close()
 
+-- 预览结算（首页组件）不得把明细写进库
+do
+    resetVault()
+    local before = Vault.cardCount()
+    local inside
+    Vault.preview(function()
+        Vault.cardAdd({ key = "k1", place = "p", at = 1 })
+        Vault.logAdd("预览", 1)
+        Vault.incr("souvenirs", "s1")
+        inside = Vault.cardCount()
+    end)
+    assert(inside == before + 1 and Vault.cardCount() == before and Vault.logLast() == nil and Vault.get("souvenirs", "s1") == nil)
+end
+
 -- 16. 日志时间：新日志记时间；旧存档无时间不显示；格式
 do
     local G = Game

@@ -34,7 +34,23 @@ local function ensure()
     c:exec("PRAGMA temp_store=MEMORY;")
     for _, sql in ipairs(SCHEMA) do c:exec(sql) end
     conn = c
+    M.dedupe()
     return conn
+end
+
+--- 1.9.4 以前首页组件在存档副本上结算，会把同一条近况 / 同一张明信片重复写进库；
+--- 只清各列完全相同的行（近况 = 文本 + 时间，明信片 = 除序号外全列），保留最早一行，做一次。
+--- 特产数量、各地出行次数被多加过，无从还原，不动。
+function M.dedupe()
+    local marker = "dedupe_dup_rows"
+    if M.rowexec("SELECT 1 FROM kv WHERE name = 'meta' AND k = ?;", marker) then return end
+    M.transaction(function()
+        assert(M.exec("DELETE FROM paper_log WHERE at > 0 AND seq NOT IN (SELECT MIN(seq) FROM paper_log GROUP BY text, at);"))
+        assert(M.exec("DELETE FROM paper_postcards WHERE seq NOT IN (SELECT MIN(seq) FROM paper_postcards "
+            .. "GROUP BY key, place, pose, prop, weather, variant, line, text_id, at, extra);"))
+        assert(M.exec("INSERT OR REPLACE INTO kv (name, k, v) VALUES ('meta', ?, '1');", marker))
+        return true
+    end)
 end
 
 local function bound(sql, ...)
