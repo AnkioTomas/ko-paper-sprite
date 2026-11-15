@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 --[[--
 阅读账本：KOReader 翻页事件记次数，打开阁楼时折算成灵感。
-账本存 <数据目录>/.moon/game/paper-sprite/reading.lua（见 core/storage），KOReader 与月读两种宿主共用。
+账本存 paper-sprite.sqlite3 的 kv 表（见 core/storage），KOReader 与月读两种宿主共用。
 规则：离开这一页时停满 MIN_DWELL 秒、页码差 1–3，才记 1 次。每 20 次 = 1 灵感。
 阅读联动：账本还记最近在读的那本书的类型（按书名 / 关键词归到地点类型）和读完的书；
 折算时类型让阿页下一趟更爱去对应地方（48 小时内有效）。读完的书变成书签，
@@ -127,47 +127,52 @@ function M.collect(state)
     if gained > 0 then state.inspiration = state.inspiration + gained end
     local tag, at = s:readSetting("last_tag"), s:readSetting("last_tag_at")
     if tag and at then state.read_tag, state.read_tag_at = tag, at end
-    state.bookmarks = state.bookmarks or {}
-    -- 1.9.1 把 DB.query 的列式结果当行读，存下了 title 不是字符串的坏书签
-    for i = #state.bookmarks, 1, -1 do
-        local b = state.bookmarks[i]
-        -- 上一版导入过没有阅读时间（1970）的书，不是在这台设备上读的
-        if type(b.title) ~= "string" or (b.at or 0) <= 0 then table.remove(state.bookmarks, i) end
-    end
+    local Shelf = require("papersprite.core.shelf")
+    local legacy = state.bookmarks -- 旧版把读完的书放在存档里，搬进书架表
     local done = {}
     for _, b in ipairs(s:readSetting("finished") or {}) do done[#done + 1] = b end
-    if state.moon_imported ~= 3 then
-        local moon = require("papersprite.core.moon_books").finished()
-        if moon then
-            -- 带 id 的是阅读时记下的；没有 id 的都是旧版导入的（缺封面 / 摘录），重导一遍
-            for i = #state.bookmarks, 1, -1 do
-                if not state.bookmarks[i].id then table.remove(state.bookmarks, i) end
-            end
-            state.moon_imported = 3
-            for _idx, b in ipairs(moon) do
-                b.tag, b.backfill = M.tagOf(b.title), true
-                done[#done + 1] = b
+    if not legacy and #done == 0 and state.moon_imported == 3 then return math.max(0, gained) end
+    local rest, failed = {}, false
+    local ran = Shelf.batch(function()
+        for _idx, b in ipairs(legacy or {}) do
+            -- 1.9.1 存下过 title 不是字符串的坏书签；没有阅读时间（1970）的不是在这台设备上读的；
+            -- 没有 id 的是旧版月读导入（缺封面 / 摘录），下面重导
+            if type(b.title) == "string" and (b.at or 0) > 0 and (b.id or state.moon_imported == 3) then Shelf.add(b) end
+        end
+        if state.moon_imported ~= 3 then
+            local moon = require("papersprite.core.moon_books").finished()
+            if moon then
+                state.moon_imported = 3
+                for _idx, b in ipairs(moon) do
+                    b.tag, b.backfill = M.tagOf(b.title), true
+                    done[#done + 1] = b
+                end
             end
         end
-    end
-    for _, b in ipairs(done) do
-        local have = false
-        for _, x in ipairs(state.bookmarks) do
-            if (b.id and x.id == b.id) or (not x.id and x.title == b.title)
-                or (not b.id and x.title == b.title) then have = true end
-        end
-        if not have then
-            local line = M.farewell(b.title, b.tag)
-            state.bookmarks[#state.bookmarks + 1] = {
-                id = b.id, title = b.title, at = b.at, tag = b.tag, line = line, quote = M.clip(b.quote), cover = b.cover,
-            }
-            if not b.backfill then
-                require("papersprite.core.state").log(state, line, b.at)
+        for _idx, b in ipairs(done) do
+            b.line = M.farewell(b.title, b.tag)
+            b.quote = M.clip(b.quote)
+            local added = Shelf.add(b)
+            if added == nil then
+                failed = true
+                rest[#rest + 1] = b
+            elseif added and not b.backfill then
+                require("papersprite.core.state").log(state, b.line, b.at)
                 state.inspiration = state.inspiration + M.FINISH_REWARD
                 gained = gained + M.FINISH_REWARD
                 Quest.note(state, "book")
             end
         end
+    end)
+    if not ran then return math.max(0, gained) end -- 库不可用：什么都不动，下次再收
+    state.bookmarks = nil
+    if failed then state.moon_imported = nil end
+    -- 账本里读完的书只是待收的队列，收进书架就清掉，写不进的留到下次
+    if #(s:readSetting("finished") or {}) > 0 then
+        local keep = {}
+        for _idx, b in ipairs(rest) do if not b.backfill then keep[#keep + 1] = b end end
+        s:saveSetting("finished", keep)
+        s:flush()
     end
     return math.max(0, gained)
 end

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 --[[--
-KOReader 宿主：UIManager 显示 / 定时，LuaSettings 存档（<数据目录>/.moon/game/paper-sprite/save.lua，见 core/storage）。
+KOReader 宿主：UIManager 显示 / 定时，存档（<数据目录>/.moon/game/paper-sprite/paper-sprite.sqlite3，见 core/storage）。
 结构沿用 ko-adarkroom 的 host/koreader.lua。
 --]]
 local Interface = require("papersprite.host.interface")

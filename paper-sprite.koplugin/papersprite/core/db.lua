@@ -1,0 +1,93 @@
+-- SPDX-License-Identifier: MIT
+--[[--
+阿页自己的 SQLite：<数据目录>/.moon/game/paper-sprite/paper-sprite.sqlite3，独立于月读的 book.sqlite3。
+  kv(name, k, v)  存档与阅读账本：name = "save" | "reading"，v 是 Lua 字面量文本（见 core/storage 的 encode）
+  paper_shelf     读书墙（见 core/shelf）
+  paper_postcards / paper_log / paper_souvenirs …  明信片、近况、特产、来客等（见 core/tables）
+只有连接、执行原语、事务，参数一律用 ? 绑定。KOReader 自带 lua-ljsqlite3；spec 不碰这里（storage / shelf 都可换后端）。
+--]]
+local M = {}
+
+local conn
+
+local SCHEMA = {
+    [[CREATE TABLE IF NOT EXISTS kv (name TEXT NOT NULL, k TEXT NOT NULL, v TEXT NOT NULL, PRIMARY KEY (name, k));]],
+    [[CREATE TABLE IF NOT EXISTS paper_shelf (
+  key TEXT PRIMARY KEY, id TEXT, title TEXT NOT NULL, at INTEGER NOT NULL,
+  tag TEXT, line TEXT, quote TEXT, cover TEXT, thought TEXT
+);]],
+    "CREATE INDEX IF NOT EXISTS paper_shelf_at ON paper_shelf(at);",
+}
+for _, sql in ipairs(require("papersprite.core.tables").SCHEMA) do SCHEMA[#SCHEMA + 1] = sql end
+
+function M.path() return require("papersprite.core.storage").dir() .. "/paper-sprite.sqlite3" end
+
+--- 打开失败抛错：存档读不出来时必须让问题暴露，而不是当成空档重新开始
+local function ensure()
+    if conn then return conn end
+    local storage = require("papersprite.core.storage")
+    storage.deps.mkdirp(storage.dir())
+    local c = require("lua-ljsqlite3/init").open(M.path())
+    c:exec("PRAGMA journal_mode=WAL;")
+    c:exec("PRAGMA busy_timeout=5000;")
+    c:exec("PRAGMA synchronous=NORMAL;")
+    c:exec("PRAGMA temp_store=MEMORY;")
+    for _, sql in ipairs(SCHEMA) do c:exec(sql) end
+    conn = c
+    return conn
+end
+
+local function bound(sql, ...)
+    local stmt = ensure():prepare(sql)
+    local n = select("#", ...)
+    if n > 0 then stmt:bind(...) end
+    return stmt
+end
+
+--- 写：失败返回 nil, err
+function M.exec(sql, ...)
+    local args, n, stmt = { ... }, select("#", ...), nil
+    local ok, err = pcall(function()
+        stmt = bound(sql, unpack(args, 1, n))
+        stmt:step()
+    end)
+    if stmt then pcall(stmt.close, stmt) end
+    if not ok then return nil, err end
+    return true
+end
+
+--- 取一行的第一列
+function M.rowexec(sql, ...)
+    local args, n, stmt = { ... }, select("#", ...), nil
+    local ok, row = pcall(function()
+        stmt = bound(sql, unpack(args, 1, n))
+        return stmt:step({}, {})
+    end)
+    if stmt then pcall(stmt.close, stmt) end
+    if ok and row then return row[1] end
+end
+
+--- 逐行回调；fn 返回 false 提前结束。库打不开 / 语句出错返回 false
+function M.each(sql, binds, fn)
+    local stmt
+    local ok = pcall(function()
+        stmt = bound(sql, unpack(binds or {}))
+        while true do
+            local row = stmt:step({}, {})
+            if not row or fn(row) == false then break end
+        end
+    end)
+    if stmt then pcall(stmt.close, stmt) end
+    return ok
+end
+
+--- fn 返回真才提交；抛错先回滚再抛
+function M.transaction(fn)
+    if not M.exec("BEGIN IMMEDIATE;") then return nil end
+    local ok, result = pcall(fn)
+    if ok and result and M.exec("COMMIT;") then return result end
+    M.exec("ROLLBACK;")
+    if not ok then error(result, 0) end
+end
+
+return M

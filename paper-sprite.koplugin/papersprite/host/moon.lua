@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 --[[--
-月读宿主：存档与 KOReader 宿主共用 <数据目录>/.moon/game/paper-sprite/save.lua（旧的 ext.papersprite.state 首次迁移过去，见 core/storage）；
+月读宿主：存档与 KOReader 宿主共用 <数据目录>/.moon/game/paper-sprite/paper-sprite.sqlite3（旧的 ext.papersprite.state 首次迁移过去，见 core/storage）；
 设置仍放在月读扩展独立表 utils.settings.getSource("ext.papersprite").settings，
 界面优先用月读主题组件（papersprite.ui.screen 的 moon 皮肤），提示用月读 Toast；
 任何月读模块缺失时整体回落 KOReader 宿主。思路同 ko-adarkroom host/moon.lua。
