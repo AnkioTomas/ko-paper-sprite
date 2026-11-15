@@ -29,7 +29,7 @@ local unpack = unpack or table.unpack
 function Game.new(host)
     -- 同一时刻只留一个阁楼实例（菜单和月读卡片都能打开）
     if Game.current and not Game.current.closed then Game.current:close() end
-    local self = setmetatable({ host = host, page = "attic", wall_page = 1 }, Game)
+    local self = setmetatable({ host = host, page = "attic", wall_page = 1, thoughts_failed = {} }, Game)
     self.debug = host:getSetting("debug_fast", false)
     self.state = State.load(host:loadState(), host:now())
     Game.current = self
@@ -57,6 +57,7 @@ function Game:tick()
     Story.maybeRecap(self.host, self.state, fresh)
     Story.maybeDaily(self.host, self.state, fresh)
     Story.maybeGuest(self.host, self.state, fresh)
+    Story.maybeThoughts(self.host, self.state, fresh, self.thoughts_failed)
     Pool.maybeFill(self.host, self.state, fresh)
     -- 同步段只落盘一次。maybe* 若发起异步请求，回调里会自己再存。
     self.host:saveState(self.state)
@@ -1001,10 +1002,9 @@ function Game:_bookwall()
     local cells = {}
     for _, b in ipairs(rows) do
         local tag = b.tag and Quests.TAG_NAME[b.tag]
-        local quote = (b.quote and b.quote ~= "") and b.quote or b.line
         cells[#cells + 1] = { icon = "items/pocket_dict.png", file = b.cover, title = b.title, check = true,
-            meta = os.date("%Y-%m-%d", b.at or 0) .. "　·　" .. (tag and T("这本书把阿页往「%s」带", tag) or T("折成书签")),
-            caption = quote }
+            meta = (b.at and b.at > 0 and os.date("%Y-%m-%d", b.at) or "") .. (tag and ((b.at and b.at > 0 and "　·　" or "") .. T("这本书把阿页往「%s」带", tag)) or ""),
+            caption = b.thought or T("阿页还在慢慢想这本书。") }
     end
     local now_tag = s.read_tag and Quests.TAG_NAME[s.read_tag]
     return { title = T("读书墙"), status = { icon = "items/pocket_dict.png", title = T("读完 %d 本书", #books),

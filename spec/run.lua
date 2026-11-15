@@ -627,6 +627,30 @@ do
     assert(not Story.maybeRequest(host, store) and reqs == 2, "gives up after MAX_TRIES")
 end
 
+-- 读书墙：阿页的感悟由 AI 补，失败后放弃
+do
+    local Story, State = require("papersprite.core.story"), require("papersprite.core.state")
+    local st = State.fresh(1000)
+    st.bookmarks = { { title = "甲", at = 5, quote = "划过的一句" }, { title = "乙", at = 6 } }
+    local store, mode = st, "ok"
+    local host
+    host = { loadState = function() return store end, saveState = function(_, t) store = t end, now = function() return 1000 end,
+        schedule = function() end,
+        ai = function() return { json = function(msgs, cb)
+            host.last = msgs[2].content
+            if mode == "ok" then cb({ thoughts = { "灯下读完，心里很静。", "<b>坏</b>" } }) else cb(nil, "boom") end
+        end } end }
+    local failed = {}
+    assert(Story.maybeThoughts(host, store, nil, failed))
+    assert(host.last:find("划过的一句", 1, true))
+    assert(store.bookmarks[1].thought == "灯下读完，心里很静。" and not store.bookmarks[2].thought and failed["乙6"])
+    assert(not Story.maybeThoughts(host, store, nil, failed), "failed ones wait for the next visit")
+    mode = "fail"
+    assert(Story.maybeThoughts(host, store, nil, {}) and not store.bookmarks[2].thought)
+    mode = "ok"
+    assert(Story.maybeThoughts(host, store, nil, {}) and store.bookmarks[2].thought, "retries on a new visit")
+end
+
 -- 剪贴簿 / 来客簿 / 惦记直达
 do
     local Album = require("papersprite.core.album")

@@ -2686,4 +2686,5 @@ return {
     ["已切换到%s"] = "Switched to %s",
     ["列表"] = "List",
     ["明信片没能存下来"] = "Couldn't save the postcard.",
+    ["阿页还在慢慢想这本书。"] = "Aye is still slowly thinking this book over.",
 }

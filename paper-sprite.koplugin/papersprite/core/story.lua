@@ -194,6 +194,54 @@ function Story.maybeRecap(host, s, on_done)
     end)
 end
 
+local THOUGHT_BATCH = 5
+
+--- 读书墙：为还没有感悟的书签请求阿页的读后感（每批最多 THOUGHT_BATCH 本，失败的本次进入阁楼不再重试（failed 由界面实例持有），下次进入再来；没有感悟时墙上用占位文案）
+function Story.maybeThoughts(host, s, on_done, failed)
+    local now = host:now()
+    local try = s.thought_try
+    if try and try.busy and now - try.busy < Story.TIMEOUT then return false end
+    local todo = {}
+    for _idx, b in ipairs(s.bookmarks or {}) do
+        if not b.thought and not failed[b.title .. b.at] and #todo < THOUGHT_BATCH then todo[#todo + 1] = b end
+    end
+    if #todo == 0 or type(host.ai) ~= "function" or not host:ai() then return false end
+    local Quests = require("papersprite.data.quests")
+    local lines, keys = {}, {}
+    for i, b in ipairs(todo) do
+        local tag = b.tag and Quests.TAG_NAME[b.tag]
+        lines[i] = i .. ". 《" .. b.title .. "》" .. (tag and ("（偏向：" .. tag .. "）") or "")
+            .. (b.quote and ("，读的人划过一句：" .. b.quote) or "")
+        keys[i] = { title = b.title, at = b.at }
+    end
+    local user = table.concat({
+        "用户读完了下面这几本书，阿页陪着它读。请以阿页的口吻，为每本书写一句读后感悟（第一人称，温柔、克制、有具体的感受，",
+        "不剧透、不复述书名、不说教，不要「读完了」「合上书」这类空话），每句≤" .. Story.MAX_LINE .. "字，彼此不要雷同。",
+        table.concat(lines, "\n"),
+        '只输出 JSON：{"thoughts":["…"]}，数量与书相同、顺序一致。',
+    }, "\n")
+    local system = "你为一个阅读器里的小游戏写文案。主角「阿页」是一张旧书签变成的小纸灵：折纸身子，话少、好奇、温柔。简体中文，只输出一个 JSON 对象，不要任何解释或 Markdown。"
+    s.thought_try = { busy = now }
+    return ask(host, { { role = "system", content = system }, { role = "user", content = user } }, function(r)
+        if type(r) ~= "table" or type(r.thoughts) ~= "table" then return nil end
+        local out = {}
+        for i = 1, #todo do out[i] = clean(r.thoughts[i], Story.MAX_LINE) or false end
+        return out
+    end, function(result)
+        local cur = reload(host)
+        cur.thought_try = nil
+        for i, k in ipairs(keys) do
+            for _idx, b in ipairs(cur.bookmarks or {}) do
+                if b.title == k.title and b.at == k.at and not b.thought then
+                    if result and result[i] then b.thought = result[i] else failed[k.title .. k.at] = true end
+                end
+            end
+        end
+        host:saveState(cur)
+        if on_done then pcall(on_done, cur) end
+    end)
+end
+
 local BANDS = { { "dawn", "清晨" }, { "day", "白天" }, { "dusk", "傍晚" }, { "night", "夜里" } }
 local PER_BAND = 3
 
