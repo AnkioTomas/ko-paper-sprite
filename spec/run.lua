@@ -778,6 +778,13 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     local edition_wall = State.fresh(1000)
     assert(Reading.collect(edition_wall) == 10 and #edition_wall.bookmarks == 2
         and edition_wall.bookmarks[1].cover == "/covers/a.png", "bookmarks retain cover paths and same-title editions")
+    package.preload["utils.db"] = function()
+        return { query = function() return { { title = "月读已读", read_at = 5 }, { title = "同名书", read_at = 6 } } end }
+    end
+    local moon_wall = State.fresh(1000)
+    assert(Reading.collect(moon_wall) == 15 and #moon_wall.bookmarks == 3, "moon read books merge, deduped by title")
+    assert(Reading.collect(moon_wall) == 0, "moon books are collected once")
+    package.preload["utils.db"], package.loaded["utils.db"] = nil, nil
     Reading._inject(reading_store)
     local shelf = State.fresh(1000)
     assert(Reading.collect(shelf) == 5)

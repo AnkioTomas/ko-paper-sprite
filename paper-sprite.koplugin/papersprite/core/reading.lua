@@ -98,7 +98,8 @@ function M.record(now, book, step, dwell)
             s:saveSetting("last_tag_at", now)
         end
         if book.finished and book.title and book.title ~= "" then
-            local done = s:readSetting("finished") or {}
+            local done = {}
+    for _, b in ipairs(s:readSetting("finished") or {}) do done[#done + 1] = b end
             local seen = false
             for _, b in ipairs(done) do
                 if (book.id and b.id == book.id) or (not book.id and b.title == book.title) then seen = true end
@@ -127,7 +128,13 @@ function M.collect(state)
     local tag, at = s:readSetting("last_tag"), s:readSetting("last_tag_at")
     if tag and at then state.read_tag, state.read_tag_at = tag, at end
     state.bookmarks = state.bookmarks or {}
-    for _, b in ipairs(s:readSetting("finished") or {}) do
+    local done = {}
+    for _, b in ipairs(s:readSetting("finished") or {}) do done[#done + 1] = b end
+    for _, b in ipairs(require("papersprite.core.moon_books").finished()) do
+        b.tag = M.tagOf(b.title)
+        done[#done + 1] = b
+    end
+    for _, b in ipairs(done) do
         local have = false
         for _, x in ipairs(state.bookmarks) do
             if (b.id and x.id == b.id) or (not x.id and x.title == b.title)
