@@ -48,7 +48,7 @@ local function now()
     return time.to_s(time.now())
 end
 
-function M.seat(view, corner)
+function M.seat(view, corner, size)
     local dim = view and view.dimen
     local vw = dim and dim.w or 0
     local vh = dim and dim.h or 0
@@ -56,7 +56,7 @@ function M.seat(view, corner)
         local Screen = require("device").screen
         vw, vh = Screen:getWidth(), Screen:getHeight()
     end
-    local sh = math.floor(math.min(vw, vh) * 0.28)
+    local sh = math.floor(math.min(vw, vh) * Prefs.SIZE_SCALE[size or Prefs.size()])
     local edge = math.floor(math.min(vw, vh) * 0.035)
     local top = math.max(edge, math.floor(vh * 0.055))
     local sx = (corner == "se" or corner == "ne") and (vw - sh - edge) or edge
@@ -210,11 +210,11 @@ local function loadState()
     return s, true
 end
 
-local function dirtyCompanion(corner)
+local function dirtyCompanion(corner, size)
     local ui = M.ui
     local view = ui and ui.view
     if not view then return end
-    local sx, sy, sh = M.seat(view, corner)
+    local sx, sy, sh = M.seat(view, corner, size)
     local dim = view.dimen or {}
     local Geom = require("ui/geometry")
     require("ui/uimanager"):setDirty(ui, "ui", Geom:new{
@@ -224,11 +224,11 @@ end
 
 -- 伴读图区域单独 full，且必须晚于本拍可能存在的阅读页刷新，避免和整页合并。
 -- 动画过程中仍只用上面的 "ui"。
-local function fullCompanion(corner)
+local function fullCompanion(corner, size)
     local ui = M.ui
     local view = ui and ui.view
     if not view then return end
-    local sx, sy, sh = M.seat(view, corner)
+    local sx, sy, sh = M.seat(view, corner, size)
     local dim = view.dimen or {}
     require("papersprite.ui.eink_image").schedule({
         x = (dim.x or 0) + sx, y = (dim.y or 0) + sy, w = sh, h = sh,
@@ -241,6 +241,7 @@ function M.syncFlags()
     f.shown = Prefs.companion()
     f.corner = Prefs.corner()
     f.fade = Prefs.fade()
+    f.size = Prefs.size()
     local ok, s = pcall(loadState)
     if ok and s then f.away = s.sprite and s.sprite.status == "away" end
     f.ready = true
@@ -253,11 +254,11 @@ end
 
 function M.refreshCompanion()
     local f = M.flags
-    local shown, corner, fade = Prefs.companion(), Prefs.corner(), Prefs.fade()
-    if f.shown and f.corner then dirtyCompanion(f.corner) end
-    if shown and (not f.shown or corner ~= f.corner) then dirtyCompanion(corner) end
+    local shown, corner, fade, size = Prefs.companion(), Prefs.corner(), Prefs.fade(), Prefs.size()
+    if f.shown and f.corner then dirtyCompanion(f.corner, f.size) end
+    if shown and (not f.shown or corner ~= f.corner or size ~= f.size) then dirtyCompanion(corner, size) end
     if shown then fullCompanion(corner) end
-    f.shown, f.corner, f.fade = shown, corner, fade
+    f.shown, f.corner, f.fade, f.size = shown, corner, fade, size
 end
 
 local function noteBody(s, note)

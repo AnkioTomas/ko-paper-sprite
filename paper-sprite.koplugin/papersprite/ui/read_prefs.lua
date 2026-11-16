@@ -5,6 +5,11 @@ local P = {}
 local CORNERS = { "sw", "se", "nw", "ne" }
 P.CORNER_NAME = { sw = "左下", se = "右下", nw = "左上", ne = "右上" }
 
+-- 伴读大小：占短边的比例，大 = 旧版固定值，默认大，老用户不变。
+local SIZES = { "s", "m", "l" }
+P.SIZE_SCALE = { s = 0.16, m = 0.22, l = 0.28 }
+P.SIZE_NAME = { s = "小", m = "中", l = "大" }
+
 function P.host() return require("papersprite.host.moon").new() end
 
 function P.get(key, default) return P.host():getSetting(key, default) end
@@ -27,6 +32,15 @@ end
 
 function P.cornerName()
     return require("papersprite.l10n")(P.CORNER_NAME[P.corner()] or "左下")
+end
+
+function P.size()
+    local v = P.get("companion_size", "l")
+    return P.SIZE_SCALE[v] and v or "l"
+end
+
+function P.sizeName()
+    return require("papersprite.l10n")(P.SIZE_NAME[P.size()])
 end
 
 function P.fade()
@@ -91,6 +105,17 @@ function P.setCorner(corner)
         end
     end
     error("invalid companion corner: " .. tostring(corner))
+end
+
+function P.setSize(size)
+    for _, value in ipairs(SIZES) do
+        if value == size then
+            P.set("companion_size", value)
+            refresh()
+            return
+        end
+    end
+    error("invalid companion size: " .. tostring(size))
 end
 
 function P.setFade(fade)

@@ -1452,6 +1452,13 @@ do -- 伴读：设置立即重绘，翻页按真实经过时间结束，并重�
     assert(dirty[#dirty - 1].region.x == 28 and dirty[#dirty - 1].region.y == 571
         and dirty[#dirty].region.x == 381,
         "moving the companion clears its old corner and draws the new one")
+    P.setSize("s")
+    assert(P.size() == "s" and dirty[#dirty - 1].region.w == 151 and dirty[#dirty].region.w == 86,
+        "resizing clears the old footprint and draws the new one")
+    P.setSize("l")
+    assert(dirty[#dirty].region.w == 151, "large keeps the original size")
+    settings.companion_size = "bogus"
+    assert(P.size() == "l", "unknown size falls back to large")
     settings.companion_fade = 100
     local count = #painted
     ui.view.papersprite_companion:paintTo(bb, 0, 0)

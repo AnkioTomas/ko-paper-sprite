@@ -2575,6 +2575,8 @@ return {
     ["出门、回家、来客和明信片会叠在这一页上"] = "Departures, homecomings, visitors and postcards appear on this page",
     ["伴读"] = "Read along",
     ["阿页坐在角落里一起翻页"] = "Aye sits in a corner and turns pages with you",
+    ["伴读大小"] = "Companion size",
+    ["选择阿页的大小：大、中、小"] = "Choose how big Aye is: large, medium or small",
     ["伴读位置"] = "Companion corner",
     ["伴读透明度"] = "Companion transparency",
     ["选择阿页显示的位置"] = "Choose where Aye appears",

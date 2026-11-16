@@ -90,6 +90,15 @@ local function cornerOptions()
     return options
 end
 
+local function sizeOptions()
+    local P = require("papersprite.ui.read_prefs")
+    local options = {}
+    for _idx, value in ipairs({ "s", "m", "l" }) do
+        options[#options + 1] = { value = value, text = _(P.SIZE_NAME[value]) }
+    end
+    return options
+end
+
 -- 月读单选列表（带 radio），用于设置页和快捷面板。
 local function chooseCompanionSetting(title, options, selected, on_select)
     require("ui.themes.widgets.list"):new{
@@ -223,6 +232,19 @@ local function settingEntries(desktop)
                     end,
                     function(iw)
                         local P = require("papersprite.ui.read_prefs")
+                        return Row.choice({
+                            width = iw, icon = "photo_size_select_large",
+                            title = _("伴读大小"),
+                            subtitle = _("选择阿页的大小：大、中、小"),
+                            items = sizeOptions(), current = P.size(),
+                            on_select = function(value)
+                                P.setSize(value)
+                                desktop:updateView()
+                            end,
+                        })
+                    end,
+                    function(iw)
+                        local P = require("papersprite.ui.read_prefs")
                         return Row.widget({
                             width = iw, kind = "nav", icon = "opacity",
                             title = _("伴读透明度"),
@@ -286,6 +308,13 @@ return {
             run = function() P.toggleCompanion() end,
             hold = function()
                 chooseCompanionSetting(_("伴读位置"), cornerOptions(), P.corner(), P.setCorner)
+            end,
+        }, {
+            id = "companion_size", scope = "reader", title = _("伴读大小"), icon = "photo_size_select_large", keep_open = true,
+            active = function() return P.companion() end,
+            label = function() return P.sizeName() end,
+            run = function()
+                chooseCompanionSetting(_("伴读大小"), sizeOptions(), P.size(), P.setSize)
             end,
         }, {
             id = "companion_fade", scope = "reader", title = _("伴读透明度"), icon = "opacity", keep_open = true,
