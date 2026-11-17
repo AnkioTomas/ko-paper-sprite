@@ -86,7 +86,7 @@ end
 --- 逐行回调；fn 返回 false 提前结束。库打不开 / 语句出错返回 false
 function M.each(sql, binds, fn)
     local stmt
-    local ok = pcall(function()
+    local ok, err = pcall(function()
         stmt = bound(sql, unpack(binds or {}))
         while true do
             local row = stmt:step({}, {})
@@ -94,6 +94,7 @@ function M.each(sql, binds, fn)
         end
     end)
     if stmt then pcall(stmt.close, stmt) end
+    if not ok then require("logger").err("papersprite db", sql, err) end
     return ok
 end
 

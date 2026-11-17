@@ -34,6 +34,7 @@ local widget = {
         scheduleUpdateCheck()
         local ok, card = pcall(function() return require("papersprite.ui.moon_card").build(w, h, loadSave, openGame) end)
         if ok and card then return card end
+        require("logger").err("papersprite home build", card)
         local Button = require("ui/widget/button")
         local CenterContainer = require("ui/widget/container/centercontainer")
         local Geom = require("ui/geometry")
@@ -72,6 +73,7 @@ local function imageWidget(kind, title, icon, builder, page)
             scheduleUpdateCheck()
             local ok, wdg = pcall(function() return require("papersprite.ui.moon_widgets")[builder](w, h) end)
             if ok and wdg then return wdg end
+            require("logger").err("papersprite widget build", builder, wdg)
             return fallback(w, h, _(title), page)
         end,
         settings = function(desktop, _id)

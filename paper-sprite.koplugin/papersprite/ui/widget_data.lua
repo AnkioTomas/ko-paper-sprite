@@ -77,7 +77,7 @@ function M.postcards(s, n, page)
         local p = Travel.place(c.place)
         out[#out + 1] = { index = i, scene = Game.cardScene(c), place = p and p.name or c.place,
             weather = P.weather_names[c.weather] or "", line = c.line or "", new = i > seen,
-            date = os.date("%m-%d %H:%M", c.at or 0) }
+            date = os.date("%m-%d", c.at or 0), time = os.date("%H:%M", c.at or 0) }
     end
     return { cards = out, total = total, new = math.max(0, total - seen), page = page, pages = pages }
 end
