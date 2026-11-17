@@ -4,6 +4,7 @@ KOReader 宿主：UIManager 显示 / 定时，存档（<数据目录>/.moon/game
 结构沿用 ko-adarkroom 的 host/koreader.lua。
 --]]
 local Interface = require("papersprite.host.interface")
+local Guard = require("papersprite.guard")
 
 local Host = {}
 Host.__index = Host
@@ -28,7 +29,7 @@ function Host:_screenModule()
     return { open = function(view, on_close) return Screen.open(view, on_close) end }
 end
 
-function Host:showScreen(view)
+function Host:showScreen(view, quiet)
     local Timing = require("papersprite.ui.timing")
     local t0 = Timing.now()
     local UIManager = require("ui/uimanager")
@@ -41,7 +42,7 @@ function Host:showScreen(view)
     -- 先盖上新界面再关旧的，避免先露出下层。新界面已经 setDirty("ui")；
     -- close 再传 "ui" 会再排一次整屏刷新，墨水屏上往往比颜色转换更慢。
     -- 进页：图片区域稍后合并成一次 full，清残影；不要每个缩略图各自闪。
-    pcall(function() require("papersprite.ui.eink_image").enterPage() end)
+    if not quiet then pcall(function() require("papersprite.ui.eink_image").enterPage() end) end
     UIManager:show(self.widget, "ui")
     if old then
         old._replaced = true
@@ -64,12 +65,20 @@ end
 
 function Host:now() return os.time() end
 
+-- 句柄是调用方传入的 fn；UIManager 排的是受保护的版本，按 fn 对应着取消。
+local guarded = setmetatable({}, { __mode = "k" })
+
 function Host:schedule(seconds, fn)
-    require("ui/uimanager"):scheduleIn(seconds, fn)
+    local g = Guard.wrap("papersprite timer", fn)
+    guarded[fn] = g
+    require("ui/uimanager"):scheduleIn(seconds, g)
     return fn
 end
 
-function Host:unschedule(handle) require("ui/uimanager"):unschedule(handle) end
+function Host:unschedule(handle)
+    require("ui/uimanager"):unschedule(guarded[handle] or handle)
+    guarded[handle] = nil
+end
 
 function Host:loadState() return self:_store():readSetting("state") end
 

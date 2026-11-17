@@ -1100,7 +1100,10 @@ function Game:render()
     local v = Timing.span("view", page, function()
         return self:view()
     end)
-    self.host:showScreen(v)
+    -- 同一页原地重绘（定时器、异步结果）不当作进页，免得每次都整块 full 闪一下。
+    local same = self._shown_page == page
+    self._shown_page = page
+    self.host:showScreen(v, same)
     self:_arm()
     local sh = Timing.last.showScreen
     local vw = Timing.last.view

@@ -266,7 +266,12 @@ function M.wrap(child, opts)
         end
         local key = self._content_key
         local reason
-        if quality_pending or not self._appeared then
+        if not self._appeared and key and on_screen[key] and not quality_pending then
+            -- 组件被重建、内容没变（同一个 key 已在屏上）：不再补一次 full，免得桌面 / 阁楼定时重绘时闪。
+            self._appeared = true
+            self._need_refresh = false
+            return
+        elseif quality_pending or not self._appeared then
             reason = "show"
         elseif self._content_changed then
             reason = "change"

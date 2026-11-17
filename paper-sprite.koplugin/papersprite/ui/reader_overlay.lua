@@ -9,6 +9,7 @@
 --]]
 local T = require("papersprite.l10n")
 local Prefs = require("papersprite.ui.read_prefs")
+local Guard = require("papersprite.guard")
 
 local M = { flags = {} }
 local popup
@@ -152,7 +153,7 @@ end
 
 local companion = {}
 
-function companion:paintTo(bb, x, y)
+local function paintCompanion(self, bb, x, y)
     if not Prefs.companion() then return end
     local f = M.flags
     local sx, sy, sh = M.seat(self.view, Prefs.corner())
@@ -169,6 +170,10 @@ function companion:paintTo(bb, x, y)
     end
     M.last_name = name
     paintSprite(bb, name, x + sx, y + sy, sh)
+end
+
+function companion:paintTo(bb, x, y)
+    Guard.paint("papersprite companion paint", paintCompanion, self, bb, x, y)
 end
 
 -- 排版让不开一个角。以前加的整条页边撤掉：拆掉类上的钩子，文档页边还回用户的值。还一次就停。
@@ -224,7 +229,7 @@ end
 
 -- 伴读图区域单独 full，且必须晚于本拍可能存在的阅读页刷新，避免和整页合并。
 -- 动画过程中仍只用上面的 "ui"。
-local function fullCompanion(corner, size)
+local function fullCompanion(corner, size, reason)
     local ui = M.ui
     local view = ui and ui.view
     if not view then return end
@@ -232,7 +237,7 @@ local function fullCompanion(corner, size)
     local dim = view.dimen or {}
     require("papersprite.ui.eink_image").schedule({
         x = (dim.x or 0) + sx, y = (dim.y or 0) + sy, w = sh, h = sh,
-    }, { reason = "quality" })
+    }, { reason = reason or "quality" })
 end
 
 function M.syncFlags()
@@ -243,9 +248,9 @@ function M.syncFlags()
     f.fade = Prefs.fade()
     f.size = Prefs.size()
     local ok, s = pcall(loadState)
-    if ok and s then f.away = s.sprite and s.sprite.status == "away" end
+    if ok and s then f.away = (s.sprite and s.sprite.status == "away") == true end
     f.ready = true
-    if f.shown and was_away ~= f.away then
+    if f.shown and was_away ~= nil and was_away ~= f.away then
         dirtyCompanion(f.corner)
         fullCompanion(f.corner)
     end
@@ -345,13 +350,13 @@ local function showNotice(s, note)
     end
     box.close_callback = function()
         if popup == box then popup = nil end
-        pcall(function()
+        Guard.call("papersprite notice ack", function()
             local h = Prefs.host()
             local st = require("papersprite.core.state").load(h:loadState(), h:now())
             require("papersprite.core.disturb").ack(st, note)
             h:saveState(st)
         end)
-        UIManager:scheduleIn(0.2, function() pcall(M.poke) end)
+        UIManager:scheduleIn(0.2, function() Guard.call("papersprite poke", M.poke) end)
     end
     box:rebuild()
     popup = box
@@ -412,7 +417,7 @@ local function armQuiet()
     unscheduleWake()
     wake_wait = function()
         wake_wait = nil
-        pcall(M.poke)
+        Guard.call("papersprite poke", M.poke)
     end
     pcall(function() require("ui/uimanager"):scheduleIn(grace, wake_wait) end)
 end
@@ -420,7 +425,8 @@ end
 -- 等屏保关掉、密码解开后再起宽限期；点按退出或延时关屏时 Resume 来得更早。
 local function watchUnlock()
     unscheduleWake()
-    local function check()
+    local check
+    local function step()
         wake_wait = nil
         if deviceInactive() then
             local P = passcode()
@@ -436,6 +442,7 @@ local function watchUnlock()
         asleep = false
         armQuiet()
     end
+    check = function() Guard.call("papersprite unlock", step) end
     check()
 end
 
@@ -457,7 +464,7 @@ function M.poke()
     if not Prefs.disturb() or popup or not s then return end
     local note = require("papersprite.core.disturb").next(s)
     if not note then return end
-    pcall(showNotice, s, note)
+    Guard.call("papersprite notice", showNotice, s, note)
 end
 
 function M.onSuspend()
@@ -493,7 +500,8 @@ function M.onPage(plugin)
                     M.flags.turn_from = nil
                     M.flags.turn_ticking = nil
                     dirtyCompanion(Prefs.corner())
-                    fullCompanion(Prefs.corner())
+                    -- 每次翻页都 full 会黑闪；按换图计数，累计几次才 full 清残影。
+                    fullCompanion(Prefs.corner(), nil, "change")
                     return
                 end
                 dirtyCompanion(Prefs.corner())
@@ -501,7 +509,7 @@ function M.onPage(plugin)
                     or elapsed < TURN_MID and TURN_MID
                     or elapsed < TURN_PUT and TURN_PUT
                     or TURN_S
-                UIManager:scheduleIn(next_at - elapsed, tick)
+                UIManager:scheduleIn(next_at - elapsed, Guard.wrap("papersprite turn", tick))
             end
             tick()
         end
@@ -515,17 +523,17 @@ function M.attach(ui)
     if not view or not view.registerViewModule or not ui.document then return end
     if view.view_modules then view.view_modules.papersprite_companion = nil end
     view:registerViewModule("papersprite_companion", companion)
-    pcall(M.syncFlags)
+    Guard.call("papersprite attach", M.syncFlags)
 end
 
 function M.install(plugin)
     M.attach(plugin.ui)
-    pcall(M.applyAvoid)
+    Guard.call("papersprite avoid", M.applyAvoid)
     if timer_on then return end
     timer_on = true
     local function loop()
         if not timer_on then return end
-        pcall(M.poke)
+        Guard.call("papersprite poke", M.poke)
         pcall(function() require("ui/uimanager"):scheduleIn(45, loop) end)
     end
     pcall(function() require("ui/uimanager"):scheduleIn(2, loop) end)

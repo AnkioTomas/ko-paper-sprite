@@ -13,6 +13,7 @@ if not package.path:find(PLUGIN_DIR .. "/?.lua", 1, true) then
     package.path = PLUGIN_DIR .. "/?.lua;" .. package.path
 end
 local _ = require("papersprite.l10n")
+local Guard = require("papersprite.guard")
 
 local PaperSprite = WidgetContainer:extend{
     name = "papersprite",
@@ -22,14 +23,14 @@ local PaperSprite = WidgetContainer:extend{
 function PaperSprite:init()
     self.ui.menu:registerToMainMenu(self)
     -- KOReader 原生顶部菜单里的「阿页」Tab（照月读快捷面板的注入方式，见 ui/komenu.lua）
-    pcall(function()
+    Guard.call("papersprite menu", function()
         local K = require("papersprite.ui.komenu")
         K.install()
         K.inject(self.ui.menu)
     end)
     self:onDispatcherRegisterActions()
     if self.ui and self.ui.document then
-        pcall(function() require("papersprite.ui.reader_overlay").install(self) end)
+        Guard.call("papersprite install", function() require("papersprite.ui.reader_overlay").install(self) end)
     end
 end
 
@@ -42,7 +43,7 @@ function PaperSprite:onDispatcherRegisterActions()
 end
 
 function PaperSprite:onPaperSpritePanel()
-    self:launch()
+    Guard.call("papersprite panel", self.launch, self)
     return true
 end
 
@@ -50,15 +51,15 @@ function PaperSprite:addToMainMenu(menu_items)
     menu_items.papersprite = {
         text = _("阿页的阁楼"),
         sorting_hint = "tools",
-        callback = function() self:launch() end,
+        callback = function() Guard.call("papersprite launch", self.launch, self) end,
     }
 end
 
 -- 离开这一页时才结算：停满 MIN_DWELL 秒，且只认相邻翻页。不读正文。
 -- 改字号 / 旋转 / 重排（页码没变）和进度条跳转（一次跨好几页）都不算。
-function PaperSprite:onPageUpdate(pageno)
+local function pageUpdate(self, pageno)
     if not self.ui or not self.ui.document then return end
-    pcall(function() require("papersprite.ui.reader_overlay").onPage(self) end)
+    require("papersprite.ui.reader_overlay").onPage(self)
     local now = os.time()
     local last, since = self._last_page, self._last_at
     if type(pageno) ~= "number" then
@@ -66,24 +67,22 @@ function PaperSprite:onPageUpdate(pageno)
         return
     end
     if last and since then
-        local ok, err = pcall(function()
-            require("papersprite.core.reading").record(now, self:_bookInfo(pageno), math.abs(pageno - last), now - since)
-        end)
-        if not ok then
-            logger.err("papersprite reading record:", err)
-            return
-        end
+        require("papersprite.core.reading").record(now, self:_bookInfo(pageno), math.abs(pageno - last), now - since)
     end
     self._last_page, self._last_at = pageno, now
 end
 
+function PaperSprite:onPageUpdate(pageno)
+    return Guard.call("papersprite onPageUpdate", pageUpdate, self, pageno)
+end
+
 -- 休眠不打扰；解锁后再由阅读页 overlay 延迟一会儿才弹。
 function PaperSprite:onSuspend()
-    pcall(function() require("papersprite.ui.reader_overlay").onSuspend() end)
+    Guard.call("papersprite onSuspend", function() require("papersprite.ui.reader_overlay").onSuspend() end)
 end
 
 function PaperSprite:onResume()
-    pcall(function() require("papersprite.ui.reader_overlay").onResume() end)
+    Guard.call("papersprite onResume", function() require("papersprite.ui.reader_overlay").onResume() end)
 end
 
 --- 这本书里用户自己划的第一句。没有划线就是 nil。

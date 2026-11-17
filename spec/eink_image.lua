@@ -295,4 +295,16 @@ for i = 1, 3 do
     assert(calls[#calls].mode ~= "flashui")
 end
 
+-- 11) 组件重建、同一 key 已在屏上：不再补 full
+Eink._reset()
+installUI()
+local first = Eink.wrap(child(10, 10), { key = "rebuilt" })
+first:paintTo(nil, 0, 0)
+flush()
+local n11 = #calls
+local again = Eink.wrap(child(10, 10), { key = "rebuilt" })
+again:paintTo(nil, 0, 0)
+flush()
+assert_eq(#calls, n11, "rebuilt wrapper with an on-screen key must not refresh")
+
 print("ok eink_image schedule / wrap / cadence / wall / lifecycle")
