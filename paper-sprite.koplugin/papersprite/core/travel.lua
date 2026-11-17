@@ -231,13 +231,15 @@ function T.settle(s, now, debug_fast)
                 end
                 T.markText(s, card.line)
                 card.at, card.trip = m.at, sp.trip
-                if card.key then Vault.set("collected", card.key, m.at) end
-                Vault.cardAdd(card)
-                Quest.note(s, "card", card.weather)
-                local ml
-                s.seed, ml = R.pick(s.seed, Lines.mail)
-                State.log(s, ml, m.at)
-                events[#events + 1] = "postcard"
+                if not Vault.cardSent(sp.trip, m.at) then
+                    if card.key then Vault.set("collected", card.key, m.at) end
+                    Vault.cardAdd(card)
+                    Quest.note(s, "card", card.weather)
+                    local ml
+                    s.seed, ml = R.pick(s.seed, Lines.mail)
+                    State.log(s, ml, m.at)
+                    events[#events + 1] = "postcard"
+                end
             end
         end
         if now >= sp.return_at then

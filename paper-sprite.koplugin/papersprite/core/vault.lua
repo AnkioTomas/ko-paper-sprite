@@ -214,6 +214,50 @@ end
 
 function M.size(field) return be.count(tname(field)) end
 
+-- 去重 ------------------------------------------------------------------
+
+--- 一趟里同一封信只会有一张：同 trip + 时间的明信片只留最后一张（旧版结算被重复触发时每次抽到不同的卡），
+--- 没有 trip 的旧卡按 key + 地点 + 时间 + 文案判重；近况按文字 + 时间判重。重复卡点亮的图鉴一并收回。
+--- 由 State 的版本迁移触发，只跑一次。
+function M.dedupe(s)
+    local function purge(t, sig)
+        local last, drop = {}, {}
+        be.scan(t, function(r)
+            local k = sig(r)
+            if last[k] then drop[#drop + 1] = last[k] end
+            last[k] = r
+        end)
+        if #drop > 0 then be.tx(function() for _, r in ipairs(drop) do be.del(t, r.seq) end end) end
+        return drop, last
+    end
+    local drop, kept = purge("paper_postcards", function(r)
+        local trip = Tables.cardOf(r, Storage.decode).trip
+        if trip then return "t" .. trip .. "@" .. tostring(r.at) end
+        return table.concat({ tostring(r.key), tostring(r.place), tostring(r.at), tostring(r.line) }, "\31")
+    end)
+    local keep = {}
+    for _, r in pairs(kept) do keep[r.key] = true end
+    for _, r in ipairs(drop) do
+        if r.key and not keep[r.key] then be.del("paper_collected", r.key) end
+    end
+    -- 近况：同文字 + 时间判重；同一时刻刷出 3 条以上（正常最多撞上两件事）按「一次事件被重复结算」只留最后一条
+    local per_at = {}
+    be.scan("paper_log", function(r) per_at[r.at] = (per_at[r.at] or 0) + 1 end)
+    purge("paper_log", function(r)
+        if per_at[r.at] >= 3 then return "@" .. tostring(r.at) end
+        return tostring(r.text) .. "\31" .. tostring(r.at)
+    end)
+    s.wall_seen = math.min(s.wall_seen or 0, M.cardCount())
+end
+
+--- 这封信（trip + 时间）是不是已经寄过：结算被重复触发时不再多写一张
+function M.cardSent(trip, at)
+    for _, c in ipairs(M.cardsNewest(0, 8)) do
+        if c.trip == trip and c.at == at then return true end
+    end
+    return false
+end
+
 -- 旧存档迁移 --------------------------------------------------------------
 
 --- 旧版把这些都放在 state 里。表还是空的才导入（导入后存档里就不再有这些字段，重复导入会翻倍）。

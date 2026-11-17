@@ -670,6 +670,33 @@ do
         assert(Vault.cardCount() == 1)
         resetVault()
     end
+    -- v5 存档里重复的明信片 / 近况：升到 v8 时去重一次，之后不再跑
+    do
+        resetVault()
+        Vault.cardAdd({ key = "a", place = "p", at = 1, line = "x" })
+        Vault.cardAdd({ key = "a", place = "p", at = 1, line = "x" })
+        Vault.cardAdd({ key = "b", place = "p", at = 2, line = "y" })
+        Vault.logAdd("t", 5) Vault.logAdd("t", 5) Vault.logAdd("t", 6)
+        local up = require("papersprite.core.state").load({ version = 5, wall_seen = 3 }, 0)
+        assert(up.version == 8 and Vault.cardCount() == 2 and Vault.card(2).key == "b" and #Vault.logList() == 2 and up.wall_seen == 2 and up.dedupe_pending == nil)
+        Vault.cardAdd({ key = "b", place = "p", at = 2, line = "y" })
+        require("papersprite.core.state").load(up, 0)
+        assert(Vault.cardCount() == 3, "v8 state is not deduped again")
+        -- 同一趟同一时刻寄出的几张不同的卡：只留最后一张，多余卡点亮的图鉴收回
+        resetVault()
+        for i = 1, 3 do Vault.cardAdd({ key = "k" .. i, place = "p", at = 9, line = "l" .. i, trip = 4 }) Vault.set("collected", "k" .. i, 9) end
+        Vault.cardAdd({ key = "other", place = "p", at = 10, line = "o", trip = 5 })
+        require("papersprite.core.state").load({ version = 6 }, 0)
+        assert(Vault.cardCount() == 2 and Vault.card(1).key == "k3" and Vault.get("collected", "k1") == nil and Vault.get("collected", "k3") == 9)
+        assert(Vault.cardSent(4, 9) and not Vault.cardSent(4, 8))
+        -- 同一时刻 3 条以上的近况是重复结算，只留最后一条；两条撞时间的不动
+        resetVault()
+        Vault.logAdd("a1", 7) Vault.logAdd("a2", 7) Vault.logAdd("a3", 7) Vault.logAdd("b1", 8) Vault.logAdd("b2", 8)
+        require("papersprite.core.state").load({ version = 7 }, 0)
+        local texts = Vault.logList()
+        assert(#texts == 3 and texts[1] == "a3" and texts[2] == "b1" and texts[3] == "b2")
+        resetVault()
+    end
     -- 旧的 save.lua 先补坏书签再导入
     St._reset(); kv = {}; tbl = {}; moon = nil
     files["/D/.moon/game/paper-sprite/save.lua"] = { data = { state = { trips = 8, postcards = {} } } }

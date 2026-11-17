@@ -2,7 +2,7 @@
 --[[-- 存档结构与版本迁移。存档只含纯数据表（LuaSettings 可序列化）。 --]]
 local State = {}
 
-State.VERSION = 5
+State.VERSION = 8
 
 function State.fresh(now)
     return {
@@ -85,6 +85,12 @@ local MIGRATIONS = {
         s.quests = s.quests or {}
         s.quests.list = {}
     end,
+    -- v5 → v6：明信片 / 近况有过重复行。导入完成后去重一次（见 load），版本号推进后不再跑。
+    [5] = function(s) s.dedupe_pending = true end,
+    -- v6 → v7：重复结算寄出过「同一趟同一时刻」的几十张卡，v6 的判重认不出，再清一次
+    [6] = function(s) s.dedupe_pending = true end,
+    -- v7 → v8：重复结算还刷出了几条同一时刻的出门 / 寄到近况，再清一次
+    [7] = function(s) s.dedupe_pending = true end,
 }
 
 function State.load(raw, now)
@@ -100,6 +106,10 @@ function State.load(raw, now)
     local Vault = require("papersprite.core.vault")
     Vault.import(s)
     s.postcards, s.log, s.log_at = nil, nil, nil
+    if s.dedupe_pending then
+        Vault.dedupe(s)
+        s.dedupe_pending = nil
+    end
     for field in pairs(require("papersprite.core.tables").FIELD) do s[field] = nil end
     -- 缺字段补默认
     for k, v in pairs(State.fresh(now)) do if s[k] == nil then s[k] = v end end
