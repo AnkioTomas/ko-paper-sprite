@@ -232,7 +232,7 @@ function M.dedupe(s)
     end
     local drop, kept = purge("paper_postcards", function(r)
         local trip = Tables.cardOf(r, Storage.decode).trip
-        if trip then return "t" .. trip .. "@" .. tonumber(r.at) end
+        if trip then return "t" .. trip .. "@" .. tostring(tonumber(r.at)) end
         return table.concat({ tostring(r.key), tostring(r.place), tostring(tonumber(r.at)), tostring(r.line) }, "\31")
     end)
     local keep = {}
@@ -245,8 +245,8 @@ function M.dedupe(s)
     be.scan("paper_log", function(r) local at = tonumber(r.at) per_at[at] = (per_at[at] or 0) + 1 end)
     purge("paper_log", function(r)
         local at = tonumber(r.at)
-        if per_at[at] >= 3 then return "@" .. at end
-        return tostring(r.text) .. "\31" .. at
+        if per_at[at] >= 3 then return "@" .. tostring(at) end
+        return tostring(r.text) .. "\31" .. tostring(at)
     end)
     s.wall_seen = math.min(s.wall_seen or 0, M.cardCount())
 end
