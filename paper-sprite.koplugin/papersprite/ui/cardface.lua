@@ -15,6 +15,7 @@ function M.of(c)
         scene = Game.cardScene(c),
         line = c.line or "",
         date = os.date("%Y-%m-%d", c.at or 0),
+        time = os.date("%H:%M", c.at or 0),
         stamp = os.date("%m.%d", c.at or 0),
         zip = place and place.zip or "",
         dear = T("致"),

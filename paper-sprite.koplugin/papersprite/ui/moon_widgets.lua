@@ -348,7 +348,7 @@ function M.postcardsBuild(w, h)
                         VerticalGroup:new{ align = "left",
                             line(T, "body", (pc.new and tr("新 · ") or "") .. pc.place .. " · " .. pc.weather, tw),
                             line(T, "caption", pc.line, tw, "muted"),
-                            line(T, "caption", pc.date, tw, "faint") } }
+                            line(T, "caption", pc.date .. " " .. pc.time, tw, "faint") } }
                     rects[#rects + 1] = { pad + bd, y0 + (k - 1) * (rh + gap), inner, rh, open(pc.index) }
                 else
                     col[#col + 1] = WidgetContainer:new{ dimen = Geom:new{ w = inner, h = rh } }

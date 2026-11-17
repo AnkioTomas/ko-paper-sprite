@@ -476,6 +476,7 @@ local function back(pc, iw, ih, mode)
     if has(pc.place) then fields[#fields + 1] = { pc.place, place_size, true } end
     if has(pc.weather) then fields[#fields + 1] = { pc.weather, meta_size, false } end
     if has(pc.date) then fields[#fields + 1] = { pc.date, meta_size, false } end
+    if has(pc.time) then fields[#fields + 1] = { pc.time, meta_size, false } end
     local addr_bits = {}
     for i, field in ipairs(fields) do
         if i > 1 then addr_bits[#addr_bits + 1] = VerticalSpan:new{ width = 6 } end
