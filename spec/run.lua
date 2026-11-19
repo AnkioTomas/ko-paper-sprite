@@ -2549,3 +2549,41 @@ do -- 显色：按设备分三种，判定与取色都集中在 ui/display；合
     D.reset()
     for _, name in ipairs(names) do package.loaded[name] = saved[name] end
 end
+
+do -- db.transaction 嵌套：同一连接不能再 BEGIN，内层必须走 SAVEPOINT（读书墙批量写里会记近况）
+    unpack = unpack or table.unpack
+    local sqls = {}
+    local saved_db, saved_conn = package.loaded["papersprite.core.db"], package.preload["lua-ljsqlite3/init"]
+    local Storage = require("papersprite.core.storage")
+    local saved_deps = { mkdirp = Storage.deps.mkdirp, dataDir = Storage.deps.dataDir }
+    Storage.deps.mkdirp, Storage.deps.dataDir = function() end, function() return "/tmp" end
+    package.preload["lua-ljsqlite3/init"] = function()
+        return { open = function()
+            local conn = {}
+            function conn:exec() end
+            function conn:prepare(sql)
+                return { bind = function() end, close = function() end,
+                    step = function() sqls[#sqls + 1] = sql end }
+            end
+            return conn
+        end }
+    end
+    package.loaded["papersprite.core.db"] = nil
+    local DB = require("papersprite.core.db")
+    DB.exec("SELECT 1;") -- 先打开连接（含一次性 dedupe 事务），再只看嵌套事务的语句
+    sqls = {}
+    assert(DB.transaction(function()
+        assert(DB.transaction(function() return true end))
+        return true
+    end))
+    assert(table.concat(sqls, "|") == "BEGIN IMMEDIATE;|SAVEPOINT sp1;|RELEASE SAVEPOINT sp1;|COMMIT;", table.concat(sqls, "|"))
+    sqls = {}
+    assert(DB.transaction(function()
+        assert(DB.transaction(function() return nil end) == nil)
+        return true
+    end))
+    assert(table.concat(sqls, "|"):find("ROLLBACK TO SAVEPOINT sp1;|RELEASE SAVEPOINT sp1;", 1, true)
+        and sqls[#sqls] == "COMMIT;", "inner failure rolls back only the savepoint")
+    package.loaded["papersprite.core.db"], package.preload["lua-ljsqlite3/init"] = saved_db, saved_conn
+    Storage.deps.mkdirp, Storage.deps.dataDir = saved_deps.mkdirp, saved_deps.dataDir
+end

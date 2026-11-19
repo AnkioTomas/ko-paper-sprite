@@ -98,12 +98,23 @@ function M.each(sql, binds, fn)
     return ok
 end
 
---- fn 返回真才提交；抛错先回滚再抛
+local depth = 0
+
+--- fn 返回真才提交；抛错先回滚再抛。嵌套调用用 SAVEPOINT（同一连接不能再 BEGIN）。
 function M.transaction(fn)
-    if not M.exec("BEGIN IMMEDIATE;") then return nil end
+    local nested = depth > 0
+    local name = "sp" .. depth
+    if not M.exec(nested and ("SAVEPOINT " .. name .. ";") or "BEGIN IMMEDIATE;") then return nil end
+    depth = depth + 1
     local ok, result = pcall(fn)
-    if ok and result and M.exec("COMMIT;") then return result end
-    M.exec("ROLLBACK;")
+    depth = depth - 1
+    if ok and result and M.exec(nested and ("RELEASE SAVEPOINT " .. name .. ";") or "COMMIT;") then return result end
+    if nested then
+        M.exec("ROLLBACK TO SAVEPOINT " .. name .. ";")
+        M.exec("RELEASE SAVEPOINT " .. name .. ";")
+    else
+        M.exec("ROLLBACK;")
+    end
     if not ok then error(result, 0) end
 end
 
