@@ -6,6 +6,8 @@
 阅读联动：账本还记最近在读的那本书的类型（按书名 / 关键词归到地点类型）和读完的书；
 折算时类型让阿页下一趟更爱去对应地方（48 小时内有效）。读完的书变成书签，
 阁楼日志写一句带书名的告别；有划线时书签带上用户自己的那句（最多 42 字）。
+月读已读在打开阁楼或读书墙时按名册指纹对账后同步到墙上（沿用月读完成时间，不发灵感）；
+只有合格翻页记下的读完才奖励灵感，避免批量手动已读刷奖。
 --]]
 local M = { PAGES_PER_POINT = 20, FINISH_REWARD = 5, TAG_TTL = 48 * 3600, MIN_DWELL = 10 }
 
@@ -106,7 +108,7 @@ function M.record(now, book, step, dwell)
             end
             if not seen then
                 done[#done + 1] = { id = book.id, title = book.title, at = now, tag = tag,
-                    quote = M.clip(book.quote), cover = book.cover }
+                    quote = M.clip(book.quote), cover = book.cover, aliases = book.aliases }
                 s:saveSetting("finished", done)
             end
         end
@@ -115,8 +117,25 @@ function M.record(now, book, step, dwell)
     s:flush()
 end
 
+--- 是否需要向月读拉已读。opts.moon 为真才查（打开阁楼 / 进读书墙）；定时 tick 不扫。
+--- 先取完整已读名册做指纹对账：指纹没变才跳过明细，避免 COUNT+MAX 在迟到+新书或同水位换集时漏同步。
+--- 查询失败或写入失败不前推指纹，下次重试。
+local function pullMoon(state)
+    local Moon = require("papersprite.core.moon_books")
+    local roster = Moon.roster()
+    if not roster then return nil, "unavailable" end
+    local fp = Moon.fingerprint(roster)
+    if type(state.moon_sync_fp) == "string" and state.moon_sync_fp ~= "" and state.moon_sync_fp == fp then
+        return {}, { fp = fp }
+    end
+    local rows = Moon.finished()
+    if not rows then return nil, "unavailable" end
+    return rows, { fp = fp }
+end
+
 --- 把账本里新增的内容折算进存档 state；返回新增灵感。
-function M.collect(state)
+--- opts.moon：顺带按名册指纹同步月读已读（历史 / 后来在月读里标记的都不发奖）。
+function M.collect(state, opts)
     local s = open()
     local Quest = require("papersprite.core.quest")
     local pages = s:readSetting("pages") or 0
@@ -131,23 +150,31 @@ function M.collect(state)
     local legacy = state.bookmarks -- 旧版把读完的书放在存档里，搬进书架表
     local done = {}
     for _, b in ipairs(s:readSetting("finished") or {}) do done[#done + 1] = b end
-    if not legacy and #done == 0 and state.moon_imported == 3 then return math.max(0, gained) end
+    local sync_moon = opts and opts.moon
+    if not legacy and #done == 0 and not sync_moon then return math.max(0, gained) end
+    local moon_rows, moon_stats, moon_err
+    if sync_moon then
+        moon_rows, moon_stats = pullMoon(state)
+        if not moon_rows then moon_err = moon_stats or "unavailable" end
+        for _idx, b in ipairs(moon_rows or {}) do
+            b.tag, b.backfill = M.tagOf(b.title), true
+            done[#done + 1] = b
+        end
+    end
+    if not legacy and #done == 0 then
+        -- 月读查询失败：指纹不动。成功但对账无新明细（含空名册）：记下当前指纹，下次指纹不变则不再拉明细。
+        if sync_moon and not moon_err and moon_stats then
+            state.moon_sync_fp = moon_stats.fp
+        end
+        return math.max(0, gained)
+    end
     local rest, failed = {}, false
     local ran = Shelf.batch(function()
         for _idx, b in ipairs(legacy or {}) do
             -- 1.9.1 存下过 title 不是字符串的坏书签；没有阅读时间（1970）的不是在这台设备上读的；
             -- 没有 id 的是旧版月读导入（缺封面 / 摘录），下面重导
-            if type(b.title) == "string" and (b.at or 0) > 0 and (b.id or state.moon_imported == 3) then Shelf.add(b) end
-        end
-        if state.moon_imported ~= 3 then
-            local moon = require("papersprite.core.moon_books").finished()
-            if moon then
-                state.moon_imported = 3
-                for _idx, b in ipairs(moon) do
-                    b.tag, b.backfill = M.tagOf(b.title), true
-                    done[#done + 1] = b
-                end
-            end
+            if type(b.title) == "string" and (b.at or 0) > 0 and (b.id or state.moon_imported == 3
+                or state.moon_sync_fp) then Shelf.add(b) end
         end
         for _idx, b in ipairs(done) do
             b.line = M.farewell(b.title, b.tag)
@@ -166,7 +193,12 @@ function M.collect(state)
     end)
     if not ran then return math.max(0, gained) end -- 库不可用：什么都不动，下次再收
     state.bookmarks = nil
-    if failed then state.moon_imported = nil end
+    if failed or moon_err then
+        -- 失败不前推水位，下次再同步；旧字段清掉以免误以为一次导入已完成
+        if failed then state.moon_imported = nil end
+    elseif sync_moon and moon_stats then
+        state.moon_sync_fp = moon_stats.fp
+    end
     -- 账本里读完的书只是待收的队列，收进书架就清掉，写不进的留到下次
     if #(s:readSetting("finished") or {}) > 0 then
         local keep = {}

@@ -37,12 +37,12 @@ function Game.new(host)
     return self
 end
 
-function Game:tick()
+function Game:tick(opts)
     -- 以落盘的为准（首页卡片 / AI 回调 / 其他入口可能改过）
     self.state = State.load(self.host:loadState() or self.state, self.host:now())
     local ok, Reading = pcall(require, "papersprite.core.reading")
     if ok then
-        local collected, err = pcall(Reading.collect, self.state)
+        local collected, err = pcall(Reading.collect, self.state, opts)
         if not collected then require("logger").err("papersprite reading collect:", err) end
     else
         require("logger").err("papersprite reading module:", Reading)
@@ -66,7 +66,7 @@ function Game:tick()
 end
 
 function Game:show()
-    self:tick()
+    self:tick({ moon = true })
     self:render()
     self:_almanac()
     return self
@@ -133,6 +133,15 @@ end
 function Game:go(page, arg)
     -- 进明信片墙时记下「上次看到哪」，这一趟翻页 / 切视图 / 看单张回来，「新」角标都还在
     if page == "wall" and self.page ~= "wall" and self.page ~= "card" then self._wall_seen0 = self.state.wall_seen or 0 end
+    -- 进读书墙先按名册指纹对账再渲染；指纹没变时只拉轻量名册，不取封面和摘录。
+    if page == "bookwall" then
+        local ok, Reading = pcall(require, "papersprite.core.reading")
+        if ok then
+            local collected, err = pcall(Reading.collect, self.state, { moon = true })
+            if not collected then require("logger").err("papersprite reading collect:", err) end
+            self.host:saveState(self.state)
+        end
+    end
     self.page, self.arg = page, arg
     self:render()
 end

@@ -97,15 +97,38 @@ function PaperSprite:_quote()
     end
 end
 
--- 当前书的书名 / 关键词。读到 99% 算读完（与月读一致）；读完时带上划线。
+-- 当前书的书名 / 关键词。月读认领的书用全书已读/进度，避免分章文档按页误判；
+-- 其余（原生 KOReader 整书）仍是总页数 ≥ 20 且读到 99%。读完时带上划线。
 function PaperSprite:_bookInfo(pageno)
     local props = self.ui.doc_props or {}
     local total = self.ui.document:getPageCount()
-    local finished = type(total) == "number" and total >= 20 and pageno >= total * 0.99
     local file = self.ui.document.file
-    local id, cover
+    local moon
     if type(file) == "string" and file ~= "" then
-        id = require("ffi/sha2").md5(file)
+        local ok, info = pcall(function()
+            return require("papersprite.core.moon_books").forFile(file)
+        end)
+        if ok then moon = info end
+    end
+    -- 已认领（含身份查询失败）绝不回退到当前文档页数，以免分章中间页被当成整本读完并发奖。
+    local claimed = moon and (moon.claimed == true or moon.id)
+    local finished
+    if claimed then
+        finished = moon.finished == true
+    else
+        finished = type(total) == "number" and total >= 20 and pageno >= total * 0.99
+    end
+    local id, cover, aliases
+    if type(file) == "string" and file ~= "" then
+        local file_hash = require("ffi/sha2").md5(file)
+        id = (moon and moon.id) or (not claimed and file_hash) or nil
+        aliases = moon and moon.aliases
+        if id and file_hash and file_hash ~= id then
+            aliases = { file_hash }
+            for _idx, a in ipairs((moon and moon.aliases) or {}) do
+                if a ~= file_hash then aliases[#aliases + 1] = a end
+            end
+        end
         if finished then
             if self._cover_file ~= file then
                 self._cover_file, self._cover_path = file, nil
@@ -134,7 +157,7 @@ function PaperSprite:_bookInfo(pageno)
         end
     end
     return { title = props.display_title or props.title, keywords = (props.keywords or "") .. " " .. (props.description or ""),
-        id = id, cover = cover, finished = finished, quote = finished and self:_quote() or nil }
+        id = id, cover = cover, aliases = aliases, finished = finished, quote = finished and self:_quote() or nil }
 end
 
 -- 阿页依赖月读：没装月读时只弹提示，不开游戏

@@ -85,8 +85,12 @@ local function fakeShelf()
         return out
     end
     function impl.add(b)
+        local ids = require("papersprite.core.shelf").idsOf(b)
         for _, r in ipairs(rows) do
             if r.key == b.key or (r.title == b.title and (not r.id or not b.id)) then return false end
+            for _, ident in ipairs(ids) do
+                if r.key == ident or r.id == ident then return false end
+            end
         end
         local r = {}
         for k, v in pairs(b) do r[k] = v end
@@ -1014,38 +1018,399 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     assert(Reading.collect(edition_wall) == 10 and #shelf_rows == 2
         and shelf_rows[1].cover == "/covers/a.png", "bookmarks retain cover paths and same-title editions")
     assert(#(editions.finished or {}) == 0 and Reading.collect(edition_wall) == 0, "collected books leave the queue")
-    package.preload["utils.db"] = function()
-        return { each = function(sql, _, fn)
-            if sql:find("FROM notes", 1, true) then return fn({ "NOTE" }) end
-            fn({ "同名书", 6, "local", "b" }) fn({ "月读已读", 5, "local", "a" })
-        end }
+    local moon_catalog = {
+        { "同名书", 6, "local", "b" },
+        { "月读已读", 5, "local", "a" },
+    }
+    local moon_files = {}
+    local moon_queries = { stats = 0, finished = 0, failed = false }
+    local function stubMoon()
+        package.loaded["utils.db"], package.loaded["papersprite.core.moon_books"] = nil, nil
+        package.preload["utils.db"] = function()
+            return { each = function(sql, binds, fn)
+                if moon_queries.failed then return false end
+                if sql:find("FROM notes", 1, true) then fn({ "NOTE" }) return true end
+                if sql:find("SELECT path FROM", 1, true) then
+                    local src, sid = binds and binds[1], binds and binds[2]
+                    for _, f in pairs(moon_files) do
+                        if f.source_id == src and f.stable_id == sid and f.path
+                            and ((sql:find("FROM chapters", 1, true) and f.kind == "chapter")
+                                or (sql:find("FROM books", 1, true) and f.kind == "book")) then
+                            fn({ f.path })
+                        end
+                    end
+                    for _, r in ipairs(moon_catalog) do
+                        if r[3] == src and r[4] == sid and r.path then fn({ r.path }) end
+                    end
+                    return true
+                end
+                if sql:find("FROM chapters", 1, true) or (sql:find("FROM books", 1, true) and sql:find("path =", 1, true)) then
+                    local hit = moon_files[binds and binds[1]]
+                    if hit and hit.kind == "chapter" and sql:find("FROM chapters", 1, true) then
+                        if hit.fail then return false end
+                        fn({ hit.source_id, hit.stable_id }); return true
+                    end
+                    if hit and hit.kind == "book" and sql:find("FROM books", 1, true) then
+                        fn({ hit.source_id, hit.stable_id }); return true
+                    end
+                    return true
+                end
+                if sql:find("SELECT b.read_state", 1, true) then
+                    local hit
+                    for _, f in pairs(moon_files) do
+                        if f.source_id == (binds and binds[1]) and f.stable_id == (binds and binds[2]) then hit = f break end
+                    end
+                    if hit then fn({ hit.read_state, hit.fraction }) end
+                    return true
+                end
+                if sql:find("SELECT b.source_id", 1, true) then
+                    moon_queries.roster = (moon_queries.roster or 0) + 1
+                    for _, r in ipairs(moon_catalog) do fn({ r[3], r[4], r[2] }) end
+                    return true
+                end
+                if sql:find("SELECT b.title", 1, true) then
+                    moon_queries.finished = moon_queries.finished + 1
+                    for _, r in ipairs(moon_catalog) do fn(r) end
+                    return true
+                end
+                error("unexpected moon sql: " .. sql)
+            end }
+        end
+        package.preload["json"] = function()
+            return { decode = function() return { items = { { drawer = "" , text = "书签" }, { drawer = "lighten", text = "划过的一句" } } } end }
+        end
+        package.preload["utils.paths"] = function() return { coverPath = function(id) return "/cache/" .. id .. ".png" end } end
+        package.preload["libs/libkoreader-lfs"] = function()
+            return { attributes = function(path) return path == "/cache/a.png" and "file" or nil end }
+        end
     end
-    package.preload["json"] = function()
-        return { decode = function() return { items = { { drawer = "" , text = "书签" }, { drawer = "lighten", text = "划过的一句" } } } end }
-    end
-    package.preload["utils.paths"] = function() return { coverPath = function(id) return "/cache/" .. id .. ".png" end } end
-    package.preload["libs/libkoreader-lfs"] = function()
-        return { attributes = function(path) return path == "/cache/a.png" and "file" or nil end }
-    end
+    stubMoon()
     local moon_wall, moon_rows = State.fresh(1000), fakeShelf()
     moon_wall.bookmarks = { { title = 1984, at = 1 }, { id = "old", title = "旧书", at = 3, thought = "旧的感悟" } }
-    assert(Reading.collect(moon_wall) == 0 and #moon_rows == 3 and moon_wall.bookmarks == nil,
+    assert(Reading.collect(moon_wall, { moon = true }) == 0 and #moon_rows == 3 and moon_wall.bookmarks == nil,
         "legacy bookmarks move to the shelf (bad title dropped), moon books backfill without reward")
+    assert(type(moon_wall.moon_sync_fp) == "string" and moon_wall.moon_sync_fp ~= "", "successful import stores moon roster fingerprint")
     assert(moon_rows[1].thought == "旧的感悟", "legacy thought kept")
     assert(moon_rows[2].title == "月读已读" and moon_rows[2].cover == "/cache/a.png", "moon cover only when cached")
     assert(moon_rows[2].quote == "划过的一句", "moon first highlight kept as AI context")
-    assert(Reading.collect(moon_wall) == 0 and #moon_rows == 3, "moon books are collected once")
-    for _, m in ipairs({ "utils.db", "utils.paths", "libs/libkoreader-lfs", "json" }) do package.preload[m], package.loaded[m] = nil, nil end
+    assert(moon_rows[2].id == "moon:local:a" and moon_rows[3].id == "moon:local:b", "moon books use stable source+id")
+    local roster_before = moon_queries.roster or 0
+    local finished_before = moon_queries.finished
+    local fp = moon_wall.moon_sync_fp
+    assert(Reading.collect(moon_wall, { moon = true }) == 0 and #moon_rows == 3, "moon books are collected once")
+    assert(moon_wall.moon_sync_fp == fp, "unchanged roster keeps the same fingerprint")
+    assert((moon_queries.roster or 0) == roster_before + 1 and moon_queries.finished == finished_before,
+        "unchanged fingerprint only reruns the lightweight roster, not the detail query")
+    assert(Reading.collect(moon_wall) == 0 and (moon_queries.roster or 0) == roster_before + 1,
+        "collect without opts.moon does not scan the moon library")
+
+    -- 空首次成功查询只记下 0 水位，后来的已读还能补进墙，且不发奖
+    moon_catalog = {}
+    moon_queries.stats, moon_queries.finished = 0, 0
+    stubMoon()
+    local empty_wall, empty_rows = State.fresh(1000), fakeShelf()
+    assert(Reading.collect(empty_wall, { moon = true }) == 0 and #empty_rows == 0
+        and type(empty_wall.moon_sync_fp) == "string" and empty_wall.moon_sync_fp ~= ""
+        and empty_wall.inspiration == 10, "empty first import stores an empty-roster fingerprint, not a permanent skip")
+    local empty_fp = empty_wall.moon_sync_fp
+    moon_catalog = { { "后来才标已读", 2000, "local", "late" } }
+    stubMoon()
+    assert(Reading.collect(empty_wall, { moon = true }) == 0 and #empty_rows == 1
+        and empty_rows[1].title == "后来才标已读" and empty_rows[1].at == 2000
+        and empty_rows[1].backfill == true and empty_wall.inspiration == 10
+        and empty_wall.moon_sync_fp ~= empty_fp,
+        "books marked read after an empty first import are backfilled without reward")
+
+    -- 旧版 moon_imported=3 的存档也要补漏；同名不同书（都有稳定 id）不合并
+    moon_catalog = {
+        { "同名经典", 10, "wechat", "id-one" },
+        { "同名经典", 11, "local", "id-two" },
+    }
+    stubMoon()
+    local catchup, catchup_rows = State.fresh(1000), fakeShelf()
+    catchup.moon_imported = 3
+    assert(Reading.collect(catchup, { moon = true }) == 0 and #catchup_rows == 2
+        and catchup.inspiration == 10, "legacy one-shot flag still backfills distinct same-title moon books")
+    local catchup_ids = {}
+    for _, r in ipairs(catchup_rows) do catchup_ids[r.id] = true end
+    assert(catchup_ids["moon:wechat:id-one"] and catchup_ids["moon:local:id-two"],
+        "same-title moon books with different stable ids stay two wall entries")
+
+    -- 迟到的旧时间已读：条数增加但最大时间不变，必须全量补漏而不是只取新水位
+    moon_catalog = { { "先在墙里", 50, "local", "newish" } }
+    stubMoon()
+    local late_wall, late_rows = State.fresh(1000), fakeShelf()
+    assert(Reading.collect(late_wall, { moon = true }) == 0 and #late_rows == 1)
+    moon_catalog = {
+        { "先在墙里", 50, "local", "newish" },
+        { "迟到的旧已读", 20, "local", "older" },
+    }
+    stubMoon()
+    assert(Reading.collect(late_wall, { moon = true }) == 0 and #late_rows == 2
+        and late_rows[2].title == "迟到的旧已读" and late_rows[2].at == 20,
+        "late older finished books are caught when the roster fingerprint changes")
+
+    -- 手动/跳转/EndOfBook 只要已落入月读已读名册，下次对账就能上墙且不发奖
+    moon_catalog = {
+        { "先在墙里", 50, "local", "newish" },
+        { "迟到的旧已读", 20, "local", "older" },
+        { "刚标记已读", 80, "local", "fresh" },
+    }
+    stubMoon()
+    assert(Reading.collect(late_wall, { moon = true }) == 0 and #late_rows == 3
+        and late_rows[3].title == "刚标记已读" and late_rows[3].at == 80 and late_wall.inspiration == 10,
+        "manual or jump-to-end marks that land in moon are collected on next sync without reward")
+
+    do
+    local function testRosterEdges()
+    -- 同一轮既有迟到旧书（时间早于旧最大时间）又有刷新最大时间的新书：两者都要进墙
+    moon_catalog = { { "水位书", 50, "local", "base" } }
+    stubMoon()
+    local mix_wall, mix_rows = State.fresh(1000), fakeShelf()
+    assert(Reading.collect(mix_wall, { moon = true }) == 0 and #mix_rows == 1)
+    moon_catalog = {
+        { "水位书", 50, "local", "base" },
+        { "同一轮迟到", 10, "local", "lag" },
+        { "同一轮新书", 90, "local", "newer" },
+    }
+    stubMoon()
+    assert(Reading.collect(mix_wall, { moon = true }) == 0 and #mix_rows == 3
+        and mix_wall.inspiration == 10,
+        "late and newer books in the same roster change are both backfilled without reward")
+    local mix_titles = {}
+    for _, r in ipairs(mix_rows) do mix_titles[r.title] = r.at end
+    assert(mix_titles["同一轮迟到"] == 10 and mix_titles["同一轮新书"] == 90,
+        "the late book is not dropped just because max at also moved forward")
+
+    -- 条数和最大时间都不变，但已读集合被替换：新身份可见，旧墙上纪念记录不删
+    moon_catalog = {
+        { "还在的", 20, "local", "keep" },
+        { "将被换掉", 50, "local", "gone" },
+    }
+    stubMoon()
+    local swap_wall, swap_rows = State.fresh(1000), fakeShelf()
+    assert(Reading.collect(swap_wall, { moon = true }) == 0 and #swap_rows == 2)
+    local swap_fp = swap_wall.moon_sync_fp
+    moon_catalog = {
+        { "还在的", 20, "local", "keep" },
+        { "换进来的", 50, "local", "enter" },
+    }
+    stubMoon()
+    assert(Reading.collect(swap_wall, { moon = true }) == 0 and #swap_rows == 3
+        and swap_wall.moon_sync_fp ~= swap_fp and swap_wall.inspiration == 10,
+        "same count and max at but a replaced identity still arrives; old wall rows are kept")
+    local swap_ids = {}
+    for _, r in ipairs(swap_rows) do swap_ids[r.id] = r.title end
+    assert(swap_ids["moon:local:gone"] == "将被换掉" and swap_ids["moon:local:enter"] == "换进来的")
+
+    end
+    testRosterEdges()
+    end
+
+    -- 强制未读不在目录里，不会被导入
+    moon_catalog = { { "刚标记已读", 80, "local", "fresh" } } -- catalog stub already only lists qualified rows
+    stubMoon()
+    local force_wall, force_rows = State.fresh(1000), fakeShelf()
+    -- 旧无 id 同名行与后来带稳定 id 的月读导入去重，不重复上墙
+    force_rows[1] = { key = "t:刚标记已读", title = "刚标记已读", at = 8 }
+    assert(Reading.collect(force_wall, { moon = true }) == 0 and #force_rows == 1
+        and force_rows[1].key == "t:刚标记已读", "legacy title-only shelf row is not duplicated by later moon id")
+
+    -- 库暂不可用 / 查询失败不前推水位，恢复后可重试
+    moon_catalog = { { "恢复后能进墙", 9, "local", "retry" } }
+    stubMoon()
+    moon_queries.failed = true
+    local fail_wall, fail_rows = State.fresh(1000), fakeShelf()
+    assert(Reading.collect(fail_wall, { moon = true }) == 0 and #fail_rows == 0
+        and fail_wall.moon_sync_fp == nil,
+        "a failed moon query does not advance the fingerprint")
+    moon_queries.failed = false
+    stubMoon()
+    assert(Reading.collect(fail_wall, { moon = true }) == 0 and #fail_rows == 1
+        and fail_rows[1].title == "恢复后能进墙" and type(fail_wall.moon_sync_fp) == "string",
+        "moon sync retries after the library is available again")
+
+    -- 写入失败不前推水位，可重试
+    moon_catalog = { { "先失败再写入", 12, "local", "write" } }
+    stubMoon()
+    local boom, boom_rows = State.fresh(1000), {}
+    local boom_impl = {}
+    function boom_impl.count() return #boom_rows end
+    function boom_impl.page() return boom_rows end
+    function boom_impl.pending() return {} end
+    function boom_impl.add() return nil end
+    function boom_impl.setThought() end
+    function boom_impl.batch(fn) fn() return true end
+    require("papersprite.core.shelf").use(boom_impl)
+    assert(Reading.collect(boom, { moon = true }) == 0 and #boom_rows == 0 and boom.moon_sync_fp == nil,
+        "a shelf write failure does not advance the fingerprint")
+    fakeShelf() -- restore a working shelf for later tests
+
+    -- 历史补导不发奖；合格翻页读完仍发奖；重复 collect 不再奖
     Reading._inject(reading_store)
     local shelf, rows = State.fresh(1000), fakeShelf()
     shelf.moon_imported = 3
     assert(Reading.collect(shelf) == 5)
     assert(rows[1].line:find("雾", 1, true) and logs()[#logs()]:find("灯"))
     assert(Reading.collect(shelf) == 0 and #rows == 1)
+    -- 同一本后来又出现在月读已读里，按稳定 id / 书名去重且不再发奖
+    moon_catalog = { { "雾", 1000, "local", "wu" } }
+    stubMoon()
+    -- 账本那条没有月读 id，同名且一边无 id，应视为同一本
+    assert(Reading.collect(shelf, { moon = true }) == 0 and #rows == 1,
+        "live finish and later moon backfill of the same title stay one bookmark and are not rewarded twice")
+
+    do
+    local function testRewardAndAliases()
+    -- 同一轮：先收合格翻页账本并发奖，再补月读已读，不重复奖、不凭手动标记发奖
+    local both = {}
+    Reading._inject({
+        readSetting = function(_, k) return both[k] end,
+        saveSetting = function(_, k, v) both[k] = v end,
+        flush = function() end,
+    })
+    Reading.record(70, { title = "同轮读完", finished = true, id = "moon:local:same" }, 1, 10)
+    moon_catalog = { { "同轮读完", 70, "local", "same" } }
+    stubMoon()
+    local both_wall, both_rows = State.fresh(1000), fakeShelf()
+    assert(Reading.collect(both_wall, { moon = true }) == 5 and #both_rows == 1
+        and both_wall.inspiration == 15,
+        "qualified flip is rewarded once even when moon backfill of the same id runs in the same collect")
+
+    moon_catalog = { { "先月读后翻页", 80, "local", "after" } }
+    stubMoon()
+    local order_wall, order_rows = State.fresh(1000), fakeShelf()
+    assert(Reading.collect(order_wall, { moon = true }) == 0 and #order_rows == 1 and order_wall.inspiration == 10)
+    local after = {}
+    Reading._inject({
+        readSetting = function(_, k) return after[k] end,
+        saveSetting = function(_, k, v) after[k] = v end,
+        flush = function() end,
+    })
+    Reading.record(90, { title = "先月读后翻页", finished = true, id = "moon:local:after" }, 1, 10)
+    assert(Reading.collect(order_wall, { moon = true }) == 0 and #order_rows == 1 and order_wall.inspiration == 10,
+        "a later qualified flip of a book already synced from moon is not rewarded again")
+
+    package.loaded["ffi/sha2"] = { md5 = function(path) return "hash:" .. path end }
+    local hashed = { "哈希同本", 15, "local", "hashed" }
+    hashed.path = "/books/hashed.epub"
+    moon_catalog = { hashed }
+    moon_files["/books/hashed.epub"] = { kind = "book", source_id = "local", stable_id = "hashed",
+        path = "/books/hashed.epub", read_state = 1, fraction = 1 }
+    stubMoon()
+    local hash_wall, hash_rows = State.fresh(1000), fakeShelf()
+    hash_rows[1] = { key = "hash:/books/hashed.epub", id = "hash:/books/hashed.epub", title = "哈希同本", at = 3 }
+    assert(Reading.collect(hash_wall, { moon = true }) == 0 and #hash_rows == 1
+        and hash_rows[1].id == "hash:/books/hashed.epub" and hash_wall.inspiration == 10,
+        "old file-hash wall row maps to moon id via registered path and is not duplicated or rewarded")
+    local other = { "仅同名", 16, "local", "other" }
+    other.path = "/books/other.epub"
+    moon_catalog = { other }
+    moon_files["/books/other.epub"] = { kind = "book", source_id = "local", stable_id = "other",
+        path = "/books/other.epub", read_state = 1, fraction = 1 }
+    stubMoon()
+    local title_wall, title_rows = State.fresh(1000), fakeShelf()
+    title_rows[1] = { key = "hash:/books/unrelated.epub", id = "hash:/books/unrelated.epub", title = "仅同名", at = 4 }
+    assert(Reading.collect(title_wall, { moon = true }) == 0 and #title_rows == 2
+        and title_rows[1].id == "hash:/books/unrelated.epub" and title_rows[2].id == "moon:local:other",
+        "same title with no path evidence stays two books; the old hash row is kept")
+
+    end
+    testRewardAndAliases()
+    end
+
+    -- 月读分章：中间章页码 99% 不完读；全书进度 / 已读才完读；短末章也能完读
+    local MoonBooks = require("papersprite.core.moon_books")
+    moon_files["/chapters/mid.epub"] = { kind = "chapter", source_id = "wechat", stable_id = "serial",
+        read_state = 0, fraction = 0.45 }
+    moon_files["/chapters/last.epub"] = { kind = "chapter", source_id = "wechat", stable_id = "serial-end",
+        read_state = 0, fraction = 0.99 }
+    moon_files["/chapters/marked.epub"] = { kind = "chapter", source_id = "wechat", stable_id = "done",
+        read_state = 1, fraction = 1 }
+    moon_files["/chapters/unread.epub"] = { kind = "chapter", source_id = "wechat", stable_id = "forced",
+        read_state = 2, fraction = 1 }
+    moon_files["/whole.epub"] = { kind = "book", source_id = "local", stable_id = "epub",
+        read_state = 0, fraction = 0.5 }
+    stubMoon()
+    MoonBooks = require("papersprite.core.moon_books")
+    local mid = MoonBooks.forFile("/chapters/mid.epub")
+    local last = MoonBooks.forFile("/chapters/last.epub")
+    local marked = MoonBooks.forFile("/chapters/marked.epub")
+    local forced = MoonBooks.forFile("/chapters/unread.epub")
+    local whole = MoonBooks.forFile("/whole.epub")
+    local unknown = MoonBooks.forFile("/other.epub")
+    assert(mid and mid.id == "moon:wechat:serial" and mid.finished == false, "mid-chapter progress is not whole-book finished")
+    assert(last and last.finished == true, "short last chapter still finishes when moon fraction is 99%")
+    assert(marked and marked.finished == true, "moon EndOfBook / setRead (read_state=1) is finished")
+    assert(forced and forced.finished == false, "forced unread is not finished even at 100%")
+    assert(whole and whole.finished == false and unknown == nil, "unfinished whole file and unknown path fall through")
+    do
+    local function testIdentityMapping()
+    package.preload["reader.session.derived_note"] = function()
+        return { originOf = function(path) return path == "/derived/copy.epub" and "/chapters/mid.epub" or nil end }
+    end
+    package.loaded["reader.session.derived_note"] = nil
+    package.loaded["papersprite.core.moon_books"] = nil
+    MoonBooks = require("papersprite.core.moon_books")
+    local derived = MoonBooks.forFile("/derived/copy.epub")
+    assert(derived and derived.claimed and derived.id == "moon:wechat:serial" and derived.finished == false,
+        "derived edition follows the origin book's whole-book progress")
+    moon_files["/outside/book.epub"] = { kind = "book", source_id = "local", stable_id = "/outside/book.epub",
+        read_state = 1, fraction = 1 }
+    package.preload["utils.settings"] = function()
+        return { getSource = function() return { path = "/library" } end }
+    end
+    package.loaded["utils.settings"], package.loaded["papersprite.core.moon_books"] = nil, nil
+    MoonBooks = require("papersprite.core.moon_books")
+    assert(MoonBooks.forFile("/outside/book.epub") == nil,
+        "legacy local rows outside the scan root are not treated as moon-managed")
+    moon_files["/chapters/broken.epub"] = { kind = "chapter", fail = true }
+    package.loaded["papersprite.core.moon_books"] = nil
+    MoonBooks = require("papersprite.core.moon_books")
+    local broken = MoonBooks.forFile("/chapters/broken.epub")
+    assert(broken and broken.claimed == true and broken.finished == false and not broken.id,
+        "a failed chapter identity lookup stays claimed and unfinished, not a native whole-book finish")
+    end
+    testIdentityMapping()
+    end
+
+    -- 打开阁楼 / 进读书墙会带上月读同步；进其他页或定时 tick 不会全表重扫
+    local prev_reading = package.loaded["papersprite.core.reading"]
+    local collect_calls = {}
+    package.loaded["papersprite.core.reading"] = {
+        collect = function(state, opts)
+            collect_calls[#collect_calls + 1] = { page = nil, moon = opts and opts.moon or false }
+            return 0
+        end,
+    }
+    local saved, saved_view = H.saved, H.view
+    resetVault()
+    H.saved = State.fresh(0)
+    H.saved.visitor = { id = "inkbug", pose = "", until_at = 1e12 }
+    local g = require("papersprite.game").new(H.host):show()
+    assert(collect_calls[1] and collect_calls[1].moon == true, "opening the attic syncs moon already-read books")
+    local after_show = #collect_calls
+    g:go("cabinet")
+    assert(#collect_calls == after_show, "opening another collection page does not moon-sync")
+    g:go("bookwall")
+    assert(collect_calls[#collect_calls] and collect_calls[#collect_calls].moon == true,
+        "opening the reading wall syncs moon already-read books")
+    local after_wall = #collect_calls
+    g:tick()
+    assert(#collect_calls == after_wall + 1 and collect_calls[#collect_calls].moon == false,
+        "attic timer ticks collect the ledger without a moon rescan")
+    if g.close then g:close() end
+    H.saved, H.view = saved, saved_view
+    package.loaded["papersprite.core.reading"] = prev_reading
+
     Reading._inject({ readSetting = function() error("reading store unavailable") end })
     local collected = pcall(Reading.collect, State.fresh(1000))
     assert(not collected, "reading storage failures must reach the caller")
     Reading._inject(reading_store)
+    for _, m in ipairs({ "utils.db", "utils.paths", "libs/libkoreader-lfs", "json", "papersprite.core.moon_books",
+        "reader.session.derived_note", "utils.settings" }) do
+        package.preload[m], package.loaded[m] = nil, nil
+    end
     local names = {
         "main", "logger", "ui/widget/container/widgetcontainer",
         "papersprite.ui.reader_overlay", "papersprite.core.reading",
@@ -1103,10 +1468,43 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
         },
     }, { __index = Main })
     local info = Main._bookInfo(book, 20)
-    assert(info.id == "book-id" and info.cover == "/fake/paper-sprite/covers/book-id.png"
+    assert(info.id == "book-id" and info.finished == true and info.cover == "/fake/paper-sprite/covers/book-id.png"
         and written == info.cover .. ":png" and cover_calls == 1 and freed == 1)
     Main._bookInfo(book, 20)
     assert(cover_calls == 1, "cover is captured once per book")
+    book.ui.document.getPageCount = function() return 15 end
+    local short_native = Main._bookInfo(book, 15)
+    assert(short_native.finished == false and short_native.id == "book-id", "native KOReader short books stay unfinished")
+    book.ui.document.getPageCount = function() return 20 end
+    local mid_native = Main._bookInfo(book, 19)
+    assert(mid_native.finished == false, "native 19/20 is not 99%")
+    package.loaded["papersprite.core.moon_books"] = {
+        forFile = function(path)
+            if path == "/book.epub" then
+                return { id = "moon:local:epub", finished = false, fraction = 0.4 }
+            end
+        end,
+    }
+    book.ui.document.getPageCount = function() return 80 end
+    local mid_chapter = Main._bookInfo(book, 80)
+    assert(mid_chapter.finished == false and mid_chapter.id == "moon:local:epub",
+        "moon-managed mid-chapter 99% of the current document is not a whole-book finish")
+    package.loaded["papersprite.core.moon_books"].forFile = function(path)
+        if path == "/book.epub" then return { id = "moon:local:epub", finished = true, claimed = true, fraction = 0.99, aliases = { "book-id" } } end
+    end
+    book.ui.document.getPageCount = function() return 8 end
+    local last_chapter = Main._bookInfo(book, 8)
+    assert(last_chapter.finished == true and last_chapter.id == "moon:local:epub"
+        and last_chapter.aliases and last_chapter.aliases[1] == "book-id",
+        "moon-managed short last chapter finishes by whole-book progress, not page count")
+    package.loaded["papersprite.core.moon_books"].forFile = function()
+        return { claimed = true, finished = false }
+    end
+    book.ui.document.getPageCount = function() return 80 end
+    local failed_map = Main._bookInfo(book, 80)
+    assert(failed_map.finished == false and failed_map.id == nil,
+        "a claimed moon file whose identity lookup failed does not fall back to native page-ratio finish")
+    package.loaded["papersprite.core.moon_books"] = nil
     io.open = old_open
     package.loaded["ffi/sha2"], package.loaded["papersprite.core.storage"] = old_sha2, old_storage
     for _, name in ipairs(names) do package.loaded[name] = saved[name] end

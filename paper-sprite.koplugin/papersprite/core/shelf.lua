@@ -2,8 +2,11 @@
 --[[--
 读书墙：读完的书，存在阿页自己的 SQLite（core/db，paper_shelf 表）里。
 书会越积越多（几万本也要翻得动），所以不放进整份重写的存档，按页查、按条写。
-key = 书的 id（阅读时记下的），没有 id（从月读书库导入）的用 "t:" + 书名；
-同书名且任一边没有 id 算同一本（导入的书之后又读完，不重复）。
+key = 书的 id：月读导入和月读认领的阅读用 "moon:" + source_id + ":" + stable_id，
+原生 KOReader 整书仍用文件哈希；没有 id 的旧导入用 "t:" + 书名。
+同书名且任一边没有 id 算同一本（兼容旧的无 id 导入）。
+两边都有不同 id 时，只有传入的 aliases（月读登记路径算出的文件哈希等）对得上已有 key/id 才视为同一本；
+只凭书名不合并，也对不上就不删旧记录。
 thought = 阿页的感悟，NULL 表示还没写（由 core/story 的 maybeThoughts 补）。
 spec 用 Shelf.use(impl) 换成内存实现。
 --]]
@@ -44,13 +47,37 @@ function sqlite.pending(limit, skip)
     return out
 end
 
+--- 待写入条目可能对上已有记录的全部身份：自身 key/id，以及有路径证据的 aliases。
+function M.idsOf(b)
+    local seen, out = {}, {}
+    local function add(v)
+        if type(v) == "string" and v ~= "" and not seen[v] then
+            seen[v] = true
+            out[#out + 1] = v
+        end
+    end
+    add(b and (b.key or keyOf(b)))
+    add(b and b.id)
+    if type(b and b.aliases) == "table" then
+        for _idx, a in ipairs(b.aliases) do add(a) end
+    end
+    return out
+end
+
 --- 已有同一本返回 false，写库失败返回 nil
 function sqlite.add(b)
     local DB = db()
     local key = keyOf(b)
-    local has = DB.rowexec([[SELECT 1 FROM paper_shelf WHERE key = ? OR (title = ? AND (id IS NULL OR ? = 1)) LIMIT 1;]],
-        key, b.title, b.id == nil and 1 or 0)
-    if has then return false end
+    for _idx, ident in ipairs(M.idsOf(b)) do
+        if DB.rowexec("SELECT 1 FROM paper_shelf WHERE key = ? OR id = ? LIMIT 1;", ident, ident) then
+            return false
+        end
+    end
+    -- 旧导入没有 id：只在这一边缺 id 时按书名合并，两边都有身份则不对纯书名。
+    if DB.rowexec([[SELECT 1 FROM paper_shelf WHERE title = ? AND (id IS NULL OR ? = 1) LIMIT 1;]],
+        b.title, b.id == nil and 1 or 0) then
+        return false
+    end
     return DB.exec([[INSERT INTO paper_shelf (key, id, title, at, tag, line, quote, cover, thought) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);]],
         key, b.id, b.title, b.at, b.tag, b.line, b.quote, b.cover, b.thought) and true or nil
 end
