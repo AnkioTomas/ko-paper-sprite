@@ -25,11 +25,6 @@ end
 local function conf() return moonSettings().getSource(ID) end
 local function save() moonSettings().saveSource(ID) end
 
-function Host:_screenModule()
-    local Screen = require("papersprite.ui.screen")
-    return { open = function(view, on_close) return Screen.open(view, on_close) end }
-end
-
 function Host:notify(text)
     local ok, Toast = pcall(require, "ui.themes.widgets.toast")
     if ok and Toast and pcall(function() Toast:new{ text = text, timeout = 2 }:show() end) then return end
