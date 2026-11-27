@@ -100,15 +100,22 @@ end
 
 local depth = 0
 
+--- 事务控制语句失败时调用方只拿到 nil，原始错误只在这里留一份
+local function control(sql)
+    local ok, err = M.exec(sql)
+    if not ok then require("logger").warn("papersprite db", sql, err) end
+    return ok
+end
+
 --- fn 返回真才提交；抛错先回滚再抛。嵌套调用用 SAVEPOINT（同一连接不能再 BEGIN）。
 function M.transaction(fn)
     local nested = depth > 0
     local name = "sp" .. depth
-    if not M.exec(nested and ("SAVEPOINT " .. name .. ";") or "BEGIN IMMEDIATE;") then return nil end
+    if not control(nested and ("SAVEPOINT " .. name .. ";") or "BEGIN IMMEDIATE;") then return nil end
     depth = depth + 1
     local ok, result = pcall(fn)
     depth = depth - 1
-    if ok and result and M.exec(nested and ("RELEASE SAVEPOINT " .. name .. ";") or "COMMIT;") then return result end
+    if ok and result and control(nested and ("RELEASE SAVEPOINT " .. name .. ";") or "COMMIT;") then return result end
     if nested then
         M.exec("ROLLBACK TO SAVEPOINT " .. name .. ";")
         M.exec("RELEASE SAVEPOINT " .. name .. ";")
