@@ -1,6 +1,6 @@
 # 更新日志
 
-## 未发布
+## 1.9.12 - 2026-11-27
 
 - 修复：装了月读 0.8.x 后点「检查更新」报错 `module 'http.mirror' not found`，阿页没法自更新。月读 0.8 把镜像调度并进了 `http.github`，现在优先用它，旧版月读仍走 `http.mirror`。
 - 诊断：存档事务开启 / 提交失败时把 SQLite 原始错误写进日志，不再只有一句 transaction failed。
