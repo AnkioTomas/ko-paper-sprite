@@ -37,12 +37,12 @@ paper-sprite.koplugin/
 ## 离线实时结算
 `core/travel.lua` 是状态机 `home → packed → away → home`：
 - 收好行囊时就算好 `depart_at`；出发时一次性排好 `return_at` 和每张明信片的寄达时刻 `mail[].at`。
-- `Travel.settle(state, now)` 把所有已到时刻的事件依次落地；`Travel.nextAt` 给出下一件事的时刻，界面开着时只在那时（最多 60 秒）刷新一次，关掉即停。
+- `Travel.settle(state, now)` 把所有已到时刻的事件依次落地；`Travel.nextAt` 给出下一件事的真实时刻。界面开着时只在那时调度一次刷新（不再用 60 秒上限轮询）；内容没变不重建界面。关掉、休眠或被挡住时停计时。旅行结算不依赖定时器，唤醒或再次打开会按当前时钟一次性补算。
 - 托管模式（`core/autopilot.lua`）在会写盘的结算之后运行（`Game:tick`、阅读页 `loadState`），不在首页卡片的只读副本上行动。
 - 随机数用存档里的种子（`core/rng.lua`，Park–Miller 乘同余，乘积在 double 内精确），同一存档同一时刻结果确定，便于测试复现。
 
 ## 阅读账本
-`core/reading.lua`：`main.lua` 的 `onPageUpdate` 在离开这一页时记次数（停满 10 秒、页码差 1–3，不读正文），写阅读账本；打开阁楼时按差值折算灵感。合格翻页读完的书进读书墙；打开阁楼或读书墙时还会按已读名册指纹同步月读已读（不发灵感）。有划线则带上那句。两种宿主共用这本账。锁屏背景铺最近一张明信片（`core/postcard_lock.lua`，画面在 `ui/lock_card.lua`）。
+`core/reading.lua`：`main.lua` 的 `onPageUpdate` 在离开这一页时记次数（停满 10 秒、页码差 1–3，不读正文），写阅读账本；不合格的翻页不查书库，合格时才取书的身份（`core/moon_books.forFile` 按路径记住最近一本的身份和别名，之后只重查进度）。打开阁楼时按差值折算灵感。合格翻页读完的书进读书墙；打开阁楼或读书墙时还会按已读名册指纹同步月读已读（不发灵感）。有划线则带上那句。两种宿主共用这本账。锁屏背景铺最近一张明信片（`core/postcard_lock.lua`，画面在 `ui/lock_card.lua`）。
 
 ## 节日
 `core/festival.lua` + `data/festivals.lua`：公历节日离线，农历 / 节气来自节日接口，详见 [festival.md](festival.md)。
@@ -53,6 +53,8 @@ paper-sprite.koplugin/
 ## 画面
 `view.scene = { bg, overlays = { {img, x, y, h, full?} }, frame }`：`ui/screen.lua` 用 OverlapGroup 叠 ImageWidget（alpha）。
 明信片的图层位置在 `Game.cardScene`；访客在阁楼里的位置在 `VISITOR_POS`。
+`ui/compose` 按 2:1 排版、居中裁出目标尺寸：只分配目标大小的位图，图层带负偏移画进去（越界部分由 `blitFrom` 裁掉），竖屏整屏（锁屏）不先画整幅再裁。
+阁楼被其他窗口挡住时跳过重绘，每 `Game.PEEK_S` 秒看一眼栈顶，回到最前再补画。
 
 ## 存档位置
 `core/storage.lua`：所有落盘数据放在 `DataStorage:getDataDir() .. "/.moon/game/paper-sprite"`（会一层层建好目录）。
