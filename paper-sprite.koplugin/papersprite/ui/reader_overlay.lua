@@ -219,22 +219,10 @@ local function dirtyCompanion(corner, size)
     local sx, sy, sh = M.seat(view, corner, size)
     local dim = view.dimen or {}
     local Geom = require("ui/geometry")
+    -- 和月读一致只用不闪的 "ui"；dither 让图片在支持硬件抖动的屏上好看些。
     require("ui/uimanager"):setDirty(ui, "ui", Geom:new{
         x = (dim.x or 0) + sx, y = (dim.y or 0) + sy, w = sh, h = sh,
-    })
-end
-
--- 伴读图区域单独 full，且必须晚于本拍可能存在的阅读页刷新，避免和整页合并。
--- 动画过程中仍只用上面的 "ui"。
-local function fullCompanion(corner, size, reason)
-    local ui = M.ui
-    local view = ui and ui.view
-    if not view then return end
-    local sx, sy, sh = M.seat(view, corner, size)
-    local dim = view.dimen or {}
-    require("papersprite.ui.eink_image").schedule({
-        x = (dim.x or 0) + sx, y = (dim.y or 0) + sy, w = sh, h = sh,
-    }, { reason = reason or "quality" })
+    }, true)
 end
 
 function M.syncFlags()
@@ -249,7 +237,6 @@ function M.syncFlags()
     f.ready = true
     if f.shown and was_away ~= nil and was_away ~= f.away then
         dirtyCompanion(f.corner)
-        fullCompanion(f.corner)
     end
     return ok and s or nil
 end
@@ -258,8 +245,7 @@ function M.refreshCompanion()
     local f = M.flags
     local shown, corner, fade, size = Prefs.companion(), Prefs.corner(), Prefs.fade(), Prefs.size()
     if f.shown and f.corner then dirtyCompanion(f.corner, f.size) end
-    if shown and (not f.shown or corner ~= f.corner or size ~= f.size) then dirtyCompanion(corner, size) end
-    if shown then fullCompanion(corner) end
+    if shown then dirtyCompanion(corner, size) end
     f.shown, f.corner, f.fade, f.size = shown, corner, fade, size
 end
 
@@ -498,8 +484,6 @@ function M.onPage(plugin)
                     M.flags.turn_from = nil
                     M.flags.turn_ticking = nil
                     dirtyCompanion(Prefs.corner())
-                    -- 每次翻页都 full 会黑闪；按换图计数，累计几次才 full 清残影。
-                    fullCompanion(Prefs.corner(), nil, "change")
                     return
                 end
                 dirtyCompanion(Prefs.corner())

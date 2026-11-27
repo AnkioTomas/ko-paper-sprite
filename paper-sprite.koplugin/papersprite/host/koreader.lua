@@ -29,7 +29,7 @@ function Host:_screenModule()
     return { open = function(view, on_close) return Screen.open(view, on_close) end }
 end
 
-function Host:showScreen(view, quiet)
+function Host:showScreen(view)
     local Timing = require("papersprite.ui.timing")
     local t0 = Timing.now()
     local UIManager = require("ui/uimanager")
@@ -41,8 +41,6 @@ function Host:showScreen(view, quiet)
     local built = Timing.now() - t0
     -- 先盖上新界面再关旧的，避免先露出下层。新界面已经 setDirty("ui")；
     -- close 再传 "ui" 会再排一次整屏刷新，墨水屏上往往比颜色转换更慢。
-    -- 进页：图片区域稍后合并成一次 full，清残影；不要每个缩略图各自闪。
-    if not quiet then pcall(function() require("papersprite.ui.eink_image").enterPage() end) end
     UIManager:show(self.widget, "ui")
     if old then
         old._replaced = true
@@ -53,11 +51,7 @@ end
 
 function Host:closeScreen()
     if self.widget then
-        pcall(function()
-            local E = require("papersprite.ui.eink_image")
-            E.leavePage()
-            E.scheduleLast("close")
-        end)
+        require("papersprite.ui.eink_image").forget()
         require("ui/uimanager"):close(self.widget, "ui")
         self.widget = nil
     end

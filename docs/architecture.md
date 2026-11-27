@@ -25,7 +25,7 @@ paper-sprite.koplugin/
 - `papersprite/update.lua`：复用月读的 GitHub Release 管线自更新（只在月读里可用，月读模块惰性 require）；资产名必须是 `paper-sprite.koplugin-<版本>.zip`（版本不带 v）。月读首页组件出现 5 秒后自动检查（24h 一次，只提示不静默安装）。
 
 ## 界面
-`ui/screen.lua` 继承月读 `Modal`（`covers_fullscreen`，不盖遮罩），下滑关闭跟随 `ui.swipe_dismiss`。盖住首页和底部导航；新界面先 show 再 close 旧的，并整屏刷新（`"ui"`），避免墨水屏残影。换页关掉旧界面不算离开，不触发 `on_close`。只用月读 `ui.themes` 组件（入口 `need_moon.lua` 保证月读已装，没装只弹提示）；见 [widgets.md](widgets.md)。
+`ui/screen.lua` 继承月读 `Modal`（`covers_fullscreen`，不盖遮罩），下滑关闭跟随 `ui.swipe_dismiss`。盖住首页和底部导航；新界面先 show 再 close 旧的，并整屏刷新（`"ui"`），避免墨水屏残影。和月读一样不主动闪黑：图片区域（`ui/eink_image`）只在下一拍补一次带硬件抖动的 `"ui"`，进页、关闭、连续换图都不发 `"full"`。换页关掉旧界面不算离开，不触发 `on_close`。只用月读 `ui.themes` 组件（入口 `need_moon.lua` 保证月读已装，没装只弹提示）；见 [widgets.md](widgets.md)。
 `ui/moon_card.lua`：首页卡片，每次绘制时在存档**副本**上结算出近况摘要（不写盘），摘要变了才重建。
 
 ## 单实例
