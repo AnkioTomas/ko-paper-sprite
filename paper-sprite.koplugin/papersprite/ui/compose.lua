@@ -25,18 +25,21 @@ local function evict()
     end
 end
 
-local function paintScene(scene, W0, H0, mode)
+--- 按 W0×H0 排版、居中裁出 W×H：只分配 W×H，图层带负偏移画进去（blitFrom 会裁掉越界部分）。
+--- 竖屏整屏时 W0 可达 W 的 2.7 倍，不能先画整幅再裁。
+local function paintScene(scene, W, H, W0, H0, mode)
     local Blitbuffer = require("ffi/blitbuffer")
     local ImageWidget = require("ui/widget/imagewidget")
     local dir = require("papersprite.host.interface").pluginDir() .. "/assets/"
-    local full = Blitbuffer.new(W0, H0, Display.bufferType(mode))
-    full:fill(Blitbuffer.COLOR_WHITE)
+    local out = Blitbuffer.new(W, H, Display.bufferType(mode))
+    out:fill(Blitbuffer.COLOR_WHITE)
+    local ox, oy = -math.floor((W0 - W) / 2), -math.floor((H0 - H) / 2)
     local function put(rel, x, y, w, h, alpha)
         local ok, wdg = pcall(function()
             return ImageWidget:new{ file = dir .. rel, width = w, height = h, scale_factor = 0, alpha = alpha, file_do_cache = false }
         end)
         if ok and wdg then
-            pcall(function() wdg:paintTo(full, x, y) end)
+            pcall(function() wdg:paintTo(out, x + ox, y + oy) end)
             pcall(function() wdg:free() end)
         end
     end
@@ -46,7 +49,7 @@ local function paintScene(scene, W0, H0, mode)
         if o.full then ow, oh = W0, H0 else oh = math.max(1, math.floor(H0 * o.h)) ow = oh end
         put(o.img, math.floor(W0 * o.x - ow / 2), math.floor(H0 * o.y - oh / 2), ow, oh, true)
     end
-    return full
+    return out
 end
 
 local function cacheKey(sig, W, H, mode)
@@ -67,14 +70,7 @@ function M.scene(scene, W, H, sig, mode)
     local t0 = Timing.now()
     local W0, H0 = W, H
     if not scene.icon then W0 = math.max(W, H * 2) H0 = math.floor(W0 / 2) end
-    local full = paintScene(scene, W0, H0, mode)
-    local out = full
-    if W0 ~= W or H0 ~= H then
-        local Blitbuffer = require("ffi/blitbuffer")
-        out = Blitbuffer.new(W, H, Display.bufferType(mode))
-        out:blitFrom(full, 0, 0, math.floor((W0 - W) / 2), math.floor((H0 - H) / 2), W, H)
-        full:free()
-    end
+    local out = paintScene(scene, W, H, W0, H0, mode)
     Display.apply(out, mode)
     Timing.record("compose_miss", Timing.now() - t0, k)
     cache[k] = out
