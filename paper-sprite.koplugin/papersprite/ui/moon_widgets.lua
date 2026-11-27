@@ -150,12 +150,12 @@ local function tappable(w, h, content, rects, fallback, refresh, on_swipe)
     return box
 end
 
---- 签名变了才重建：返回 refresh 闭包
+--- 签名变了才重建：返回 refresh 闭包。build(prev) 算出签名等于 prev 时直接返回 nil，不建控件树。
 local function watcher(build, sig0)
     local cur = sig0
     return function()
-        local content, rects, sig = build()
-        if sig == cur then return nil end
+        local content, rects, sig = build(cur)
+        if not content then return nil end
         cur = sig
         return { content = content, rects = rects }
     end
@@ -181,10 +181,11 @@ function M.atticBuild(w, h)
     local HorizontalSpan = require("ui/widget/horizontalspan")
     local VerticalGroup = require("ui/widget/verticalgroup")
     local VerticalSpan = require("ui/widget/verticalspan")
-    local function build()
+    local function build(prev)
         local s, now, dbg = read()
         local d = Data.attic(s, now, dbg)
         local sig = Data.sig(d) .. w .. "x" .. h .. M.size("attic")
+        if sig == prev then return nil end
         local inner_w = w - padOf(T) * 2 - borderOf(T) * 2
         local inner_h = h - padOf(T) * 2 - borderOf(T) * 2
         local _, layout = atticHeights(T, w)
@@ -260,7 +261,7 @@ function M.postcardsBuild(w, h)
     local VerticalGroup = require("ui/widget/verticalgroup")
     local VerticalSpan = require("ui/widget/verticalspan")
     local WidgetContainer = require("ui/widget/container/widgetcontainer")
-    local function build()
+    local function build(prev)
         local s = read()
         local size, mode = M.size("postcards"), M.mode()
         local pad, gap, bd = padOf(T), gapOf(T), borderOf(T)
@@ -278,6 +279,7 @@ function M.postcardsBuild(w, h)
         M.cards_page = d.page
         local sig = Data.sig({ d.total, d.new, d.page, size, mode, w, h, (function()
             local ks = {} for _, c in ipairs(d.cards) do ks[#ks + 1] = c.index .. (c.new and "n" or "") end return ks end)() })
+        if sig == prev then return nil end
         local head = tr("明信片")
         local meta = (d.total == 0) and tr("还没有") or (d.new > 0 and tr("%d 张 · 新 %d", d.total, d.new) or tr("%d 张", d.total))
         local rects = {}
@@ -386,7 +388,7 @@ function M.cabinetBuild(w, h)
     local VerticalGroup = require("ui/widget/verticalgroup")
     local VerticalSpan = require("ui/widget/verticalspan")
     local WidgetContainer = require("ui/widget/container/widgetcontainer")
-    local function build()
+    local function build(prev)
         local s = read()
         local d = Data.cabinet(s)
         local size = M.size("cabinet")
@@ -399,6 +401,7 @@ function M.cabinetBuild(w, h)
             cols = math.max(3, math.floor((inner + gapOf(T)) / (cell + gapOf(T))))
         end
         local sig = Data.sig({ d, size, w, h })
+        if sig == prev then return nil end
         local col = VerticalGroup:new{ align = "left", (header(T, tr("纪念物柜"), tr("收集 %d / %d", d.have, d.total), inner)), VerticalSpan:new{ width = gapOf(T) } }
         if d.have == 0 then
             col[#col + 1] = CenterContainer:new{ dimen = Geom:new{ w = inner, h = math.max(lineH(T, "body") * 2, avail) },

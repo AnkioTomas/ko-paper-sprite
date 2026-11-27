@@ -8,22 +8,11 @@ local T = require("papersprite.l10n")
 
 local Card = {}
 
-local function copy(t)
-    if type(t) ~= "table" then return t end
-    local o = {} for k, v in pairs(t) do o[k] = copy(v) end return o
-end
-
 --- 纯函数：由存档 + 当前时间算出卡片文案。
 function Card.summary(raw, now, debug_fast)
-    local State = require("papersprite.core.state")
     local Travel = require("papersprite.core.travel")
-    local s = State.load(copy(raw), now)
-    local Vault = require("papersprite.core.vault")
-    local total
-    Vault.preview(function()
-        Travel.settle(s, now, debug_fast)
-        total = Vault.cardCount()
-    end)
+    local s = require("papersprite.ui.widget_data").view(raw, now, debug_fast)
+    local total = s.card_total
     local out = { title = T("阿页") }
     local sp = s.sprite
     if sp.status == "away" then
