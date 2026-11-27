@@ -1,7 +1,9 @@
 -- SPDX-License-Identifier: MIT
 --[[--
 阁楼游戏控制器：读存档 → 按真实时间结算 →（可选）AI 文案请求 → 生成 view 交给 host 显示。
-界面开着时只在「下一件事」到点时安排一次刷新（最长 60 秒一次），关掉即停。
+界面开着时只按「下一件有意义事件」的真实到期时刻调度一次刷新，到点结算后重排；
+内容没变就不重建界面。关掉、休眠或被其他界面挡住时停计时、不重绘。
+旅行结算不依赖定时器，也不用系统唤醒闹钟；唤醒或再次打开会按当前时钟一次性补算。
 页面：attic 阁楼 / basket 收拾行囊 / shop 小铺 / wall 明信片墙 / card 单张 / cabinet 特产柜
       / scrapbook 地点剪贴簿 / place 地点页 / guestbook 来客簿 / guest 来客页
 view.scene = { bg, overlays = { {img, x, y, h} } }：分层画面（x/y 为中心点占比，h 为高度占比）
@@ -25,7 +27,54 @@ local Game = {}
 Game.__index = Game
 
 local SLOT_NAME = { food = T("干粮"), charm = T("护身物"), book = T("随身小书") }
+
 local unpack = unpack or table.unpack
+
+-- 只比较会显示出来的字段；callback / on_close 等函数每次重建都是新的，不能算「变了」。
+local function viewKey(v)
+    local buf = {}
+    local seen = {}
+    local function emit(x)
+        local typ = type(x)
+        if typ == "table" then
+            if seen[x] then buf[#buf + 1] = "@" return end
+            seen[x] = true
+            buf[#buf + 1] = "{"
+            local n = #x
+            for i = 1, n do
+                buf[#buf + 1] = "#"
+                emit(x[i])
+                buf[#buf + 1] = ","
+            end
+            local keys = {}
+            for k in pairs(x) do
+                if type(k) == "string" then
+                    keys[#keys + 1] = k
+                elseif type(k) == "number" and (k < 1 or k > n or k % 1 ~= 0) then
+                    keys[#keys + 1] = k
+                end
+            end
+            table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+            for _, k in ipairs(keys) do
+                local val = x[k]
+                local vt = type(val)
+                if vt ~= "function" and vt ~= "userdata" and vt ~= "thread" then
+                    buf[#buf + 1] = tostring(k)
+                    buf[#buf + 1] = "="
+                    emit(val)
+                    buf[#buf + 1] = ","
+                end
+            end
+            buf[#buf + 1] = "}"
+        elseif typ == "function" or typ == "userdata" or typ == "thread" or typ == "nil" then
+            return
+        else
+            buf[#buf + 1] = typ == "boolean" and (x and "t" or "f") or tostring(x)
+        end
+    end
+    emit(v)
+    return table.concat(buf)
+end
 
 function Game.new(host)
     -- 同一时刻只留一个阁楼实例（菜单和月读卡片都能打开）
@@ -50,7 +99,7 @@ function Game:tick(opts)
     local ev = Travel.settle(self.state, self.host:now(), self.debug)
     require("papersprite.core.autopilot").tick(self.state, self.host:now(), self.debug)
     local function fresh(cur)
-        if self.closed then return end
+        if self.closed or self.asleep then return end
         self.state = cur
         if self.page == "attic" then self:render() end
     end
@@ -65,9 +114,84 @@ function Game:tick(opts)
     return ev
 end
 
+function Game:_cancelTimer()
+    if self.timer then self.host:unschedule(self.timer) self.timer = nil end
+end
+
+function Game:_disarm()
+    self:_cancelTimer()
+    if self._peek then self.host:unschedule(self._peek) self._peek = nil end
+    if self._almanac_timer then
+        self.host:unschedule(self._almanac_timer)
+        self._almanac_timer = nil
+    end
+end
+
+--- 阁楼还开着、没在休眠、也没被其他界面挡住。
+function Game:_front()
+    if self.closed or self.asleep or self.hidden then return false end
+    local fn = self.host.isScreenForeground
+    if type(fn) == "function" then
+        local ok, vis = pcall(fn, self.host)
+        if ok and vis == false then return false end
+    end
+    return true
+end
+
+-- 被 Toast / 弹窗挡住时跳过的重绘：挡住的窗口关掉后没有事件通知，只能隔一会儿看一眼栈顶。
+Game.PEEK_S = 3
+
+function Game:_watchFront()
+    if self._peek then return end
+    self._peek = function()
+        self._peek = nil
+        if self.closed or self.asleep then return end
+        if self:_front() then self:render() else self:_watchFront() end
+    end
+    self.host:schedule(Game.PEEK_S, self._peek)
+end
+
+function Game:setHidden(hidden)
+    hidden = not not hidden
+    if self.hidden == hidden then return end
+    self.hidden = hidden
+    if self.closed or self.asleep then return end
+    if hidden then
+        -- 被挡住时仍按真实事件到期结算（不丢进度），但不重建界面。
+        return
+    end
+    -- 用户回到阁楼：按当前时钟补算后再画。
+    self._overdue_at = nil
+    local ok, err = pcall(function() self:tick() end)
+    if not ok then pcall(function() require("logger").err("papersprite reveal tick:", err) end) end
+    if self.closed or self.asleep then return end
+    self:render(true)
+end
+
+function Game:onSuspend()
+    if self.closed then return end
+    self.asleep = true
+    self:_disarm()
+end
+
+function Game:onResume()
+    if self.closed then return end
+    self.asleep = false
+    self._overdue_at = nil
+    local ok, err = pcall(function() self:tick() end)
+    if not ok then pcall(function() require("logger").err("papersprite resume tick:", err) end) end
+    if self.closed or self.asleep then return end
+    self:render(self:_front())
+end
+
 function Game:show()
-    self:tick({ moon = true })
-    self:render()
+    self.asleep = false
+    self.hidden = false
+    self._view_key = nil
+    self._overdue_at = nil
+    local ok, err = pcall(function() self:tick({ moon = true }) end)
+    if not ok then pcall(function() require("logger").err("papersprite show tick:", err) end) end
+    self:render(true)
     self:_almanac()
     return self
 end
@@ -75,8 +199,10 @@ end
 --- 界面出来后再取一次今天的节日 / 节气（一天一次，失败静默）；先让界面上屏，网络慢也不挡着
 function Game:_almanac()
     if type(self.host.almanac) ~= "function" or not Festival.needsFetch(self.state, self.host:now()) then return end
-    self.host:schedule(2, function()
-        if self.closed then return end
+    if self._almanac_timer then self.host:unschedule(self._almanac_timer) self._almanac_timer = nil end
+    self._almanac_timer = function()
+        self._almanac_timer = nil
+        if self.closed or self.asleep then return end
         local now = self.host:now()
         local cur = State.load(self.host:loadState() or self.state, now)
         if not Festival.refresh(self.host, cur, now, function(daily)
@@ -84,18 +210,19 @@ function Game:_almanac()
             local stored = Festival.store(cur, daily, now)
             if not stored then cur.almanac_try = now end
             self.host:saveState(cur)
-            if self.closed then return end
+            if self.closed or self.asleep then return end
             self.state = cur
             -- 只有拿到可用节日数据才整页重绘，避免失败/空结果再闪一次屏。
             if stored then self:render() end
         end) then return end
         self.host:saveState(cur)
-    end)
+    end
+    self.host:schedule(2, self._almanac_timer)
 end
 
 function Game:close()
     self.closed = true
-    if self.timer then self.host:unschedule(self.timer) self.timer = nil end
+    self:_disarm()
     self.host:closeScreen()
     -- 阁楼关掉后，阅读页角落要马上跟上在家/出门，不等下一次翻页或 45 秒定时器。
     -- 只在阅读页已经挂上伴读时才同步，避免无阅读界面时去碰另一套宿主存档。
@@ -105,20 +232,55 @@ function Game:close()
     end)
 end
 
-function Game:_arm()
-    if self.timer then self.host:unschedule(self.timer) self.timer = nil end
-    if self.closed then return end
-    local at = Travel.nextAt(self.state)
-    if not at then return end
-    local wait = math.max(1, math.min(60, at - self.host:now()))
-    self.timer = function()
-        self.timer = nil
-        if self.closed then return end
-        self:tick()
-        self:render()
+function Game:_applyDue()
+    if self.closed or self.asleep or self._in_apply then return end
+    self._in_apply = true
+    local due = Travel.nextAt(self.state)
+    local ok, err = pcall(function() self:tick() end)
+    if not ok then pcall(function() require("logger").err("papersprite tick:", err) end) end
+    if self.closed or self.asleep then
+        self._in_apply = false
+        return
     end
-    self.host:schedule(wait, self.timer)
+    self:render()
+    self._in_apply = false
+    -- tick 已跑过仍停在同一个过期时刻：停表，避免 0/1 秒空转；交互或唤醒再试。
+    local nxt = Travel.nextAt(self.state)
+    if nxt and nxt <= self.host:now() and nxt == due then
+        self._overdue_at = due
+        self:_cancelTimer()
+    end
 end
+
+function Game:_arm()
+    self:_cancelTimer()
+    if self.closed or self.asleep then return end
+    local at = Travel.nextAt(self.state)
+    if not at then
+        self._overdue_at = nil
+        return
+    end
+    local wait = at - self.host:now()
+    if wait <= 0 then
+        if self._overdue_at == at or self._in_apply then
+            if self._in_apply then self._overdue_at = at end
+            return
+        end
+        self._overdue_at = at
+        self:_applyDue()
+        return
+    end
+    self._overdue_at = nil
+    local function fire()
+        if self.timer ~= fire then return end
+        self.timer = nil
+        if self.closed or self.asleep then return end
+        self:_applyDue()
+    end
+    self.timer = fire
+    self.host:schedule(wait, fire)
+end
+
 
 local function dailyKey(now)
     return os.date("%Y-%m-%d", now) .. Story.band(os.date("*t", now).hour)
@@ -143,7 +305,8 @@ function Game:go(page, arg)
         end
     end
     self.page, self.arg = page, arg
-    self:render()
+    self.hidden = false
+    self:render(true)
 end
 
 local VISITOR_POS = { -- 访客在阁楼图里的位置（中心占比 x, y, 高）；书桌面约 y=.55，地板约 y=.85
@@ -1098,20 +1261,40 @@ function Game:view()
     -- 子页面不再放「回阁楼」按钮：标题栏左侧是返回（无 back 时关闭）；右侧是 switch，收藏册另有 extra 切视图。
     local parent = Game.PARENT[self.page]
     if parent then v.back = function() self:go(parent) end end
-    v.on_close = function() self.closed = true if self.timer then self.host:unschedule(self.timer) self.timer = nil end end
+    v.on_close = function() self.closed = true self:_disarm() end
     return v
 end
 
-function Game:render()
-    if self.closed then return end
+function Game:render(force)
+    if self.closed or self.asleep then return end
+    if not force and not self:_front() then
+        -- setHidden(true) 由 setHidden(false) 负责补画；栈顶被别的窗口占着则自己盯。
+        if not self.hidden then self:_watchFront() end
+        self:_arm()
+        return
+    end
     local Timing = require("papersprite.ui.timing")
     local page = self.page
     local v = Timing.span("view", page, function()
         return self:view()
     end)
+    local key = viewKey(v)
+    -- 定时器或补算后文案/画面没变，就不走 Host:showScreen，避免无条件重建。
+    if not force and key == self._view_key then
+        self:_arm()
+        return
+    end
     -- 同一页原地重绘（定时器、异步结果）不当作进页，免得每次都整块 full 闪一下。
+    -- 阁楼场景（背景/叠图）真的换了时仍按进页走，保证换图质量。
     local same = self._shown_page == page
+    local scene = v.scene
+    local scene_sig = scene and viewKey(scene) or nil
+    if same and scene_sig and self._scene_sig and scene_sig ~= self._scene_sig then
+        same = false
+    end
     self._shown_page = page
+    self._view_key = key
+    self._scene_sig = scene_sig
     self.host:showScreen(v, same)
     self:_arm()
     local sh = Timing.last.showScreen

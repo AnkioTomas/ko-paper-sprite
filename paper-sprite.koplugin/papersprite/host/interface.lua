@@ -3,7 +3,8 @@
 宿主抽象（与 ko-adarkroom 同一套思路）。游戏只经 host 访问外部世界：
   host:showScreen(view)   view = { title, image?, lines = {string|{text,muted}}, buttons = {按钮|{按钮...}}, on_close? }；再次调用即刷新
   host:closeScreen()
-  host:schedule(seconds, fn) -> 句柄 / host:unschedule(handle)   —— 只用于界面开着时的刷新，旅行结算不依赖定时器
+  host:schedule(seconds, fn) -> 句柄 / host:unschedule(handle)   —— 只用于界面开着时按下一事件到期刷新，旅行结算不依赖定时器，也不用系统唤醒闹钟
+  可选 host:isScreenForeground() -> boolean   阁楼是否仍在最前；没有则当作可见
   host:loadState() -> table|nil / host:saveState(table)
   host:getSetting(key, default) / host:setSetting(key, value)
   host:notify(text)

@@ -63,6 +63,19 @@ function Host:closeScreen()
     end
 end
 
+--- 阁楼画面是否仍在最前。认不出窗口栈时当作可见，避免误伤正常刷新。
+function Host:isScreenForeground()
+    if not self.widget then return false end
+    local ok, UIManager = pcall(require, "ui/uimanager")
+    if not ok or type(UIManager) ~= "table" then return true end
+    local stack = UIManager._window_stack
+    if type(stack) ~= "table" or #stack == 0 then return true end
+    local top = stack[#stack]
+    local w = type(top) == "table" and (top.widget or top) or top
+    if w == nil then return true end
+    return w == self.widget
+end
+
 function Host:now() return os.time() end
 
 -- 句柄是调用方传入的 fn；UIManager 排的是受保护的版本，按 fn 对应着取消。
