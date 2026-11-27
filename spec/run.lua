@@ -990,6 +990,23 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     Disturb.arm(returned)
     returned.sprite = { status = "home", left_at = 5, back_at = 9 }
     assert(Disturb.next(returned).kind == "home", "a completed trip does not replay departure")
+    -- 离开很久：攒下几张明信片、回家、来客、成就，只弹一件，关掉后不再一件件补弹
+    local pile = State.fresh(1)
+    resetVault()
+    Disturb.arm(pile)
+    for i = 1, 3 do Vault.cardAdd({ place = "ink_lake", at = 10 + i }) end
+    pile.sprite = { status = "home", left_at = 5, back_at = 20 }
+    pile.visitor = { id = "inkbug", until_at = 99 }
+    Vault.set("achieved", "errand1", 21)
+    note = Disturb.next(pile)
+    assert(note and note.kind == "visitor", "a guest at home comes first")
+    Disturb.ack(pile, note)
+    assert(not Disturb.next(pile), "one notice per pile")
+    pile.visitor = nil
+    Vault.cardAdd({ place = "ink_lake", at = 30 })
+    Vault.cardAdd({ place = "ink_lake", at = 31 })
+    note = Disturb.next(pile)
+    assert(note and note.kind == "card" and note.index == 5, "newest card of the pile")
 
     local g = State.fresh(1)
     g.sprite.status = "home"
