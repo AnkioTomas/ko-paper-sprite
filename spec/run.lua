@@ -1345,6 +1345,20 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     assert(forced and forced.finished == false, "forced unread is not finished even at 100%")
     assert(whole and whole.finished == false and unknown == nil, "unfinished whole file and unknown path fall through")
     do
+        -- 同一本书连续翻页：身份 / 别名只查一次，之后每次只重查进度
+        local DBm = require("utils.db")
+        local orig_each, sqls = DBm.each, {}
+        MoonBooks.forFile("/whole.epub")
+        DBm.each = function(sql, ...) sqls[#sqls + 1] = sql return orig_each(sql, ...) end
+        MoonBooks.forFile("/whole.epub")
+        assert(#sqls == 1 and sqls[1]:find("SELECT b.read_state", 1, true),
+            "repeat forFile on the open book only re-reads progress, got " .. #sqls .. " queries")
+        moon_files["/whole.epub"].fraction = 1
+        assert(MoonBooks.forFile("/whole.epub").finished == true, "cached identity still sees fresh progress")
+        moon_files["/whole.epub"].fraction = 0.5
+        DBm.each = orig_each
+    end
+    do
     local function testIdentityMapping()
     package.preload["reader.session.derived_note"] = function()
         return { originOf = function(path) return path == "/derived/copy.epub" and "/chapters/mid.epub" or nil end }
@@ -1424,6 +1438,7 @@ do -- 玩法扩展：委托 / 招待 / 成就 / 读书
     }
     package.loaded["papersprite.ui.reader_overlay"] = { onPage = function() end }
     package.loaded["papersprite.core.reading"] = {
+        qualify = function(step, dwell) return step >= 1 and step <= 3 and dwell >= 10 end,
         record = function(_, _book, step)
             attempts = attempts + 1
             if attempts == 1 then error("reading disk unavailable") end
@@ -1814,7 +1829,7 @@ do -- 伴读：设置立即重绘，翻页按真实经过时间结束，并重�
     pixel.getColor8A = function() return pixel end
     package.loaded["ui/widget/imagewidget"] = { new = function(_self, args)
         loaded[#loaded + 1] = args.file
-        return { _bb = { getPixel = function() return pixel end },
+        return { _bb = { getPixel = function() return pixel end }, free = function() end,
             getSize = function() return { w = 1, h = 1 } end }
     end }
     package.loaded["ffi"] = { fill = function() end }
@@ -1941,7 +1956,7 @@ do -- 伴读：打开书或状态变化时马上同步在家/出门，不等下�
     local pixel = { a = 0, getAlpha = function() return 255 end }
     pixel.getColor8A = function() return pixel end
     package.loaded["ui/widget/imagewidget"] = { new = function(_self, args)
-        return { _bb = { getPixel = function() return pixel end },
+        return { _bb = { getPixel = function() return pixel end }, free = function() end,
             getSize = function() return { w = 1, h = 1 } end, file = args.file }
     end }
     package.loaded["ffi"] = { fill = function() end }
@@ -2587,3 +2602,211 @@ do -- db.transaction 嵌套：同一连接不能再 BEGIN，内层必须走 SAVE
     package.loaded["papersprite.core.db"], package.preload["lua-ljsqlite3/init"] = saved_db, saved_conn
     Storage.deps.mkdirp, Storage.deps.dataDir = saved_deps.mkdirp, saved_deps.dataDir
 end
+
+local function testAtticSchedule()
+    if Game.current and not Game.current.closed then Game.current:close() end
+    local Travel = require("papersprite.core.travel")
+    local function waits()
+        local out = {}
+        for _, q in ipairs(H.queue) do out[#out + 1] = q.at - H.clock end
+        return out
+    end
+    local function gameWait(g)
+        for _, q in ipairs(H.queue) do
+            if q.fn == g.timer then return q.at - H.clock end
+        end
+        return nil
+    end
+    local function onlyWait(g)
+        local w = gameWait(g)
+        assert(w, "expected a game timer, queue=" .. #H.queue)
+        return w
+    end
+    local function souvenirs()
+        local n = 0
+        for _, c in pairs(Vault.all("souvenirs")) do n = n + c end
+        return n
+    end
+    local function plantAway(return_in)
+        resetVault()
+        H.queue, H.shows, H.view = {}, 0, nil
+        H.settings = { debug_fast = false }
+        H.host.ai, H.host.almanac = nil, nil
+        local now = H.clock
+        H.saved = State.load({
+            version = State.VERSION,
+            sprite = {
+                status = "away",
+                place = "ink_lake",
+                left_at = now - 60,
+                return_at = now + return_in,
+                mail = {},
+                trip = 1,
+                hours = 3,
+                souvenir = "lake_pebble",
+                basket = {},
+            },
+        }, now)
+        return H.saved
+    end
+    local function noSpin()
+        for _, w in ipairs(waits()) do
+            assert(w > 1, "must not arm a 1-second spin, got " .. tostring(w))
+        end
+    end
+
+    -- 未来数小时的事件不按 60 秒轮询
+    plantAway(3 * 3600)
+    local g = Game.new(H.host):show()
+    assert(H.saved.sprite.status == "away")
+    assert(onlyWait(g) == 3 * 3600, "wait should equal real nextAt, got " .. tostring(onlyWait(g)))
+    local shows = H.shows
+    g:render()
+    assert(H.shows == shows, "unchanged view must not showScreen")
+    g:render(true)
+    assert(H.shows == shows + 1, "forced render still shows")
+    shows = H.shows
+    advance(120)
+    assert(H.saved.sprite.status == "away", "must not settle early")
+    assert(H.shows == shows, "no showScreen during a 2-minute wait")
+    assert(onlyWait(g) == 3 * 3600 - 120, "remaining wait after 2 min, got " .. tostring(gameWait(g)))
+
+    -- 到期处理一次并重排
+    shows = H.shows
+    advance(3 * 3600 - 120)
+    assert(H.saved.sprite.status == "home", "return settled once at due time")
+    assert(H.shows == shows + 1, "due event shows once")
+    assert(souvenirs() >= 1, "souvenir granted on return")
+    if not Travel.nextAt(H.saved) then
+        assert(not g.timer and not gameWait(g), "no nextAt means no game timer")
+    else
+        assert(onlyWait(g) == Travel.nextAt(H.saved) - H.clock)
+    end
+    g:close()
+    assert(not g.timer and not gameWait(g), "close cancels game timer")
+
+    -- 休眠不回调；唤醒补算且不重复发奖
+    plantAway(3 * 3600)
+    g = Game.new(H.host):show()
+    shows, H.queue = H.shows, H.queue
+    local sv0 = souvenirs()
+    g:onSuspend()
+    assert(not g.timer, "suspend unschedules")
+    advance(3 * 3600 + 10)
+    assert(H.saved.sprite.status == "away", "suspend must not settle")
+    assert(H.shows == shows, "suspend must not render")
+    g:onResume()
+    assert(H.saved.sprite.status == "home", "resume catches up")
+    assert(H.shows == shows + 1, "resume renders once")
+    local sv1 = souvenirs()
+    assert(sv1 == sv0 + 1, "reward once on resume")
+    g:onResume()
+    assert(souvenirs() == sv1, "second resume does not reward again")
+    g:close()
+
+    -- 隐藏：仍结算但不重绘；恢复后刷新
+    plantAway(60)
+    g = Game.new(H.host):show()
+    shows = H.shows
+    g:setHidden(true)
+    advance(60)
+    assert(H.saved.sprite.status == "home", "hidden still settles")
+    assert(H.shows == shows, "hidden must not showScreen")
+    g:setHidden(false)
+    assert(H.shows == shows + 1, "reveal renders")
+    g:close()
+    -- 栈顶被别的窗口（Toast / 弹窗）占着：到期照样结算，窗口关掉后几秒内补画
+    plantAway(60)
+    g = Game.new(H.host):show()
+    shows = H.shows
+    local covered = true
+    H.host.isScreenForeground = function() return not covered end
+    advance(60)
+    assert(H.saved.sprite.status == "home", "covered attic still settles")
+    assert(H.shows == shows, "covered attic must not showScreen")
+    covered = false
+    advance(Game.PEEK_S)
+    assert(H.shows == shows + 1, "attic repaints once the covering window is gone")
+    advance(Game.PEEK_S * 3)
+    assert(H.shows == shows + 1, "no repeated repaint after catching up")
+    H.host.isScreenForeground = nil
+    g:close()
+    assert(not g._peek, "close cancels the front watcher")
+    -- 关掉后迟到回调无效
+    plantAway(30)
+    g = Game.new(H.host):show()
+    local late = g.timer
+    assert(type(late) == "function")
+    shows = H.shows
+    local st = H.saved.sprite.status
+    g:close()
+    assert(#H.queue == 0)
+    H.clock = H.clock + 30
+    late()
+    assert(H.shows == shows, "late callback after close does not render")
+    assert(H.saved.sprite.status == st, "late callback after close does not tick")
+    -- 重开结算一次，再开不重复发奖
+    local sv = souvenirs()
+    g = Game.new(H.host):show()
+    assert(H.saved.sprite.status == "home")
+    local sv2 = souvenirs()
+    assert(sv2 == sv + 1, "reopen after due return rewards once")
+    g:close()
+    g = Game.new(H.host):show()
+    assert(souvenirs() == sv2, "second open does not reward again")
+    g:close()
+
+    -- 无 nextAt 不排期
+    resetVault()
+    H.queue, H.shows = {}, 0
+    H.settings = { debug_fast = false }
+    H.saved = State.load({ sprite = { status = "home" } }, H.clock)
+    g = Game.new(H.host):show()
+    assert(Travel.nextAt(H.saved) == nil)
+    assert(#H.queue == 0, "no nextAt, no timer")
+    g:close()
+
+    -- 已过期的 nextAt：打开时一次补算，不 1 秒空转
+    plantAway(-10)
+    g = Game.new(H.host):show()
+    assert(H.saved.sprite.status == "home")
+    noSpin()
+    g:close()
+
+    -- 时钟向前跳变：唤醒补算，不负时间忙循环
+    plantAway(3 * 3600)
+    g = Game.new(H.host):show()
+    assert(onlyWait(g) == 3 * 3600)
+    H.clock = H.clock + 10 * 3600
+    g:onResume()
+    assert(H.saved.sprite.status == "home")
+    noSpin()
+    g:close()
+
+    -- 到期结算出错：不 1 秒空转；唤醒后恢复
+    -- 钩 Game.tick 而不是 Travel.settle：前面的测试可能重载过 travel 模块，
+    -- 游戏里持有的是另一份表。
+    plantAway(30)
+    g = Game.new(H.host):show()
+    assert(H.saved.sprite.status == "away", "still away after show")
+    local orig_tick = Game.tick
+    local blows = 0
+    Game.tick = function(self, opts)
+        blows = blows + 1
+        if blows == 1 then error("boom") end
+        return orig_tick(self, opts)
+    end
+    local ok, err = pcall(advance, 30)
+    Game.tick = orig_tick
+    assert(ok, "tick error must be contained: " .. tostring(err))
+    assert(H.saved.sprite.status == "away", "failed tick does not settle")
+    noSpin()
+    g:onResume()
+    assert(H.saved.sprite.status == "home", "resume recovers after tick error")
+    g:close()
+
+    resetVault()
+    H.queue, H.saved, H.view, H.shows = {}, nil, nil, 0
+    H.settings = { debug_fast = true }
+end
+testAtticSchedule()
