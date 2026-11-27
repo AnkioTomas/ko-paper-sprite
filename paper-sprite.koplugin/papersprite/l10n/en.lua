@@ -179,7 +179,7 @@ return {
     ["去看看远处的字，很快回来。"] = "Go and see far-off words. Back soon.",
     ["去过 %d 次 · 特产 %d / %d"] = "Visited %d · souvenirs %d / %d",
     ["发现阿页的阁楼 %s（当前 %s）。下载并完整替换插件目录？"] = "Found Aye's Attic %s (current %s). Download and fully replace the plugin folder?",
-    ["取消惦记"] = "Cancel wish",
+    ["取消惦记（不退灵感）"] = "Cancel wish (no refund)",
     ["口袋词典"] = "Pocket dictionary",
     ["只撑得住一本火柴盒大小的书。"] = "It can only hold up one matchbox-sized book.",
     ["只有一页，读完就想回家，旅途会短一点。"] = "Just one page. Once it's read, Aye wants to go home, so the trip is a little shorter.",

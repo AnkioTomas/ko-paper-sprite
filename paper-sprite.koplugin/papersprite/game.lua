@@ -993,7 +993,7 @@ function Game:_place()
     local cost = Album.WISH_COST
     local buttons = {}
     if row.wished then
-        buttons[#buttons + 1] = { text = T("取消惦记"), callback = function()
+        buttons[#buttons + 1] = { text = T("取消惦记（不退灵感）"), callback = function()
             s.wish_place = nil self.host:saveState(self.state) self.host:notify(T("不惦记了")) self:render()
         end }
     else
@@ -1009,7 +1009,6 @@ end
 function Game:_wish(place_id)
     local s = self.state
     local cost = Album.WISH_COST
-    if s.sprite.status == "away" then self.host:notify(T("阿页还在路上")) return end
     if s.wish_place == place_id then return end
     if s.inspiration < cost then self.host:notify(T("灵感不够")) return end
     s.inspiration = s.inspiration - cost

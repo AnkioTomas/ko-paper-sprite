@@ -889,6 +889,16 @@ do
     local dep = H.saved.sprite.depart_at
     advance(dep - H.clock + 1)
     assert(H.saved.sprite.status == "away" and H.saved.sprite.place == "fold_peak" and H.saved.wish_place == nil, "wish directs trip")
+    -- 路上也能惦记，留给下一趟
+    gw:go("place", "ink_lake"); click("惦记")
+    assert(H.saved.wish_place == "ink_lake" and H.saved.sprite.place == "fold_peak", "wish while away waits for next trip")
+    advance(H.saved.sprite.return_at - H.clock + 1)
+    gw:tick()
+    local s2 = gw.state
+    for _, id in ipairs({ "oat_biscuit", "pencil_stub", "tiny_atlas" }) do s2.inventory[id] = 1 Travel.put(s2, id, H.clock) end
+    H.host:saveState(s2)
+    advance(s2.sprite.depart_at - H.clock + 1); gw:tick()
+    assert(H.saved.sprite.status == "away" and H.saved.sprite.place == "ink_lake", "wish made on the road directs the next trip")
     gw:close()
 end
 
