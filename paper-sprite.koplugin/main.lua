@@ -66,8 +66,9 @@ local function pageUpdate(self, pageno)
         self._last_page, self._last_at = nil, nil
         return
     end
-    if last and since then
-        require("papersprite.core.reading").record(now, self:_bookInfo(pageno), math.abs(pageno - last), now - since)
+    local Reading = require("papersprite.core.reading")
+    if last and since and Reading.qualify(math.abs(pageno - last), now - since) then
+        Reading.record(now, self:_bookInfo(pageno), math.abs(pageno - last), now - since)
     end
     self._last_page, self._last_at = pageno, now
 end
@@ -77,12 +78,21 @@ function PaperSprite:onPageUpdate(pageno)
 end
 
 -- 休眠不打扰；解锁后再由阅读页 overlay 延迟一会儿才弹。
+-- 阁楼若开着：休眠停计时且不重绘；唤醒后按当前时钟补算，不把定时刷新当成用户活动。
 function PaperSprite:onSuspend()
-    Guard.call("papersprite onSuspend", function() require("papersprite.ui.reader_overlay").onSuspend() end)
+    Guard.call("papersprite onSuspend", function()
+        require("papersprite.ui.reader_overlay").onSuspend()
+        local Game = require("papersprite.game")
+        if Game.current then Game.current:onSuspend() end
+    end)
 end
 
 function PaperSprite:onResume()
-    Guard.call("papersprite onResume", function() require("papersprite.ui.reader_overlay").onResume() end)
+    Guard.call("papersprite onResume", function()
+        require("papersprite.ui.reader_overlay").onResume()
+        local Game = require("papersprite.game")
+        if Game.current then Game.current:onResume() end
+    end)
 end
 
 --- 这本书里用户自己划的第一句。没有划线就是 nil。

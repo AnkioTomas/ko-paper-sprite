@@ -216,25 +216,25 @@ end
 --- 当前打开的文件在月读书库里的全书身份和完读状态。
 --- 不是月读认领的书返回 nil（调用方可回退到整书页码口径）。
 --- 已认领但读进度失败、或身份查询出错：返回 claimed=true, finished=false，不要按当前文档页数误判。
-function M.forFile(path)
-    if type(path) ~= "string" or path == "" then return end
+-- 书打开期间身份和别名不变：按路径只记最近一本，翻页时只重查进度。查询出错的结果不记。
+local known = { path = nil }
+
+local function resolve(path)
     local identity = lookupStore(path)
     local err
     if not identity then
         identity, err = lookupSql(path, {})
     end
-    if err == "no-db" then return end
-    if err == "error" then return { claimed = true, finished = false } end
-    if not identity then return end
+    if err == "no-db" or err == "error" then return nil, err end
+    if not identity then return { none = true } end
     local id = M.idOf(identity.source_id, identity.stable_id)
-    if not id then return { claimed = true, finished = false } end
+    if not id then return nil, "error" end
     local aliases = {}
     local file_hash = hashPath(path)
     if file_hash then aliases[1] = file_hash end
     local DB = openDB()
-    if not DB then return { id = id, finished = false, claimed = true, aliases = aliases } end
-    local more = M.pathAliases(identity.source_id, identity.stable_id, DB)
-    if not more then return { id = id, finished = false, claimed = true, aliases = aliases } end
+    local more = DB and M.pathAliases(identity.source_id, identity.stable_id, DB)
+    if not more then return { identity = identity, id = id, aliases = aliases }, "partial" end
     local seen = {}
     for _idx, a in ipairs(aliases) do seen[a] = true end
     for _idx, a in ipairs(more) do
@@ -243,6 +243,27 @@ function M.forFile(path)
             aliases[#aliases + 1] = a
         end
     end
+    return { identity = identity, id = id, aliases = aliases }
+end
+
+function M._forget() known = { path = nil } end
+
+function M.forFile(path)
+    if type(path) ~= "string" or path == "" then return end
+    local r, err
+    if known.path == path then
+        r = known.r
+    else
+        r, err = resolve(path)
+        if r and not err then known = { path = path, r = r } end
+    end
+    if err == "no-db" then return end
+    if err == "error" then return { claimed = true, finished = false } end
+    if r.none then return end
+    local identity, id, aliases = r.identity, r.id, r.aliases
+    if err == "partial" then return { id = id, finished = false, claimed = true, aliases = aliases } end
+    local DB = openDB()
+    if not DB then return { id = id, finished = false, claimed = true, aliases = aliases } end
     local row, ok = firstRow(DB, [[
         SELECT b.read_state, COALESCE(p.fraction, 0)
         ]] .. JOIN .. [[

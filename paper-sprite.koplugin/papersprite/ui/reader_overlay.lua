@@ -14,24 +14,20 @@ local Guard = require("papersprite.guard")
 local M = { flags = {} }
 local popup
 local timer_on
-local sprites = {}
 
 local function pluginDir()
     return require("papersprite.host.interface").pluginDir()
 end
 
+-- 只用来生成 faded 缓存，用完即 free；不进 KOReader 全局图片缓存。
 local function sprite(name, h)
-    local key = name .. ":" .. h
-    if sprites[key] == nil then
-        local ok, w = pcall(function()
-            return require("ui/widget/imagewidget"):new{
-                file = pluginDir() .. "/assets/sprite/" .. name .. ".png",
-                height = h, width = h, scale_factor = 0, alpha = true,
-            }
-        end)
-        sprites[key] = ok and w or false
-    end
-    return sprites[key] or nil
+    local ok, w = pcall(function()
+        return require("ui/widget/imagewidget"):new{
+            file = pluginDir() .. "/assets/sprite/" .. name .. ".png",
+            height = h, width = h, scale_factor = 0, alpha = true, file_do_cache = false,
+        }
+    end)
+    return ok and w or nil
 end
 
 local TURN_START = 0.12
@@ -91,7 +87,7 @@ local function fadedBB(name, h)
     if not img then rememberFade(key, false) return nil end
     local size = img:getSize()
     local src = img._bb
-    if not src or size.w < 1 or size.h < 1 then rememberFade(key, false) return nil end
+    if not src or size.w < 1 or size.h < 1 then img:free() rememberFade(key, false) return nil end
     local BB = require("ffi/blitbuffer")
     local ffi = require("ffi")
     local color = Display.isColor()
@@ -136,6 +132,7 @@ local function fadedBB(name, h)
             end
         end
     end
+    img:free()
     rememberFade(key, { bb = bb, straight = straight })
     return faded[key]
 end
@@ -446,7 +443,8 @@ local function watchUnlock()
     check()
 end
 
-function M.poke()
+--- synced：调用方本拍刚 syncFlags 过的存档，传进来就不再读档结算一遍。
+function M.poke(synced)
     -- 打扰只叠在阅读页上。桌面、阁楼开着都不弹。休眠或锁屏时也不弹。
     if not readerOpen() or atticOpen() then return end
     if deviceInactive() then
@@ -460,7 +458,7 @@ function M.poke()
         return
     end
     if quiet_until > 0 and now() < quiet_until then return end
-    local s = M.syncFlags()
+    local s = synced or M.syncFlags()
     if not Prefs.disturb() or popup or not s then return end
     local note = require("papersprite.core.disturb").next(s)
     if not note then return end
@@ -481,7 +479,7 @@ end
 function M.onPage(plugin)
     if plugin and plugin.ui then M.ui = plugin.ui end
     -- 先同步在家/出门，避免沿用上次 poke 留下的 flags.away（未同步时是 nil，会被当成在家）。
-    M.syncFlags()
+    local s = M.syncFlags()
     local f = M.flags
     -- 翻页不看 flags.shown：那是上次 poke 的快照，开关和透明度已经每帧直接读设置。
     if companionAnimates() then
@@ -514,7 +512,7 @@ function M.onPage(plugin)
             tick()
         end
     end
-    M.poke()
+    M.poke(s)
 end
 
 function M.attach(ui)

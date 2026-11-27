@@ -10,7 +10,12 @@ local SIZES = { "s", "m", "l" }
 P.SIZE_SCALE = { s = 0.16, m = 0.22, l = 0.28 }
 P.SIZE_NAME = { s = "小", m = "中", l = "大" }
 
-function P.host() return require("papersprite.host.moon").new() end
+-- 宿主无状态，伴读每帧要读好几个设置：共用一个实例。
+local host
+function P.host()
+    host = host or require("papersprite.host.moon").new()
+    return host
+end
 
 function P.get(key, default) return P.host():getSetting(key, default) end
 
