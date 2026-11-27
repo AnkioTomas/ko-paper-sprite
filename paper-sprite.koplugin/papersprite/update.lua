@@ -162,6 +162,8 @@ local function installArchive(archive, sha256)
         return nil, err
     end
     removeTree(staging)
+    -- 新目录已就位，旧版备份没用了；留着会在小容量机器上多占一整份插件（~90MB）。
+    removeTree(backup)
     return true
 end
 
