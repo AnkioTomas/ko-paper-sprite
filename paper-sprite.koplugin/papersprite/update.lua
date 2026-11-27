@@ -168,7 +168,10 @@ local function installArchive(archive, sha256)
 end
 
 -- 直连与随机几个镜像并发探测，最先回 200 且长度对得上的胜出；全部失败回落直连。
+-- 月读 0.8 起镜像调度并进 http.github（http.mirror 已删）；0.7.x 只有 http.mirror。
 local function pickDownloadUrl(release, cb)
+    local has_github, Github = pcall(require, "http.github")
+    if has_github and type(Github) == "table" and Github.pickRelease then return Github.pickRelease(release, cb) end
     local Request = require("http.request")
     local path = release.url:sub(#GITHUB + 1)
     local pool = { unpack(require("http.mirror").RELEASE_PROXIES) }
