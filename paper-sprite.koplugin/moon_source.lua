@@ -2,7 +2,8 @@
 --[[--
 月读扩展描述：不是书源。首页组件（近况、阁楼、明信片、纪念物柜），外加锁屏背景「阿页的明信片」。
 组件都是只读视图，点按全屏打开阁楼对应的页面。尺寸 / 模式在首页编辑态的组件设置里选。
-契约见月读 examples/moonsource-demo.koplugin/moon_source.lua（api = 1，id = ext.<name>）。
+category =「游戏」：添加组件列表单独成栏（与设置页 games 分组同名）；不写会掉进「扩展」。
+契约见月读 examples/moonwidget-demo.koplugin/moon_source.lua（api = 1，id = ext.<name>）。
 --]]
 
 local PLUGIN_DIR = debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$") or "."
@@ -26,6 +27,8 @@ local widget = {
     id = "home", -- 月读补成 ext.papersprite.home
     title = _("阿页"),
     icon = "bookmark",
+    category = _("游戏"),
+    hint = _("近况卡片，点开阁楼"),
     heightRange = function()
         local ok, Card = pcall(require, "papersprite.ui.moon_card")
         return { height = ok and Card.height() or 110 }
@@ -60,11 +63,13 @@ end
 
 local DEFAULT_H = { attic = 360, postcards = 300, cabinet = 240 }
 
-local function imageWidget(kind, title, icon, builder, page)
+local function imageWidget(kind, title, icon, hint, builder, page)
     return {
         id = kind,
         title = _(title),
         icon = icon,
+        category = _("游戏"),
+        hint = _(hint),
         heightRange = function(_ctx, opts)
             local ok, h = pcall(function() return require("papersprite.ui.moon_widgets").heights[kind]((opts and opts.width) or 1000) end)
             return { height = ok and h or DEFAULT_H[kind] }
@@ -333,8 +338,8 @@ return {
     end } },
     home_widgets = {
         widget,
-        imageWidget("attic", "阿页的阁楼", "home", "atticBuild", "attic"),
-        imageWidget("postcards", "阿页的明信片", "image", "postcardsBuild", "wall"),
-        imageWidget("cabinet", "纪念物柜", "archive", "cabinetBuild", "cabinet"),
+        imageWidget("attic", "阿页的阁楼", "home", "当前房间画面", "atticBuild", "attic"),
+        imageWidget("postcards", "阿页的明信片", "image", "最近寄到的明信片", "postcardsBuild", "wall"),
+        imageWidget("cabinet", "纪念物柜", "archive", "收藏的纪念品", "cabinetBuild", "cabinet"),
     } },
 }
