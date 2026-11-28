@@ -37,12 +37,12 @@
 
 ## 安装
 ### KOReader
-1. 在 [Releases](https://github.com/AnkioTomas/ko-paper-sprite/releases) 下载 `paper-sprite.koplugin-<版本>.zip`。
-2. 解压后把 `paper-sprite.koplugin` 目录复制到 KOReader 的 `plugins/` 下（如 Kindle 上的 `koreader/plugins/`）。
+1. 在 [Releases](https://github.com/AnkioTomas/ko-paper-sprite/releases) 下载**完整包** `paper-sprite.koplugin-<版本>.zip`（不要用 `-code` 包首装）。
+2. 解压后把 `paper-sprite.koplugin` 目录复制到 KOReader 的 `plugins/` 下（如 Kindle 上的 `koreader/plugins/`）。远程管理上传也请用完整包。
 3. 重启 KOReader。从顶部菜单的「阿页」页签，或「工具 → 阿页的阁楼」打开。
 
 ### 月读
-同一个插件就能用，不需要另装。月读设置的「系统」里有「阿页的阁楼（版本号）」页，可开关自动检查更新、手动检查并一键更新。启用月读和本插件后，在月读首页编辑状态下点「添加组件」，加入「阿页」系列组件；点组件会全屏打开阁楼。
+同一个插件就能用，不需要另装。月读设置的「系统」里有「阿页的阁楼（版本号）」页，可开关自动检查更新、手动检查并一键更新。素材未变时更新会自动下**代码包**（约 1MB，保留现有 `assets/`）；素材变更或首装仍用完整包。启用月读和本插件后，在月读首页编辑状态下点「添加组件」，加入「阿页」系列组件；点组件会全屏打开阁楼。
 
 存档保存在 KOReader 数据目录下的 `.moon/game/paper-sprite/`（`save.lua` 存档与设置、`reading.lua` 阅读账本），KOReader 和月读共用，更新插件不会丢。旧版本的存档会在第一次打开时自动复制过来，旧文件原样保留作备份。
 
@@ -50,9 +50,10 @@
 ```
 lua spec/run.lua                                   # 虚拟时钟冒烟测试
 find paper-sprite.koplugin spec -name '*.lua' -exec luac -p {} +
-tools/release.sh 1.0.1                                  # 更新 CHANGELOG、用 tools/package.sh 注入版本号并打包到 dist/、提交并打 tag
+tools/release.sh 1.0.1                                  # 更新 CHANGELOG、打包完整包+代码包到 dist/、提交并打 tag
+# 改 assets/ 后记得 bump papersprite/assets_rev.lua，否则自更新会误下代码包
 ```
-推送 `v*` tag 后，GitHub Actions 会跑测试、打包，并创建 Release。
+推送 `v*` tag 后，GitHub Actions 会跑测试、打出完整包与 `-code` 包，并创建 Release。
 
 文档：[世界设定](docs/world.md) · [玩法与数值](docs/gameplay.md) · [架构](docs/architecture.md) · [数据格式](docs/data-format.md) · [素材规格](docs/assets.md) · [测试](docs/testing.md) · [首页组件与皮肤](docs/widgets.md) · [路线图](docs/roadmap.md) · [更新日志](CHANGELOG.md)
 

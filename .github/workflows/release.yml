@@ -20,14 +20,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          awk -v v="${GITHUB_REF_NAME#v}" '$0 ~ "^## "v {f=1; next} /^## / {f=0} f' CHANGELOG.md > changes.md
+          V="${GITHUB_REF_NAME#v}"
+          FULL="paper-sprite.koplugin-${V}.zip"
+          CODE="paper-sprite.koplugin-${V}-code.zip"
+          awk -v v="$V" '$0 ~ "^## "v {f=1; next} /^## / {f=0} f' CHANGELOG.md > changes.md
           cat > notes.md <<NOTES
           阿页的阁楼（ko-paper-sprite）KOReader 插件 / 月读扩展 ${GITHUB_REF_NAME}
 
-          安装：解压 paper-sprite.koplugin-版本号.zip，把 paper-sprite.koplugin 目录复制到 KOReader 的 plugins/ 下并重启。
+          安装（完整包）：解压 \`${FULL}\`，把 \`paper-sprite.koplugin\` 目录复制到 KOReader 的 plugins/ 下并重启。
+          远程管理上传也请用完整包。
+
+          更新：插件内「检查更新」在素材未变时会自动下代码包 \`${CODE}\`（约 1MB），保留现有 assets/；素材变更时仍下完整包。
+
           作为月读扩展：同一个插件即可；月读首页「添加组件」里会出现「阿页」「阿页的阁楼」「阿页的明信片」「纪念物柜」。
 
           纯离线。代码、文案与美术均为原创（MIT）。
           NOTES
           cat changes.md >> notes.md
-          gh release create "$GITHUB_REF_NAME" "paper-sprite.koplugin-${GITHUB_REF_NAME#v}.zip" --title "$GITHUB_REF_NAME" --notes-file notes.md
+          gh release create "$GITHUB_REF_NAME" "$FULL" "$CODE" --title "$GITHUB_REF_NAME" --notes-file notes.md

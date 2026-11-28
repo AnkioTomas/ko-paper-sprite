@@ -2,7 +2,12 @@
 阿页的阁楼自更新：复用月读的 GitHub 更新管线（Release 接口、直连与镜像竞速下载、Job 子进程、进度窗），
 只把仓库、包名与换目录逻辑换成自己的。只在月读里可用，模块里的月读依赖都在用到时才 require。
 
-包体唯一信任根是 Release 接口给的资产 sha256；镜像只搬运字节，校验不过回落直连。
+Release 挂两份包：
+  paper-sprite.koplugin-VERSION.zip       完整包（首装 / 素材变了）
+  paper-sprite.koplugin-VERSION-code.zip  代码包（日常更新，不含 assets/）
+
+本地 assets_rev 与代码包内一致 → 下代码包，安装时把现有 assets/ 挪进新目录；
+不一致或没有代码包 → 下完整包。包体唯一信任根是 Release 资产 sha256。
 --]]
 local lfs = require("libs/libkoreader-lfs")
 local UIManager = require("ui/uimanager")
@@ -24,6 +29,11 @@ local PLUGIN_DIR = debug.getinfo(1, "S").source:match("^@(.*)/papersprite/[^/]*$
 
 function Update.version()
     return require("papersprite.version")
+end
+
+local function assetsRev()
+    local ok, rev = pcall(require, "papersprite.assets_rev")
+    if ok and type(rev) == "string" and rev ~= "" then return rev end
 end
 
 local function settings()
@@ -54,6 +64,37 @@ local function newer(candidate, installed)
     return false
 end
 
+---@param asset table GitHub release asset
+---@return table|nil
+local function packFromAsset(asset)
+    local url = asset.browser_download_url
+    if type(url) ~= "string" or not url:match(ASSET_PREFIX) then return nil end
+    local digest = (asset.digest or ""):match("^sha256:(" .. ("%x"):rep(64) .. ")$")
+    if not digest then return nil end
+    return {
+        url = url,
+        size = tonumber(asset.size),
+        sha256 = digest:lower(),
+    }
+end
+
+local function readAssetsRevFile(path)
+    local file = io.open(path, "r")
+    if not file then return nil end
+    local body = file:read("*a")
+    file:close()
+    return body and body:match('return%s*["\']([^"\']+)["\']')
+end
+
+local function hasPlaceAssets(root)
+    local places = root .. "/assets/places"
+    if lfs.attributes(places, "mode") ~= "directory" then return false end
+    for name in lfs.dir(places) do
+        if name ~= "." and name ~= ".." then return true end
+    end
+    return false
+end
+
 local function parseRelease(body)
     local ok, release = pcall(require("json").decode, body)
     if not ok or type(release) ~= "table" or release.draft or release.prerelease then
@@ -62,20 +103,32 @@ local function parseRelease(body)
     local tag = release.tag_name
     local version = type(tag) == "string" and tag:match("^v?(%d+%.%d+%.%d+[%w%.%+%-]*)$")
     if not version then return nil, "invalid release version" end
-    local zip_name = DIR_NAME .. "-" .. version .. ".zip"
-    local zip
+
+    local full_name = DIR_NAME .. "-" .. version .. ".zip"
+    local code_name = DIR_NAME .. "-" .. version .. "-code.zip"
+    local full, code
     for _i, asset in ipairs(release.assets or {}) do
-        local url = asset.browser_download_url
-        if asset.name == zip_name and type(url) == "string" and url:match(ASSET_PREFIX) then zip = asset end
+        if asset.name == full_name then full = packFromAsset(asset) end
+        if asset.name == code_name then code = packFromAsset(asset) end
     end
-    if not zip then return nil, "release has no plugin archive" end
-    local digest = (zip.digest or ""):match("^sha256:(" .. ("%x"):rep(64) .. ")$")
-    if not digest then return nil, "release has no plugin checksum" end
+    if not full then return nil, "release has no plugin archive" end
+
+    -- 有本地素材修订号且 Release 挂了代码包 → 先尝试代码包；装不上再回落完整包。
+    local pack = full
+    local kind = "full"
+    if code and assetsRev() then
+        pack = code
+        kind = "code"
+    end
+
     return {
         version = version,
-        url = zip.browser_download_url,
-        size = tonumber(zip.size),
-        sha256 = digest:lower(),
+        kind = kind,
+        url = pack.url,
+        size = pack.size,
+        sha256 = pack.sha256,
+        full = full,
+        code = code,
         notes = type(release.body) == "string" and release.body:gsub("^%s+", ""):gsub("%s+$", "") or nil,
         available = newer(version, Update.version()),
     }
@@ -134,8 +187,8 @@ local function extract(archive, staging)
     return true
 end
 
--- 跑在 Job 子进程里：校验、解压到同级暂存目录，再与当前目录换位，失败回滚。
-local function installArchive(archive, sha256)
+--- 完整包：整目录换位。代码包：校验 assets_rev 后把现有 assets/ 挪进新树再换位。
+local function installArchive(archive, sha256, kind)
     local digest, err = fileSha256(archive)
     if not digest then return nil, err end
     if digest ~= sha256 then return nil, "update checksum mismatch" end
@@ -145,24 +198,57 @@ local function installArchive(archive, sha256)
     local ok
     ok, err = removeTree(staging)
     if ok then ok, err = extract(archive, staging) end
-    if ok and lfs.attributes(staging .. "/" .. DIR_NAME .. "/main.lua", "mode") ~= "file" then
+    local staged = staging .. "/" .. DIR_NAME
+    if ok and lfs.attributes(staged .. "/main.lua", "mode") ~= "file" then
         ok, err = nil, "not a paper-sprite plugin archive"
     end
+
+    if ok and kind == "code" then
+        local remote_rev = readAssetsRevFile(staged .. "/papersprite/assets_rev.lua")
+        local local_rev = assetsRev()
+        if not remote_rev or not local_rev or remote_rev ~= local_rev then
+            ok, err = nil, "assets revision mismatch"
+        elseif hasPlaceAssets(staged) then
+            ok, err = nil, "code archive must not include assets"
+        elseif not hasPlaceAssets(PLUGIN_DIR) then
+            ok, err = nil, "assets revision mismatch"
+        else
+            ok, err = os.rename(PLUGIN_DIR .. "/assets", staged .. "/assets")
+        end
+        if not ok then
+            removeTree(staging)
+            return nil, err
+        end
+    elseif ok and kind == "full" then
+        if not hasPlaceAssets(staged) then
+            ok, err = nil, "not a paper-sprite plugin archive"
+        end
+    end
+
     if ok then ok, err = removeTree(backup) end
     if ok then ok, err = os.rename(PLUGIN_DIR, backup) end
     if not ok then
+        -- 代码包已把 assets 挪到 staging：失败时搬回去，避免留下无图的安装。
+        if kind == "code" and lfs.attributes(staged .. "/assets", "mode") == "directory"
+            and lfs.attributes(PLUGIN_DIR, "mode") == "directory"
+            and not lfs.attributes(PLUGIN_DIR .. "/assets") then
+            os.rename(staged .. "/assets", PLUGIN_DIR .. "/assets")
+        end
         removeTree(staging)
         return nil, err
     end
-    ok, err = os.rename(staging .. "/" .. DIR_NAME, PLUGIN_DIR)
+    ok, err = os.rename(staged, PLUGIN_DIR)
     if not ok then
         local restored, restore_err = os.rename(backup, PLUGIN_DIR)
+        if restored and kind == "code" and lfs.attributes(staging .. "/" .. DIR_NAME .. "/assets", "mode") == "directory"
+            and not lfs.attributes(PLUGIN_DIR .. "/assets") then
+            os.rename(staging .. "/" .. DIR_NAME .. "/assets", PLUGIN_DIR .. "/assets")
+        end
         removeTree(staging)
         if not restored then return nil, "install failed and rollback failed: " .. tostring(restore_err) end
         return nil, err
     end
     removeTree(staging)
-    -- 新目录已就位，旧版备份没用了；留着会在小容量机器上多占一整份插件（~90MB）。
     removeTree(backup)
     return true
 end
@@ -217,6 +303,20 @@ end
 
 local function installFrom(url, release, done, on_progress, on_installing)
     local function fail(err)
+        if release.kind == "code" and release.full
+            and tostring(err):find("assets revision mismatch", 1, true) then
+            -- 素材修订号对不上：改下完整包，不再回落直连重试同一代码包。
+            local full = {
+                version = release.version,
+                kind = "full",
+                url = release.full.url,
+                size = release.full.size,
+                sha256 = release.full.sha256,
+                full = release.full,
+                notes = release.notes,
+            }
+            return installFrom(full.url, full, done, on_progress, on_installing)
+        end
         if url == release.url then return done(false, err) end
         installFrom(release.url, release, done, on_progress, on_installing)
     end
@@ -226,12 +326,13 @@ local function installFrom(url, release, done, on_progress, on_installing)
     os.remove(archive)
     Update._job = require("http.request").download({
         url = url, timeout = require("http.timeout").net(10), allow_redirects = true,
-        max_bytes = MAX_BYTES, on_progress = on_progress,
+        max_bytes = MAX_BYTES,
+        on_progress = on_progress and function(bytes) on_progress(bytes, release.size) end,
     }, archive, function(ok, err)
         if not ok then return fail(err) end
         if on_installing then on_installing() end
         Update._job = require("workers.job").run(function()
-            local installed, install_err = installArchive(archive, release.sha256)
+            local installed, install_err = installArchive(archive, release.sha256, release.kind)
             if not installed then error(install_err, 0) end
         end, {
             name = "papersprite.update", kind = "heavy", timeout = 120,
@@ -241,7 +342,9 @@ local function installFrom(url, release, done, on_progress, on_installing)
             end,
             on_failed = function(install_err)
                 os.remove(archive)
-                if tostring(install_err):find("update checksum mismatch", 1, true) then
+                local text = tostring(install_err)
+                if text:find("update checksum mismatch", 1, true)
+                    or text:find("assets revision mismatch", 1, true) then
                     fail(install_err)
                 else
                     done(false, install_err)
@@ -294,8 +397,8 @@ local function startInstall(release)
     end
     if Update._job then return done(false, "busy") end
     Update._job = pickDownloadUrl(release, function(url)
-        installFrom(url, release, done, function(bytes)
-            if release.size and release.size > 0 then dialog:bytes(bytes, release.size) end
+        installFrom(url, release, done, function(bytes, size)
+            if size and size > 0 then dialog:bytes(bytes, size) end
         end, function()
             dialog:close()
             dialog = ProgressDialog:new{ title = _("正在安装阿页更新…"), dismissable = false }
@@ -307,7 +410,12 @@ end
 local function promptInstall(release)
     if Update._offered == release.version then return end
     Update._offered = release.version
-    local header = _("发现阿页的阁楼 %s（当前 %s）。下载并完整替换插件目录？", release.version, Update.version())
+    local header
+    if release.kind == "code" then
+        header = _("发现阿页的阁楼 %s（当前 %s）。下载代码更新并保留现有素材？", release.version, Update.version())
+    else
+        header = _("发现阿页的阁楼 %s（当前 %s）。下载并完整替换插件目录？", release.version, Update.version())
+    end
     local dialog
     dialog = require("ui.themes.widgets.text_viewer"):new{
         title = _("更新日志"),

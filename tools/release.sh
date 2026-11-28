@@ -23,4 +23,7 @@ tools/package.sh "$V" "dist/paper-sprite.koplugin-${V}.zip" >/dev/null
 git add CHANGELOG.md
 git commit -qm "Release v$V"
 git tag -a "v$V" -m "v$V"
-echo "已打 tag v${V}，包在 dist/paper-sprite.koplugin-${V}.zip。推送：git push origin main --tags"
+echo "已打 tag v${V}，包在："
+echo "  dist/paper-sprite.koplugin-${V}.zip       （完整包，首装/素材变更）"
+echo "  dist/paper-sprite.koplugin-${V}-code.zip  （代码包，日常更新）"
+echo "推送：git push origin main --tags"
